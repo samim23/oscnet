@@ -1,0 +1,16 @@
+pytest>=7.0.0
+click>=8.0.0 
+equinox>=0.11.2
+jax>=0.4.13
+jaxlib>=0.4.13
+diffrax>=0.1.0
+optax>=0.1.7
+numpy>=1.24.0
+matplotlib>=3.5.0
+networkx>=2.7.0
+tensorflow>=2.15.0
+tensorflow-datasets>=4.9.4
+plotly>=5.10.0
+dash>=2.8.0
+dash-bootstrap-components>=1.0.0
+tqdm>=4.66.1

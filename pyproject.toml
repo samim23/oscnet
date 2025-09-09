@@ -1,0 +1,65 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "oscnet"
+version = "0.1.0"
+description = "A JAX-based library for oscillatory neural networks"
+readme = "README.md"
+authors = [
+    {name = "Open Source Contributors", email = "example@email.com"}
+]
+license = {text = "MIT"}
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: Mathematics",
+]
+requires-python = ">=3.9"
+dependencies = [
+    "jax>=0.4.6",
+    "jaxlib>=0.4.6",
+    "equinox>=0.10.0",
+    "diffrax>=0.4.0",
+    "optax>=0.1.7",
+    "numpy>=1.20.0",
+    "matplotlib>=3.5.0",
+    "networkx>=2.8.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "black>=23.0.0",
+    "isort>=5.10.0",
+    "flake8>=6.0.0",
+]
+examples = [
+    "tensorflow-datasets>=4.8.0",
+    "tqdm>=4.65.0",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/yourusername/oscnet"
+"Bug Tracker" = "https://github.com/yourusername/oscnet/issues"
+
+[tool.setuptools]
+packages = ["oscnet"]
+
+[tool.black]
+line-length = 88
+target-version = ["py39"]
+
+[tool.isort]
+profile = "black"
+line_length = 88
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+addopts = "--cov=oscnet" 
