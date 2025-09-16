@@ -30,6 +30,7 @@ from pathlib import Path
 import time
 import logging
 import json
+import numpy as np
 
 # PRODUCTION JAX CONFIGURATION - Clean and optimized
 jax.config.update("jax_log_compiles", False)
@@ -528,6 +529,53 @@ def prepare_reconstructions(model, samples):
     
     return originals_reshaped, reconstructions_reshaped
 
+
+# ======== EXPORT ENCODER COMPLEX STATES ========
+
+def export_encoder_complex_states(model: AmplitudeVelocityAutoencoder,
+                                  images: jnp.ndarray,
+                                  save_path: str,
+                                  use_phase_init: bool = True,
+                                  eps: float = 1e-8) -> None:
+    """Export encoder final complex states z = x + i*(v/omega) to NPZ.
+
+    Saves arrays with keys: 'amplitude' (N,H), 'phase' (N,H).
+    """
+    # Prepare patch sequence as in model forward
+    batch_size = images.shape[0]
+    x_images = images.reshape(batch_size, 28, 28)
+    patches = x_images.reshape(batch_size, 7, 4, 7, 4)
+    patches = patches.transpose(0, 1, 3, 2, 4)
+    patches = patches.reshape(batch_size, 49, 16)
+    patch_sequence = patches.transpose(1, 0, 2)  # (49, B, 16)
+
+    # Run encoder RNN to get final (x, v) state
+    r = model.encoder.rnn(patch_sequence, return_trajectories=True, use_phase_init=use_phase_init)
+    (x_state, v_state) = r["final_state"]  # shapes: (B, H)
+
+    # Get per-unit omega (scalar or vector)
+    osc = model.encoder.rnn.cell.oscillator
+    if hasattr(osc, 'omega'):
+        omega = osc.omega
+        if isinstance(omega, (int, float)):
+            omega = jnp.ones((x_state.shape[-1],), dtype=jnp.float32) * float(omega)
+        else:
+            omega = jnp.asarray(omega)
+            if omega.ndim == 0:
+                omega = jnp.ones((x_state.shape[-1],), dtype=omega.dtype) * float(omega)
+            if omega.shape[-1] != x_state.shape[-1]:
+                omega = jnp.broadcast_to(omega, (x_state.shape[-1],))
+    else:
+        omega = jnp.ones((x_state.shape[-1],), dtype=jnp.float32)
+
+    z = x_state + 1j * (v_state / (omega + eps))
+    amplitude = jnp.abs(z)
+    phase = jnp.angle(z)
+
+    # Save to NPZ
+    np.savez(save_path,
+             amplitude=np.asarray(amplitude),
+             phase=np.asarray(phase))
 
 # ======== MAIN TRAINING FUNCTION ========
 
