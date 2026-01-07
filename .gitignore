@@ -8,3 +8,4 @@ __pycache__
 *.pywz
 outputs/
 *.bak
+.coverage

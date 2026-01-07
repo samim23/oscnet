@@ -28,6 +28,16 @@ from .oscillators import (
     fitzhugh_nagumo_update
 )
 
+from .fractal_coupling import (
+    HierarchicalCouplingLayer,
+    AdaptiveFractalCouplingLayer,
+    FractalCouplingLayer,
+    create_hierarchical_coupling,
+    create_power_law_coupling,
+    create_log_periodic_coupling,
+    create_coupling_matrix
+)
+
 __all__ = [
     # Base class
     "Oscillator",
@@ -46,5 +56,14 @@ __all__ = [
     "van_der_pol_update",
     "stuart_landau_update",
     "kuramoto_update",
-    "fitzhugh_nagumo_update"
+    "fitzhugh_nagumo_update",
+    
+    # Fractal coupling
+    "HierarchicalCouplingLayer",
+    "AdaptiveFractalCouplingLayer",
+    "FractalCouplingLayer",
+    "create_hierarchical_coupling",
+    "create_power_law_coupling",
+    "create_log_periodic_coupling",
+    "create_coupling_matrix"
 ] 

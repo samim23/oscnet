@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "A JAX-based library for oscillatory neural networks"
 readme = "README.md"
 authors = [
-    {name = "Open Source Contributors", email = "example@email.com"}
+    {name = "Samim Winiger", email = "s@samim.io"}
 ]
 license = {text = "MIT"}
 classifiers = [
@@ -45,8 +45,8 @@ examples = [
 ]
 
 [project.urls]
-"Homepage" = "https://github.com/yourusername/oscnet"
-"Bug Tracker" = "https://github.com/yourusername/oscnet/issues"
+"Homepage" = "https://github.com/samim23/oscnet"
+"Bug Tracker" = "https://github.com/samim23/oscnet/issues"
 
 [tool.setuptools]
 packages = ["oscnet"]
