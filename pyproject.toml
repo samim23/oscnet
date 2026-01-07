@@ -42,6 +42,8 @@ dev = [
 examples = [
     "tensorflow-datasets>=4.8.0",
     "tqdm>=4.65.0",
+    "librosa>=0.10.0",
+    "soundfile>=0.12.0",
 ]
 
 [project.urls]
