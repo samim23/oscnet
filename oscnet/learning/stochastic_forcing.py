@@ -187,13 +187,13 @@ def apply_stochastic_forcing_both_states(
 class StochasticForcingConfig(eqx.Module):
     """Configuration for annealed stochastic forcing."""
     
-    enable: bool = eqx.static_field()
-    base_noise_scale: float = eqx.static_field()
-    noise_type: str = eqx.static_field()
-    noise_schedule: str = eqx.static_field()
-    apply_to_velocity_only: bool = eqx.static_field()
-    forcing_mode: str = eqx.static_field()  # "state_noise" or "resonant_driving"
-    driving_amplitude: float = eqx.static_field()  # For resonant driving
+    enable: bool = eqx.field(static=True)
+    base_noise_scale: float = eqx.field(static=True)
+    noise_type: str = eqx.field(static=True)
+    noise_schedule: str = eqx.field(static=True)
+    apply_to_velocity_only: bool = eqx.field(static=True)
+    forcing_mode: str = eqx.field(static=True)  # "state_noise" or "resonant_driving"
+    driving_amplitude: float = eqx.field(static=True)  # For resonant driving
     
     def __init__(
         self,

@@ -13,3 +13,8 @@ tensorflow-datasets>=4.8.0
 tqdm>=4.65.0
 librosa>=0.10.0
 soundfile>=0.12.0
+
+# For analysis/visualization (optional)
+scipy>=1.10.0
+scikit-learn>=1.2.0
+seaborn>=0.12.0

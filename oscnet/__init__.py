@@ -24,22 +24,17 @@ Modules:
     utils: General utilities for JAX optimization, logging, and checkpointing
 """
 
-# Core oscillator and architecture components
-from . import core
-from . import models
+from importlib import import_module
 
-# Learning and training utilities
-from . import learning
-
-# Evaluation and analysis tools
-from . import evaluation
-from . import analysis
-
-# Visualization tools
-from . import visualization
-
-# General utilities
-from . import utils
+_SUBMODULES = {
+    "core",
+    "models",
+    "learning",
+    "evaluation",
+    "analysis",
+    "visualization",
+    "utils",
+}
 
 # Version information
 __version__ = "0.1.0"
@@ -54,6 +49,19 @@ from .core.oscillators import (
     StuartLandauOscillator,
     KuramotoOscillator
 )
+
+
+def __getattr__(name):
+    """Lazily import subpackages so core imports stay lightweight."""
+    if name in _SUBMODULES:
+        module = import_module(f"{__name__}.{name}")
+        globals()[name] = module
+        return module
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def __dir__():
+    return sorted(set(globals()) | _SUBMODULES)
 
 __all__ = [
     "core",

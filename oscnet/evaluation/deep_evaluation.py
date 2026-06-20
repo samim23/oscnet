@@ -16,8 +16,9 @@ try:
     from sklearn.neighbors import NearestNeighbors
     SKLEARN_AVAILABLE = True
 except ImportError:
+    PCA = None
+    NearestNeighbors = None
     SKLEARN_AVAILABLE = False
-    print("Warning: sklearn not available, some advanced analysis features will be disabled")
 
 
 def comprehensive_model_evaluation(

@@ -226,7 +226,7 @@ class LinearHarmonicOscillator(Oscillator):
     # Parameters
     omega: jnp.ndarray  # Trainable
     gamma: jnp.ndarray  # Trainable
-    dt: float = eqx.static_field()
+    dt: float = eqx.field(static=True)
     
     def __init__(
         self, 
@@ -278,10 +278,10 @@ class NonlinearHarmonicOscillator(Oscillator):
     """Nonlinear harmonic oscillator implementation"""
     
     # Parameters - static
-    alpha: float = eqx.static_field()
-    omega: Union[float, jnp.ndarray] = eqx.static_field()  # not trainable
-    gamma: Union[float, jnp.ndarray] = eqx.static_field()  # not trainable
-    dt: float = eqx.static_field()
+    alpha: float = eqx.field(static=True)
+    omega: Union[float, jnp.ndarray] = eqx.field(static=True)  # not trainable
+    gamma: Union[float, jnp.ndarray] = eqx.field(static=True)  # not trainable
+    dt: float = eqx.field(static=True)
     
     def __init__(
         self, 
@@ -349,8 +349,8 @@ class VanDerPolOscillator(Oscillator):
     """Van der Pol oscillator implementation"""
     
     # Parameters
-    mu: float = eqx.static_field()
-    dt: float = eqx.static_field()
+    mu: float = eqx.field(static=True)
+    dt: float = eqx.field(static=True)
     
     def __init__(
         self,
@@ -386,10 +386,10 @@ class StuartLandauOscillator(Oscillator):
     """Stuart-Landau oscillator implementation"""
     
     # Parameters
-    alpha: float = eqx.static_field()
-    omega: float = eqx.static_field()
-    beta: float = eqx.static_field()
-    dt: float = eqx.static_field()
+    alpha: float = eqx.field(static=True)
+    omega: float = eqx.field(static=True)
+    beta: float = eqx.field(static=True)
+    dt: float = eqx.field(static=True)
     
     def __init__(
         self,
@@ -431,8 +431,8 @@ class KuramotoOscillator(Oscillator):
     """Kuramoto phase oscillator implementation"""
     
     # Parameters
-    omega: float = eqx.static_field()
-    dt: float = eqx.static_field()
+    omega: float = eqx.field(static=True)
+    dt: float = eqx.field(static=True)
     
     def __init__(
         self,
@@ -469,10 +469,10 @@ class FitzHughNagumoOscillator(Oscillator):
     """FitzHugh-Nagumo neural oscillator implementation"""
     
     # Parameters
-    a: float = eqx.static_field()
-    b: float = eqx.static_field()
-    tau: float = eqx.static_field()
-    dt: float = eqx.static_field()
+    a: float = eqx.field(static=True)
+    b: float = eqx.field(static=True)
+    tau: float = eqx.field(static=True)
+    dt: float = eqx.field(static=True)
     
     def __init__(
         self,
@@ -516,10 +516,10 @@ class LearnableNonlinearHarmonicOscillator(Oscillator):
     """Learnable nonlinear harmonic oscillator with trainable ω and γ parameters"""
     
     # Fixed parameters (for stability)
-    alpha: float = eqx.static_field()
-    dt: float = eqx.static_field()
-    omega_bounds: Tuple[float, float] = eqx.static_field()
-    gamma_bounds: Tuple[float, float] = eqx.static_field()
+    alpha: float = eqx.field(static=True)
+    dt: float = eqx.field(static=True)
+    omega_bounds: Tuple[float, float] = eqx.field(static=True)
+    gamma_bounds: Tuple[float, float] = eqx.field(static=True)
     
     # Learnable parameters (for task adaptation)
     omega: jnp.ndarray  # Trainable frequencies - each oscillator learns its optimal frequency
@@ -599,12 +599,12 @@ class AdaptiveNonlinearHarmonicOscillator(Oscillator):
     """Adaptive oscillator with learnable coupling gain multiplier + learnable ω,γ"""
     
     # Fixed parameters
-    alpha: float = eqx.static_field()
-    dt: float = eqx.static_field()
-    base_omega: float = eqx.static_field()  # Base frequency for initialization
-    base_gamma: float = eqx.static_field()  # Base damping for initialization
-    omega_multiplier_bounds: Tuple[float, float] = eqx.static_field()
-    gamma_multiplier_bounds: Tuple[float, float] = eqx.static_field()
+    alpha: float = eqx.field(static=True)
+    dt: float = eqx.field(static=True)
+    base_omega: float = eqx.field(static=True)  # Base frequency for initialization
+    base_gamma: float = eqx.field(static=True)  # Base damping for initialization
+    omega_multiplier_bounds: Tuple[float, float] = eqx.field(static=True)
+    gamma_multiplier_bounds: Tuple[float, float] = eqx.field(static=True)
     
     # Learnable parameters  
     omega_multipliers: jnp.ndarray  # Multipliers on base frequency
@@ -736,10 +736,10 @@ class PhaseAwareLearnableOscillator(Oscillator):
     """
     
     # Fixed parameters (for stability)
-    alpha: float = eqx.static_field()
-    dt: float = eqx.static_field()
-    omega_bounds: Tuple[float, float] = eqx.static_field()
-    gamma_bounds: Tuple[float, float] = eqx.static_field()
+    alpha: float = eqx.field(static=True)
+    dt: float = eqx.field(static=True)
+    omega_bounds: Tuple[float, float] = eqx.field(static=True)
+    gamma_bounds: Tuple[float, float] = eqx.field(static=True)
     
     # Learnable parameters (for task adaptation)
     omega: jnp.ndarray  # Trainable frequencies

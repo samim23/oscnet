@@ -45,13 +45,19 @@ examples = [
     "librosa>=0.10.0",
     "soundfile>=0.12.0",
 ]
+analysis = [
+    "scipy>=1.10.0",
+    "scikit-learn>=1.2.0",
+    "seaborn>=0.12.0",
+    "tqdm>=4.65.0",
+]
 
 [project.urls]
 "Homepage" = "https://github.com/samim23/oscnet"
 "Bug Tracker" = "https://github.com/samim23/oscnet/issues"
 
-[tool.setuptools]
-packages = ["oscnet"]
+[tool.setuptools.packages.find]
+include = ["oscnet", "oscnet.*"]
 
 [tool.black]
 line-length = 88
@@ -64,4 +70,3 @@ line_length = 88
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = "test_*.py"
-addopts = "--cov=oscnet" 
