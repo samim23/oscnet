@@ -17,6 +17,12 @@ import equinox as eqx
 logger = logging.getLogger(__name__)
 
 
+def _checkpoint_metadata_path(checkpoint_path: Path) -> Path:
+    """Return the sidecar metadata path for a checkpoint file."""
+    checkpoint_path = Path(checkpoint_path)
+    return checkpoint_path.with_name(f"{checkpoint_path.stem}_metadata.json")
+
+
 def save_equinox_checkpoint(
     model: eqx.Module,
     opt_state: Any,
@@ -46,10 +52,9 @@ def save_equinox_checkpoint(
     
     if is_best:
         checkpoint_path = output_dir / "best_model.eqx"
-        metadata_path = output_dir / "best_model_metadata.json"
     else:
         checkpoint_path = output_dir / f"checkpoint_epoch_{epoch:03d}.eqx"
-        metadata_path = output_dir / f"checkpoint_epoch_{epoch:03d}_metadata.json"
+    metadata_path = _checkpoint_metadata_path(checkpoint_path)
     
     # Save model using Equinox serialization
     def save_model_with_hyperparams(filename, hyperparams, model):
@@ -116,7 +121,7 @@ def load_equinox_checkpoint(
         Tuple of (model, opt_state, metadata, hyperparams)
     """
     checkpoint_path = Path(checkpoint_path)
-    metadata_path = checkpoint_path.with_suffix('').with_suffix('_metadata.json')
+    metadata_path = _checkpoint_metadata_path(checkpoint_path)
     
     # Load model with hyperparameters
     def load_model_with_hyperparams(filename):

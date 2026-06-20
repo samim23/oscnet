@@ -13,8 +13,6 @@ import networkx as nx
 import numpy as np
 from typing import Dict, List, Tuple, Optional, Union, Any, Callable
 
-import oscnet.core.network as network
-
 def plot_reconstruction(
     originals,
     reconstructions,

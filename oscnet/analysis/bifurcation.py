@@ -11,7 +11,11 @@ import matplotlib.pyplot as plt
 from typing import Dict, Tuple, List, Optional, Any, Union, Callable
 import time
 from pathlib import Path
-from tqdm import tqdm
+try:
+    from tqdm import tqdm
+except ImportError:
+    def tqdm(iterable, **kwargs):
+        return iterable
 
 from ..core.oscillators import Oscillator
 from .model_interface import OscillatoryModelInterface, ParamDict, adapt_model

@@ -18,6 +18,7 @@ from .oscillators import (
     StuartLandauOscillator,
     KuramotoOscillator,
     FitzHughNagumoOscillator,
+    HORNOscillator,
     
     # Pure functions for dynamics
     harmonic_oscillator_update,
@@ -27,6 +28,8 @@ from .oscillators import (
     kuramoto_update,
     fitzhugh_nagumo_update
 )
+from .dynamics import solve_ode
+from .interfaces import ArgsType, Array, StateType, TimeType
 
 from .fractal_coupling import (
     HierarchicalCouplingLayer,
@@ -49,6 +52,7 @@ __all__ = [
     "StuartLandauOscillator",
     "KuramotoOscillator",
     "FitzHughNagumoOscillator",
+    "HORNOscillator",
     
     # Pure functions
     "harmonic_oscillator_update",
@@ -57,6 +61,11 @@ __all__ = [
     "stuart_landau_update",
     "kuramoto_update",
     "fitzhugh_nagumo_update",
+    "solve_ode",
+    "Array",
+    "StateType",
+    "TimeType",
+    "ArgsType",
     
     # Fractal coupling
     "HierarchicalCouplingLayer",

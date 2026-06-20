@@ -13,10 +13,8 @@ Demonstrates:
 import jax
 import jax.numpy as jnp
 import equinox as eqx
-import optax
 import numpy as np
 import matplotlib.pyplot as plt
-from typing import Tuple, Optional
 from pathlib import Path
 import time
 import logging
@@ -29,97 +27,7 @@ jax.config.update("jax_default_matmul_precision", "float32")
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Import fractal coupling (requires: pip install -e .)
-from oscnet.core.fractal_coupling import HierarchicalCouplingLayer
-from oscnet.core.oscillators import NonlinearHarmonicOscillator
-
-
-# ============================================================================
-# MODIFIED HORN CELL WITH FRACTAL COUPLING
-# ============================================================================
-
-class FractalHORNCell(eqx.Module):
-    """
-    HORN cell with hierarchical fractal coupling instead of dense layer.
-    
-    This demonstrates how to integrate fractal coupling into existing models.
-    """
-    
-    # Layers
-    i2h: eqx.nn.Linear  # Input projection
-    h2h: HierarchicalCouplingLayer  # Fractal coupling layer (replaces dense)
-    h2o: eqx.nn.Linear  # Output projection
-    
-    # Oscillator dynamics
-    oscillator: NonlinearHarmonicOscillator
-    
-    # Configuration
-    hidden_dim: int = eqx.static_field()
-    gain_rec: float = eqx.static_field()
-    
-    def __init__(
-        self, 
-        input_dim: int, 
-        hidden_dim: int, 
-        output_dim: int,
-        coupling_depth: int = 2,
-        *,
-        key: jax.random.PRNGKey
-    ):
-        """Initialize fractal HORN cell."""
-        keys = jax.random.split(key, 4)
-        
-        self.hidden_dim = hidden_dim
-        self.gain_rec = 1.0 / jnp.sqrt(hidden_dim)
-        
-        # Standard HORN layers
-        self.i2h = eqx.nn.Linear(input_dim, hidden_dim, key=keys[0])
-        
-        # FRACTAL COUPLING: Replace dense h2h with hierarchical structure
-        self.h2h = HierarchicalCouplingLayer(
-            hidden_dim=hidden_dim,
-            depth=coupling_depth,
-            initial_strength=self.gain_rec,
-            key=keys[1]
-        )
-        
-        self.h2o = eqx.nn.Linear(hidden_dim, output_dim, key=keys[2])
-        
-        # Oscillator dynamics
-        self.oscillator = NonlinearHarmonicOscillator(
-            dim=hidden_dim,
-            key=keys[3]
-        )
-    
-    def __call__(
-        self, 
-        inputs: jnp.ndarray, 
-        state: Optional[Tuple[jnp.ndarray, jnp.ndarray]] = None
-    ) -> Tuple[jnp.ndarray, Tuple[jnp.ndarray, jnp.ndarray]]:
-        """Process inputs using fractal coupling dynamics."""
-        batch_size = inputs.shape[0]
-        
-        if state is None:
-            x = jnp.zeros((batch_size, self.hidden_dim))
-            v = jnp.zeros((batch_size, self.hidden_dim))
-        else:
-            x, v = state
-        
-        # Standard HORN processing
-        input_contrib = jax.vmap(self.i2h)(inputs)
-        
-        # FRACTAL COUPLING: Use hierarchical structure
-        recurrent_contrib = self.h2h(v) * self.gain_rec
-        
-        total_input = input_contrib + recurrent_contrib
-        
-        # Update oscillator dynamics
-        new_x, new_v = jax.vmap(self.oscillator.step)(x, v, total_input)
-        
-        # Output
-        output = jax.vmap(self.h2o)(new_x)
-        
-        return output, (new_x, new_v)
+from oscnet.models import FractalHORNCell
 
 
 # ============================================================================
@@ -229,4 +137,3 @@ def compare_coupling_strategies():
 
 if __name__ == "__main__":
     model = compare_coupling_strategies()
-

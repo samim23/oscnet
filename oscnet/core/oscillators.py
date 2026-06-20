@@ -1073,3 +1073,66 @@ class MultiScalePhaseAwareOscillatorBank(eqx.Module):
         x_high_new, v_high_new = self.high_freq_bank.step(x_high, v_high, inputs, phase_mid)
         
         return x_low_new, v_low_new, x_mid_new, v_mid_new, x_high_new, v_high_new 
+
+
+class HORNOscillator(eqx.Module):
+    """Legacy HORN-style oscillator used by older analysis helpers."""
+
+    alpha: float = eqx.field(static=True)
+    omega: float = eqx.field(static=True)
+    gamma: float = eqx.field(static=True)
+    h: float = eqx.field(static=True)
+    state_dim: int = eqx.field(static=True)
+
+    def __init__(
+        self,
+        alpha: float = 0.04,
+        omega: float = 1.0,
+        gamma: float = 0.01,
+        h: float = 1.0,
+    ):
+        self.alpha = alpha
+        self.omega = omega
+        self.gamma = gamma
+        self.h = h
+        self.state_dim = 2
+
+    @property
+    def params(self) -> Dict[str, float]:
+        return {
+            "alpha": self.alpha,
+            "omega": self.omega,
+            "gamma": self.gamma,
+            "h": self.h,
+        }
+
+    def get_type_name(self) -> str:
+        return "horn"
+
+    def vector_field(self, t, y, args=None):
+        input_force = 0.0
+        if isinstance(args, dict):
+            input_force = args.get("input_force", 0.0)
+        elif args is not None:
+            input_force = args
+
+        x, v = y[0], y[1]
+        dx = v
+        forcing = self.alpha * jnp.tanh(input_force)
+        dv = forcing - (self.omega**2) * x - 2.0 * self.gamma * v
+        return jnp.array([dx, dv])
+
+    def get_trajectory(self, initial_state, times, input_force=None, **solve_kwargs):
+        import diffrax
+        from oscnet.core.dynamics import solve_ode
+
+        solution = solve_ode(
+            self,
+            initial_state,
+            t_start=float(times[0]),
+            t_end=float(times[-1]),
+            args={"input_force": input_force or 0.0},
+            saveat=diffrax.SaveAt(ts=times),
+            **solve_kwargs,
+        )
+        return times, solution.ys

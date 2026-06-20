@@ -19,6 +19,7 @@ Modules:
     models: Pre-built oscillatory neural network models
     learning: Training utilities, schedulers, and optimization tools
     evaluation: Model evaluation and analysis tools
+    experiments: Reference experiment CLIs and artifact harnesses
     visualization: Plotting and visualization utilities
     analysis: Advanced analysis tools for oscillatory dynamics
     utils: General utilities for JAX optimization, logging, and checkpointing
@@ -31,6 +32,7 @@ _SUBMODULES = {
     "models",
     "learning",
     "evaluation",
+    "experiments",
     "analysis",
     "visualization",
     "utils",
@@ -68,6 +70,7 @@ __all__ = [
     "models", 
     "learning",
     "evaluation",
+    "experiments",
     "analysis",
     "visualization",
     "utils",
