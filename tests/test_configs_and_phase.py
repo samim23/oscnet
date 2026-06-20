@@ -5,6 +5,8 @@ from oscnet.models import (
     OscillatoryAutoencoderConfig,
     PatchOscillatoryAutoencoderConfig,
     WaveletAutoencoderConfig,
+    WinfreeFieldAutoencoderConfig,
+    WinfreePatchAutoencoderConfig,
     WinfreePhaseAutoencoder,
     WinfreePhaseAutoencoderConfig,
     WinfreePhaseOscillatorCell,
@@ -36,6 +38,26 @@ def test_model_configs_build_expected_shapes():
         latent_dim=3,
     ).build(jax.random.PRNGKey(2))
     assert wavelet_model(sequence).shape == sequence.shape
+
+    winfree_sequence_model = WinfreeFieldAutoencoderConfig(
+        input_dim=4,
+        hidden_dim=6,
+        latent_dim=3,
+        sequence_length=3,
+        steps=2,
+    ).build(jax.random.PRNGKey(6))
+    assert winfree_sequence_model(sequence).shape == sequence.shape
+
+    winfree_patch_model = WinfreePatchAutoencoderConfig(
+        hidden_dim=6,
+        latent_dim=3,
+        image_shape=(8, 8),
+        patch_shape=(4, 4),
+        group_size=2,
+        si_func="mlp",
+        steps=2,
+    ).build(jax.random.PRNGKey(7))
+    assert winfree_patch_model(jnp.ones((2, 64))).shape == (2, 64)
 
 
 def test_winfree_phase_cell_wraps_phase_and_outputs_finite_values():

@@ -14,10 +14,11 @@ from oscnet.experiments.mnist_autoencoder import (
     prepare_reconstructions,
     run_mnist_experiment,
 )
-from oscnet.models import AmplitudeVelocityAutoencoder
+from oscnet.models import AmplitudeVelocityAutoencoder, WinfreePatchAutoencoder
 
 __all__ = [
     "AmplitudeVelocityAutoencoder",
+    "WinfreePatchAutoencoder",
     "build_arg_parser",
     "config_from_args",
     "export_encoder_complex_states",

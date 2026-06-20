@@ -9,6 +9,7 @@ from oscnet.core.oscillators import NonlinearHarmonicOscillator, Oscillator
 from oscnet.models.oscillatory import OscillatoryAutoencoder, PatchOscillatoryAutoencoder
 from oscnet.models.phase import WinfreePhaseAutoencoder
 from oscnet.models.wavelet import WaveletOscillatoryAutoencoder
+from oscnet.models.winfree import WinfreeFieldAutoencoder, WinfreePatchAutoencoder
 
 
 @dataclass(frozen=True)
@@ -131,9 +132,89 @@ class WinfreePhaseAutoencoderConfig:
         )
 
 
+@dataclass(frozen=True)
+class WinfreeFieldAutoencoderConfig:
+    input_dim: int
+    hidden_dim: int
+    latent_dim: int
+    output_dim: Optional[int] = None
+    sequence_length: int = 16
+    grid_shape: Optional[Tuple[int, int]] = None
+    group_size: int = 1
+    steps: int = 8
+    gamma: float = 0.1
+    coupling_strength: float = 1.0
+    latent_conditioning_strength: float = 1.0
+    omega_scale: float = 1.0
+    field_activation: str = "relu"
+    si_func: str = "trig"
+    si_hidden_ratio: int = 2
+    output_activation: str = "identity"
+
+    def build(self, key: jax.random.PRNGKey) -> WinfreeFieldAutoencoder:
+        return WinfreeFieldAutoencoder(
+            input_dim=self.input_dim,
+            hidden_dim=self.hidden_dim,
+            latent_dim=self.latent_dim,
+            output_dim=self.output_dim,
+            sequence_length=self.sequence_length,
+            grid_shape=self.grid_shape,
+            group_size=self.group_size,
+            steps=self.steps,
+            gamma=self.gamma,
+            coupling_strength=self.coupling_strength,
+            latent_conditioning_strength=self.latent_conditioning_strength,
+            omega_scale=self.omega_scale,
+            field_activation=self.field_activation,
+            si_func=self.si_func,
+            si_hidden_ratio=self.si_hidden_ratio,
+            output_activation=self.output_activation,
+            key=key,
+        )
+
+
+@dataclass(frozen=True)
+class WinfreePatchAutoencoderConfig:
+    hidden_dim: int = 64
+    latent_dim: int = 32
+    image_shape: Tuple[int, int] = (28, 28)
+    patch_shape: Tuple[int, int] = (7, 7)
+    group_size: int = 1
+    steps: int = 8
+    gamma: float = 0.1
+    coupling_strength: float = 1.0
+    latent_conditioning_strength: float = 1.0
+    omega_scale: float = 1.0
+    field_activation: str = "relu"
+    si_func: str = "trig"
+    si_hidden_ratio: int = 2
+    output_activation: str = "identity"
+
+    def build(self, key: jax.random.PRNGKey) -> WinfreePatchAutoencoder:
+        return WinfreePatchAutoencoder(
+            hidden_dim=self.hidden_dim,
+            latent_dim=self.latent_dim,
+            image_shape=self.image_shape,
+            patch_shape=self.patch_shape,
+            group_size=self.group_size,
+            steps=self.steps,
+            gamma=self.gamma,
+            coupling_strength=self.coupling_strength,
+            latent_conditioning_strength=self.latent_conditioning_strength,
+            omega_scale=self.omega_scale,
+            field_activation=self.field_activation,
+            si_func=self.si_func,
+            si_hidden_ratio=self.si_hidden_ratio,
+            output_activation=self.output_activation,
+            key=key,
+        )
+
+
 __all__ = [
     "OscillatoryAutoencoderConfig",
     "PatchOscillatoryAutoencoderConfig",
     "WaveletAutoencoderConfig",
     "WinfreePhaseAutoencoderConfig",
+    "WinfreeFieldAutoencoderConfig",
+    "WinfreePatchAutoencoderConfig",
 ]

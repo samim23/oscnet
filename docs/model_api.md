@@ -93,6 +93,25 @@ and internally convert them to patch sequences.
   experiments. It follows the same scan, encode, decode pattern as the
   amplitude/velocity models.
 
+`WinfreeFieldLayer`
+: A WONN-inspired phase-field layer over `(batch, positions, channels)` states.
+  It keeps an explicit `theta` phase field and input-conditioned `omega` drive,
+  wraps phase after each recurrent step, and evolves
+  `dtheta = omega + cos(theta) * coupling(sin(theta))`.
+  The layer also supports `si_func="mlp"` for learned periodic sensitivity and
+  influence functions, plus grouped patch influence via `group_size`.
+
+`WinfreeFieldAutoencoder`
+: A sequence autoencoder built from `WinfreeFieldLayer`. It preserves the
+  toroidal phase-field core while using OscNet's regular encode/decode API.
+
+`WinfreePatchAutoencoder`
+: A flat-image wrapper around `WinfreeFieldAutoencoder` for patch-based image
+  reconstruction experiments. This is the minimal WONN-aligned model family for
+  the MNIST reference harness. Use `--winfree-si-func mlp` and
+  `--winfree-group-size 2` in the MNIST CLI to enable the closer WONN-style
+  learned/grouped variant.
+
 ## Config Objects
 
 Config objects are available for experiment scripts that should keep model
@@ -117,6 +136,8 @@ Available configs:
 - `PatchOscillatoryAutoencoderConfig`
 - `WaveletAutoencoderConfig`
 - `WinfreePhaseAutoencoderConfig`
+- `WinfreeFieldAutoencoderConfig`
+- `WinfreePatchAutoencoderConfig`
 
 ## Extension Points
 
@@ -127,7 +148,7 @@ Future oscillator research should usually start by adding one of:
    contract as `AmplitudeVelocityOscillatorCell`.
 3. A thin task wrapper, if a domain needs reshape or preprocessing conventions.
 
-For phase-only and Winfree/WONN-style research, prefer adding a phase cell that
-can be scanned by the same sequence layer pattern instead of creating a separate
-example-only model. `WinfreePhaseOscillatorCell` is the first concrete version
-of that hook.
+For phase-only and Winfree/WONN-style research, prefer adding a reusable phase
+cell or phase-field layer instead of creating a separate example-only model.
+`WinfreePhaseOscillatorCell` covers compact sequence experiments, while
+`WinfreeFieldLayer` captures the WONN-style toroidal phase-field update.

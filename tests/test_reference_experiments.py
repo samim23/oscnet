@@ -89,6 +89,65 @@ def test_mnist_reference_experiment_train_eval_artifacts(tmp_path):
     assert "quality" in eval_summary
 
 
+def test_mnist_winfree_field_experiment_train_eval_artifacts(tmp_path):
+    train_run = AutoencoderExperimentConfig(
+        name="mnist_winfree_test",
+        output_dir=tmp_path / "mnist_winfree_train",
+        seed=2,
+        epochs=1,
+        batch_size=2,
+        learning_rate=1e-3,
+        checkpoint_every=1,
+        artifact_every=1,
+    )
+    config = MNISTAutoencoderExperimentConfig(
+        run=train_run,
+        hidden_dim=4,
+        latent_dim=2,
+        patch_shape=(7, 7),
+        model_family="winfree_field",
+        winfree_steps=2,
+        winfree_si_func="mlp",
+        winfree_group_size=2,
+        data_source="synthetic",
+        train_limit=4,
+        eval_limit=2,
+    )
+
+    result = run_mnist_experiment(config)
+    output_dir = result.paths.root
+
+    assert (output_dir / "metrics" / "summary.json").exists()
+    assert (output_dir / "plots" / "mnist_reconstructions_epoch_001.png").exists()
+    assert (output_dir / "traces" / "mnist_latent_state_epoch_001.npz").exists()
+    assert (output_dir / "checkpoints" / "best_model.eqx").exists()
+
+    trace = np.load(output_dir / "traces" / "mnist_latent_state_epoch_001.npz")
+    assert trace["latent"].shape == (2, 2)
+    assert trace["encoder_thetas"].shape[:3] == (2, 2, 16)
+    assert trace["encoder_energies"].shape == (2, 2)
+    assert trace["decoder_thetas"].shape[:3] == (2, 2, 16)
+
+    eval_run = replace(
+        train_run,
+        mode="eval",
+        output_dir=tmp_path / "mnist_winfree_eval",
+    )
+    eval_config = replace(
+        config,
+        run=eval_run,
+        checkpoint=output_dir / "checkpoints" / "best_model.eqx",
+    )
+    eval_result = run_mnist_experiment(eval_config)
+
+    assert (eval_result.paths.metrics / "summary.json").exists()
+    assert (eval_result.paths.traces / "mnist_latent_state_epoch_000.npz").exists()
+    with open(eval_result.paths.metrics / "summary.json") as f:
+        eval_summary = json.load(f)
+    assert "baselines" in eval_summary
+    assert "quality" in eval_summary
+
+
 def test_audio_wavelet_reference_experiment_artifacts(tmp_path):
     run = AutoencoderExperimentConfig(
         name="audio_wavelet_test",

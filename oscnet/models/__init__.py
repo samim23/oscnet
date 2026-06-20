@@ -9,6 +9,8 @@ from .config import (
     OscillatoryAutoencoderConfig,
     PatchOscillatoryAutoencoderConfig,
     WaveletAutoencoderConfig,
+    WinfreeFieldAutoencoderConfig,
+    WinfreePatchAutoencoderConfig,
     WinfreePhaseAutoencoderConfig,
 )
 from .fractal import FractalHORNCell
@@ -38,6 +40,16 @@ from .wavelet import (
     WaveletOscillatorCell,
     WaveletOscillatoryAutoencoder,
 )
+from .winfree import (
+    WONNPatchAutoencoder,
+    WinfreeFieldAutoencoder,
+    WinfreeFieldDecoder,
+    WinfreeFieldEncoder,
+    WinfreeFieldLayer,
+    WinfreePatchAutoencoder,
+    phase_features,
+    wrap_phase,
+)
 
 __all__ = [
     "OscillatorState",
@@ -61,8 +73,18 @@ __all__ = [
     "PatchOscillatoryAutoencoderConfig",
     "WaveletAutoencoderConfig",
     "WinfreePhaseAutoencoderConfig",
+    "WinfreeFieldAutoencoderConfig",
+    "WinfreePatchAutoencoderConfig",
     "WinfreePhaseOscillatorCell",
     "WinfreePhaseSequenceLayer",
     "WinfreePhaseAutoencoder",
+    "wrap_phase",
+    "phase_features",
+    "WinfreeFieldLayer",
+    "WinfreeFieldEncoder",
+    "WinfreeFieldDecoder",
+    "WinfreeFieldAutoencoder",
+    "WinfreePatchAutoencoder",
+    "WONNPatchAutoencoder",
     "FractalHORNCell",
 ]

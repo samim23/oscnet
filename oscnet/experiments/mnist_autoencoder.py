@@ -1,4 +1,4 @@
-"""Reference MNIST benchmark for the amplitude-velocity oscillator autoencoder."""
+"""Reference MNIST benchmarks for oscillatory autoencoders."""
 
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ from oscnet.experiments.harness import (
     train_autoencoder,
     write_json,
 )
-from oscnet.models import AmplitudeVelocityAutoencoder
+from oscnet.models import AmplitudeVelocityAutoencoder, WinfreePatchAutoencoder
 
 Array = jnp.ndarray
 
@@ -52,9 +52,19 @@ class MNISTAutoencoderExperimentConfig:
     hidden_dim: int = 64
     latent_dim: int = 64
     patch_shape: Tuple[int, int] = (4, 4)
+    model_family: str = "amplitude_velocity"
     decoder_mode: str = "repeat"
     latent_conditioning_strength: float = 1.0
     oscillator: str = "learnable"
+    winfree_steps: int = 8
+    winfree_gamma: float = 0.1
+    winfree_coupling_strength: float = 1.0
+    winfree_omega_scale: float = 1.0
+    winfree_field_activation: str = "relu"
+    winfree_si_func: str = "trig"
+    winfree_si_hidden_ratio: int = 2
+    winfree_group_size: int = 1
+    winfree_output_activation: str = "identity"
     data_source: str = "idx"
     train_limit: Optional[int] = 10_000
     eval_limit: Optional[int] = 1_000
@@ -246,7 +256,28 @@ def _mnist_oscillator_spec(kind: str, hidden_dim: int):
 def build_mnist_model(
     config: MNISTAutoencoderExperimentConfig,
     key: jax.random.PRNGKey,
-) -> AmplitudeVelocityAutoencoder:
+) -> eqx.Module:
+    if config.model_family == "winfree_field":
+        return WinfreePatchAutoencoder(
+            hidden_dim=config.hidden_dim,
+            latent_dim=config.latent_dim,
+            patch_shape=config.patch_shape,
+            group_size=config.winfree_group_size,
+            steps=config.winfree_steps,
+            gamma=config.winfree_gamma,
+            coupling_strength=config.winfree_coupling_strength,
+            latent_conditioning_strength=config.latent_conditioning_strength,
+            omega_scale=config.winfree_omega_scale,
+            field_activation=config.winfree_field_activation,
+            si_func=config.winfree_si_func,
+            si_hidden_ratio=config.winfree_si_hidden_ratio,
+            output_activation=config.winfree_output_activation,
+            key=key,
+        )
+
+    if config.model_family != "amplitude_velocity":
+        raise ValueError("model_family must be 'amplitude_velocity' or 'winfree_field'")
+
     oscillator_class, oscillator_params = _mnist_oscillator_spec(
         config.oscillator,
         config.hidden_dim,
@@ -265,21 +296,71 @@ def build_mnist_model(
 
 
 def _checkpoint_hyperparams(config: MNISTAutoencoderExperimentConfig) -> Dict[str, object]:
-    _, oscillator_params = _mnist_oscillator_spec(config.oscillator, config.hidden_dim)
-    return {
+    hyperparams = {
+        "model_family": config.model_family,
         "hidden_dim": config.hidden_dim,
         "latent_dim": config.latent_dim,
         "patch_shape": list(config.patch_shape),
-        "decoder_mode": config.decoder_mode,
         "latent_conditioning_strength": config.latent_conditioning_strength,
-        "oscillator": config.oscillator,
-        "oscillator_params": oscillator_params,
     }
+    if config.model_family == "winfree_field":
+        hyperparams.update(
+            {
+                "winfree_steps": config.winfree_steps,
+                "winfree_gamma": config.winfree_gamma,
+                "winfree_coupling_strength": config.winfree_coupling_strength,
+                "winfree_omega_scale": config.winfree_omega_scale,
+                "winfree_field_activation": config.winfree_field_activation,
+                "winfree_si_func": config.winfree_si_func,
+                "winfree_si_hidden_ratio": config.winfree_si_hidden_ratio,
+                "winfree_group_size": config.winfree_group_size,
+                "winfree_output_activation": config.winfree_output_activation,
+            }
+        )
+        return hyperparams
+
+    _, oscillator_params = _mnist_oscillator_spec(config.oscillator, config.hidden_dim)
+    hyperparams.update(
+        {
+            "decoder_mode": config.decoder_mode,
+            "oscillator": config.oscillator,
+            "oscillator_params": oscillator_params,
+        }
+    )
+    return hyperparams
 
 
-def _build_mnist_model_from_hyperparams(**hyperparams) -> AmplitudeVelocityAutoencoder:
-    oscillator = hyperparams.get("oscillator", "learnable")
+def _build_mnist_model_from_hyperparams(**hyperparams) -> eqx.Module:
+    model_family = hyperparams.get("model_family", "amplitude_velocity")
     hidden_dim = int(hyperparams["hidden_dim"])
+    patch_shape = tuple(hyperparams.get("patch_shape", (4, 4)))
+
+    if model_family == "winfree_field":
+        return WinfreePatchAutoencoder(
+            hidden_dim=hidden_dim,
+            latent_dim=int(hyperparams["latent_dim"]),
+            patch_shape=patch_shape,
+            group_size=int(hyperparams.get("winfree_group_size", 1)),
+            steps=int(hyperparams.get("winfree_steps", 8)),
+            gamma=float(hyperparams.get("winfree_gamma", 0.1)),
+            coupling_strength=float(
+                hyperparams.get("winfree_coupling_strength", 1.0)
+            ),
+            latent_conditioning_strength=float(
+                hyperparams.get("latent_conditioning_strength", 1.0)
+            ),
+            omega_scale=float(hyperparams.get("winfree_omega_scale", 1.0)),
+            field_activation=hyperparams.get("winfree_field_activation", "relu"),
+            si_func=hyperparams.get("winfree_si_func", "trig"),
+            si_hidden_ratio=int(hyperparams.get("winfree_si_hidden_ratio", 2)),
+            output_activation=hyperparams.get("winfree_output_activation", "identity"),
+            key=jax.random.PRNGKey(0),
+        )
+
+    if model_family != "amplitude_velocity":
+        raise ValueError("model_family must be 'amplitude_velocity' or 'winfree_field'")
+
+    oscillator = hyperparams.get("oscillator", "learnable")
     oscillator_class, _ = _mnist_oscillator_spec(oscillator, hidden_dim)
     oscillator_params = dict(hyperparams.get("oscillator_params", {}))
     for key in (
@@ -296,7 +377,7 @@ def _build_mnist_model_from_hyperparams(**hyperparams) -> AmplitudeVelocityAutoe
     return AmplitudeVelocityAutoencoder(
         hidden_dim=hidden_dim,
         latent_dim=int(hyperparams["latent_dim"]),
-        patch_shape=tuple(hyperparams.get("patch_shape", (4, 4))),
+        patch_shape=patch_shape,
         decoder_mode=hyperparams.get("decoder_mode", "repeat"),
         latent_conditioning_strength=float(
             hyperparams.get("latent_conditioning_strength", 1.0)
@@ -308,7 +389,7 @@ def _build_mnist_model_from_hyperparams(**hyperparams) -> AmplitudeVelocityAutoe
     )
 
 
-def _load_checkpoint(checkpoint_path: Path) -> AmplitudeVelocityAutoencoder:
+def _load_checkpoint(checkpoint_path: Path) -> eqx.Module:
     with open(checkpoint_path, "rb") as f:
         hyperparams = json.loads(f.readline().decode())
         model = _build_mnist_model_from_hyperparams(**hyperparams)
@@ -338,7 +419,7 @@ def compute_mnist_baselines(train_images: Array, eval_images: Array) -> Dict[str
 
 
 def _predict_images_in_batches(
-    model: AmplitudeVelocityAutoencoder,
+    model: eqx.Module,
     images: Array,
     batch_size: int,
 ) -> np.ndarray:
@@ -351,7 +432,7 @@ def _predict_images_in_batches(
 
 
 def compute_mnist_quality_metrics(
-    model: AmplitudeVelocityAutoencoder,
+    model: eqx.Module,
     eval_images: Array,
     *,
     batch_size: int,
@@ -429,7 +510,7 @@ def annotate_mnist_summary(
 
 
 def save_mnist_artifacts(
-    model: AmplitudeVelocityAutoencoder,
+    model: eqx.Module,
     batch: Optional[Array],
     paths: ExperimentPaths,
     epoch: int,
@@ -461,23 +542,41 @@ def save_mnist_artifacts(
     fig.savefig(paths.plots / f"mnist_reconstructions_epoch_{epoch:03d}.png", dpi=150)
     plt.close(fig)
 
-    sequence = model.images_to_sequence(samples)
-    latent = model.encode(samples, use_phase_init=True)
-    trace = collect_sequence_state_trace(
-        model.encoder.rnn,
-        sequence,
-        use_phase_init=True,
-    )
+    if hasattr(model, "collect_trace"):
+        trace = model.collect_trace(samples)
+        np.savez(
+            paths.traces / f"mnist_latent_state_epoch_{epoch:03d}.npz",
+            latent=np.asarray(trace["latent"]),
+            encoder_omega=np.asarray(trace["encoder_omega"]),
+            encoder_initial_theta=np.asarray(trace["encoder_initial_theta"]),
+            encoder_final_theta=np.asarray(trace["encoder_final_theta"]),
+            encoder_thetas=np.asarray(trace["encoder_thetas"]),
+            encoder_energies=np.asarray(trace["encoder_energies"]),
+            decoder_omega=np.asarray(trace["decoder_omega"]),
+            decoder_initial_theta=np.asarray(trace["decoder_initial_theta"]),
+            decoder_final_theta=np.asarray(trace["decoder_final_theta"]),
+            decoder_thetas=np.asarray(trace["decoder_thetas"]),
+            decoder_energies=np.asarray(trace["decoder_energies"]),
+        )
+    else:
+        sequence = model.images_to_sequence(samples)
+        latent = model.encode(samples, use_phase_init=True)
+        trace = collect_sequence_state_trace(
+            model.encoder.rnn,
+            sequence,
+            use_phase_init=True,
+        )
 
-    np.savez(
-        paths.traces / f"mnist_latent_state_epoch_{epoch:03d}.npz",
-        latent=np.asarray(latent),
-        encoder_outputs=np.asarray(trace["outputs"]),
-        encoder_positions=np.asarray(trace["positions"]),
-        encoder_velocities=np.asarray(trace["velocities"]),
-        final_position=np.asarray(trace["final_position"]),
-        final_velocity=np.asarray(trace["final_velocity"]),
-    )
+        np.savez(
+            paths.traces / f"mnist_latent_state_epoch_{epoch:03d}.npz",
+            latent=np.asarray(latent),
+            encoder_outputs=np.asarray(trace["outputs"]),
+            encoder_positions=np.asarray(trace["positions"]),
+            encoder_velocities=np.asarray(trace["velocities"]),
+            final_position=np.asarray(trace["final_position"]),
+            final_velocity=np.asarray(trace["final_velocity"]),
+        )
+
     np.savez(
         paths.artifacts / f"mnist_reconstructions_epoch_{epoch:03d}.npz",
         originals=np.asarray(originals),
@@ -593,13 +692,47 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--latent-dim", type=int, default=64)
     parser.add_argument("--patch-size", type=int, default=4)
     parser.add_argument(
+        "--model-family",
+        choices=["amplitude_velocity", "winfree_field"],
+        default="amplitude_velocity",
+    )
+    parser.add_argument(
         "--decoder-mode",
         choices=["repeat", "autoregressive", "positional"],
         default="repeat",
     )
     parser.add_argument("--latent-conditioning-strength", type=float, default=1.0)
-    parser.add_argument("--oscillator", choices=["learnable", "adaptive", "nonlinear"], default="learnable")
-    parser.add_argument("--data-source", choices=["tfds", "idx", "synthetic"], default="idx")
+    parser.add_argument(
+        "--oscillator",
+        choices=["learnable", "adaptive", "nonlinear"],
+        default="learnable",
+    )
+    parser.add_argument("--winfree-steps", type=int, default=8)
+    parser.add_argument("--winfree-gamma", type=float, default=0.1)
+    parser.add_argument("--winfree-coupling-strength", type=float, default=1.0)
+    parser.add_argument("--winfree-omega-scale", type=float, default=1.0)
+    parser.add_argument(
+        "--winfree-field-activation",
+        choices=["identity", "relu", "tanh"],
+        default="relu",
+    )
+    parser.add_argument(
+        "--winfree-si-func",
+        choices=["trig", "mlp"],
+        default="trig",
+    )
+    parser.add_argument("--winfree-si-hidden-ratio", type=int, default=2)
+    parser.add_argument("--winfree-group-size", type=int, default=1)
+    parser.add_argument(
+        "--winfree-output-activation",
+        choices=["identity", "sigmoid", "tanh01"],
+        default="identity",
+    )
+    parser.add_argument(
+        "--data-source",
+        choices=["tfds", "idx", "synthetic"],
+        default="idx",
+    )
     parser.add_argument("--train-limit", type=int, default=10_000)
     parser.add_argument("--eval-limit", type=int, default=1_000)
     return parser
@@ -625,9 +758,19 @@ def config_from_args(args: argparse.Namespace) -> MNISTAutoencoderExperimentConf
         hidden_dim=args.hidden_dim,
         latent_dim=args.latent_dim,
         patch_shape=(args.patch_size, args.patch_size),
+        model_family=args.model_family,
         decoder_mode=args.decoder_mode,
         latent_conditioning_strength=args.latent_conditioning_strength,
         oscillator=args.oscillator,
+        winfree_steps=args.winfree_steps,
+        winfree_gamma=args.winfree_gamma,
+        winfree_coupling_strength=args.winfree_coupling_strength,
+        winfree_omega_scale=args.winfree_omega_scale,
+        winfree_field_activation=args.winfree_field_activation,
+        winfree_si_func=args.winfree_si_func,
+        winfree_si_hidden_ratio=args.winfree_si_hidden_ratio,
+        winfree_group_size=args.winfree_group_size,
+        winfree_output_activation=args.winfree_output_activation,
         data_source=args.data_source,
         train_limit=args.train_limit,
         eval_limit=args.eval_limit,
