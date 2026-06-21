@@ -8,7 +8,7 @@ import logging
 import time
 from dataclasses import asdict, dataclass, is_dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, List, Optional
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 import equinox as eqx
 import jax
@@ -20,10 +20,12 @@ import optax
 from oscnet.utils import save_equinox_checkpoint
 
 Array = jnp.ndarray
+ArtifactBatch = Array | Tuple[Array, Array]
 ArtifactCallback = Callable[
-    [eqx.Module, Optional[Array], "ExperimentPaths", int, Dict[str, Any]],
+    [eqx.Module, Optional[ArtifactBatch], "ExperimentPaths", int, Dict[str, Any]],
     None,
 ]
+PredictionTransform = Callable[[Array, Array], Array]
 
 
 @dataclass(frozen=True)
@@ -40,6 +42,8 @@ class AutoencoderExperimentConfig:
     weight_decay: float = 1e-4
     max_grad_norm: float = 1.0
     output_bounds_penalty: float = 0.0
+    latent_variance_weight: float = 0.0
+    latent_std_floor: float = 1.0
     eval_every: int = 1
     checkpoint_every: int = 5
     artifact_every: int = 5
@@ -136,29 +140,72 @@ def _target_like_prediction(batch: Array, prediction: Array) -> Array:
     )
 
 
+def _reconstruction_loss(
+    prediction: Array,
+    targets: Array,
+    loss_weights: Optional[Array] = None,
+) -> Array:
+    target = _target_like_prediction(targets, prediction)
+    squared_error = (prediction - target) ** 2
+    if loss_weights is None:
+        return jnp.mean(squared_error)
+
+    weights = _target_like_prediction(loss_weights, prediction)
+    weighted_error = squared_error * weights
+    return jnp.sum(weighted_error) / jnp.maximum(jnp.sum(weights), 1e-8)
+
+
 def _tree_norm(tree: Any) -> Array:
     if hasattr(optax, "tree") and hasattr(optax.tree, "norm"):
         return optax.tree.norm(tree)
     return optax.global_norm(tree)
 
 
+def _latent_variance_loss(model: eqx.Module, batch: Array, std_floor: float) -> Array:
+    latent = model.encode(batch)
+    latent = jnp.reshape(latent, (latent.shape[0], -1))
+    std = jnp.sqrt(jnp.var(latent, axis=0) + 1e-4)
+    return jnp.mean(jnp.maximum(float(std_floor) - std, 0.0) ** 2)
+
+
 @eqx.filter_jit
 def _train_step(
     model: eqx.Module,
     opt_state: Any,
-    batch: Array,
+    inputs: Array,
+    targets: Array,
+    loss_weights: Optional[Array],
+    prediction_transform: Optional[PredictionTransform],
     optimizer: optax.GradientTransformation,
     max_grad_norm: float,
     output_bounds_penalty: float,
+    latent_variance_weight: float,
+    latent_std_floor: float,
 ):
     def loss_fn(current_model):
-        prediction = current_model(batch)
-        target = _target_like_prediction(batch, prediction)
-        reconstruction_loss = jnp.mean((prediction - target) ** 2)
+        prediction = current_model(inputs)
+        if prediction_transform is not None:
+            prediction = prediction_transform(inputs, prediction)
+        reconstruction_loss = _reconstruction_loss(
+            prediction,
+            targets,
+            loss_weights,
+        )
         lower_overshoot = jnp.maximum(-prediction, 0.0)
         upper_overshoot = jnp.maximum(prediction - 1.0, 0.0)
         bounds_loss = jnp.mean(lower_overshoot**2 + upper_overshoot**2)
-        return reconstruction_loss + output_bounds_penalty * bounds_loss
+        latent_loss = 0.0
+        if latent_variance_weight > 0.0:
+            latent_loss = _latent_variance_loss(
+                current_model,
+                inputs,
+                latent_std_floor,
+            )
+        return (
+            reconstruction_loss
+            + output_bounds_penalty * bounds_loss
+            + latent_variance_weight * latent_loss
+        )
 
     loss_value, grads = eqx.filter_value_and_grad(loss_fn)(model)
     grad_norm = _tree_norm(grads)
@@ -170,10 +217,17 @@ def _train_step(
 
 
 @eqx.filter_jit
-def _eval_loss(model: eqx.Module, batch: Array):
-    prediction = model(batch)
-    target = _target_like_prediction(batch, prediction)
-    return jnp.mean((prediction - target) ** 2)
+def _eval_loss(
+    model: eqx.Module,
+    inputs: Array,
+    targets: Array,
+    loss_weights: Optional[Array] = None,
+    prediction_transform: Optional[PredictionTransform] = None,
+):
+    prediction = model(inputs)
+    if prediction_transform is not None:
+        prediction = prediction_transform(inputs, prediction)
+    return _reconstruction_loss(prediction, targets, loss_weights)
 
 
 def iter_sample_batches(
@@ -203,12 +257,91 @@ def iter_sample_batches(
         yield jnp.take(data, batch_indices, axis=sample_axis)
 
 
+def iter_input_target_batches(
+    inputs: Array,
+    targets: Optional[Array],
+    batch_size: int,
+    key: jax.random.PRNGKey,
+    *,
+    sample_axis: int = 0,
+    shuffle: bool = True,
+    drop_remainder: bool = False,
+) -> Iterable[Tuple[Array, Array]]:
+    """Yield aligned input/target batches, defaulting targets to inputs."""
+
+    n_samples = int(inputs.shape[sample_axis])
+    if targets is not None and int(targets.shape[sample_axis]) != n_samples:
+        raise ValueError("targets must have the same sample count as inputs")
+
+    indices = jnp.arange(n_samples)
+    if shuffle:
+        indices = jax.random.permutation(key, n_samples)
+
+    if drop_remainder:
+        usable = (n_samples // batch_size) * batch_size
+        indices = indices[:usable]
+
+    for start in range(0, int(indices.shape[0]), batch_size):
+        batch_indices = indices[start : start + batch_size]
+        if batch_indices.size == 0:
+            continue
+        input_batch = jnp.take(inputs, batch_indices, axis=sample_axis)
+        target_source = inputs if targets is None else targets
+        target_batch = jnp.take(target_source, batch_indices, axis=sample_axis)
+        yield input_batch, target_batch
+
+
+def iter_weighted_input_target_batches(
+    inputs: Array,
+    targets: Optional[Array],
+    loss_weights: Optional[Array],
+    batch_size: int,
+    key: jax.random.PRNGKey,
+    *,
+    sample_axis: int = 0,
+    shuffle: bool = True,
+    drop_remainder: bool = False,
+) -> Iterable[Tuple[Array, Array, Optional[Array]]]:
+    """Yield aligned input/target/weight batches, defaulting targets to inputs."""
+
+    n_samples = int(inputs.shape[sample_axis])
+    if targets is not None and int(targets.shape[sample_axis]) != n_samples:
+        raise ValueError("targets must have the same sample count as inputs")
+    if loss_weights is not None and int(loss_weights.shape[sample_axis]) != n_samples:
+        raise ValueError("loss_weights must have the same sample count as inputs")
+
+    indices = jnp.arange(n_samples)
+    if shuffle:
+        indices = jax.random.permutation(key, n_samples)
+
+    if drop_remainder:
+        usable = (n_samples // batch_size) * batch_size
+        indices = indices[:usable]
+
+    for start in range(0, int(indices.shape[0]), batch_size):
+        batch_indices = indices[start : start + batch_size]
+        if batch_indices.size == 0:
+            continue
+        input_batch = jnp.take(inputs, batch_indices, axis=sample_axis)
+        target_source = inputs if targets is None else targets
+        target_batch = jnp.take(target_source, batch_indices, axis=sample_axis)
+        weight_batch = (
+            None
+            if loss_weights is None
+            else jnp.take(loss_weights, batch_indices, axis=sample_axis)
+        )
+        yield input_batch, target_batch, weight_batch
+
+
 def evaluate_autoencoder(
     model: eqx.Module,
     data: Optional[Array],
     *,
     batch_size: int,
     sample_axis: int = 0,
+    targets: Optional[Array] = None,
+    loss_weights: Optional[Array] = None,
+    prediction_transform: Optional[PredictionTransform] = None,
 ) -> Optional[float]:
     """Evaluate mean reconstruction loss over a dataset."""
 
@@ -216,15 +349,27 @@ def evaluate_autoencoder(
         return None
 
     losses = []
-    for batch in iter_sample_batches(
+    for inputs, target_batch, weight_batch in iter_weighted_input_target_batches(
         data,
+        targets,
+        loss_weights,
         batch_size,
         jax.random.PRNGKey(0),
         sample_axis=sample_axis,
         shuffle=False,
         drop_remainder=False,
     ):
-        losses.append(float(_eval_loss(model, batch)))
+        losses.append(
+            float(
+                _eval_loss(
+                    model,
+                    inputs,
+                    target_batch,
+                    weight_batch,
+                    prediction_transform,
+                )
+            )
+        )
     if not losses:
         return None
     return float(np.mean(losses))
@@ -338,18 +483,27 @@ def _save_metrics_bundle(metrics: Dict[str, Any], paths: ExperimentPaths) -> Non
     save_loss_curve(metrics, paths.plots / "loss_curve.png")
 
 
-def _first_batch(data: Optional[Array], batch_size: int, sample_axis: int) -> Optional[Array]:
+def _first_batch(
+    data: Optional[Array],
+    batch_size: int,
+    sample_axis: int,
+    targets: Optional[Array] = None,
+) -> Optional[ArtifactBatch]:
     if data is None or int(data.shape[sample_axis]) == 0:
         return None
-    return next(
-        iter_sample_batches(
+    input_batch, target_batch = next(
+        iter_input_target_batches(
             data,
+            targets,
             min(batch_size, int(data.shape[sample_axis])),
             jax.random.PRNGKey(0),
             sample_axis=sample_axis,
             shuffle=False,
         )
     )
+    if targets is None:
+        return input_batch
+    return input_batch, target_batch
 
 
 def train_autoencoder(
@@ -359,10 +513,19 @@ def train_autoencoder(
     config: AutoencoderExperimentConfig,
     *,
     sample_axis: int = 0,
+    train_targets: Optional[Array] = None,
+    eval_targets: Optional[Array] = None,
+    train_loss_weights: Optional[Array] = None,
+    eval_loss_weights: Optional[Array] = None,
+    prediction_transform: Optional[PredictionTransform] = None,
     task_config: Optional[Dict[str, Any]] = None,
     checkpoint_hyperparams: Optional[Dict[str, Any]] = None,
     artifact_callback: Optional[ArtifactCallback] = None,
     logger: Optional[logging.Logger] = None,
+    start_epoch: int = 0,
+    resume_from_checkpoint: Optional[Path] = None,
+    initial_best_loss: Optional[float] = None,
+    initial_best_epoch: Optional[int] = None,
 ) -> AutoencoderExperimentResult:
     """Train an autoencoder and save comparable reference artifacts."""
 
@@ -370,6 +533,8 @@ def train_autoencoder(
         raise ValueError("train_autoencoder requires config.mode == 'train'")
     if config.epochs < 1:
         raise ValueError("epochs must be >= 1")
+    if start_epoch < 0:
+        raise ValueError("start_epoch must be >= 0")
 
     logger = logger or logging.getLogger(__name__)
     paths = prepare_experiment_paths(config, task_config)
@@ -378,7 +543,7 @@ def train_autoencoder(
         weight_decay=config.weight_decay,
     )
     opt_state = optimizer.init(eqx.filter(model, eqx.is_array))
-    key = jax.random.PRNGKey(config.seed)
+    key = jax.random.fold_in(jax.random.PRNGKey(config.seed), int(start_epoch))
 
     metrics: Dict[str, Any] = {
         "epoch": [],
@@ -387,24 +552,27 @@ def train_autoencoder(
         "grad_norm": [],
         "learning_rate": [],
         "epoch_seconds": [],
-        "best_eval_loss": None,
-        "best_epoch": None,
+        "best_eval_loss": initial_best_loss,
+        "best_epoch": initial_best_epoch,
     }
     checkpoint_paths: List[str] = []
-    best_loss = float("inf")
+    best_loss = float(initial_best_loss) if initial_best_loss is not None else float("inf")
 
     def record_checkpoint(path: str) -> None:
         if path not in checkpoint_paths:
             checkpoint_paths.append(path)
 
-    for epoch in range(1, config.epochs + 1):
+    for local_epoch in range(1, config.epochs + 1):
+        epoch = start_epoch + local_epoch
         epoch_start = time.time()
         key, epoch_key = jax.random.split(key)
         losses = []
         grad_norms = []
 
-        for batch in iter_sample_batches(
+        for inputs, targets, loss_weights in iter_weighted_input_target_batches(
             train_data,
+            train_targets,
+            train_loss_weights,
             config.batch_size,
             epoch_key,
             sample_axis=sample_axis,
@@ -414,10 +582,15 @@ def train_autoencoder(
             model, opt_state, loss_value, grad_norm = _train_step(
                 model,
                 opt_state,
-                batch,
+                inputs,
+                targets,
+                loss_weights,
+                prediction_transform,
                 optimizer,
                 config.max_grad_norm,
                 config.output_bounds_penalty,
+                config.latent_variance_weight,
+                config.latent_std_floor,
             )
             losses.append(float(loss_value))
             grad_norms.append(float(grad_norm))
@@ -431,6 +604,9 @@ def train_autoencoder(
                 eval_data,
                 batch_size=config.batch_size,
                 sample_axis=sample_axis,
+                targets=eval_targets,
+                loss_weights=eval_loss_weights,
+                prediction_transform=prediction_transform,
             )
 
         candidate_loss = eval_loss if eval_loss is not None else train_loss
@@ -472,7 +648,9 @@ def train_autoencoder(
             )
             record_checkpoint(checkpoint_path)
 
-        should_checkpoint = epoch == config.epochs or epoch % config.checkpoint_every == 0
+        should_checkpoint = (
+            local_epoch == config.epochs or epoch % config.checkpoint_every == 0
+        )
         if should_checkpoint:
             checkpoint_path = save_equinox_checkpoint(
                 model=model,
@@ -493,11 +671,17 @@ def train_autoencoder(
         _save_metrics_bundle(metrics, paths)
 
         should_save_artifacts = (
-            epoch == config.epochs or epoch % config.artifact_every == 0
+            local_epoch == config.epochs or epoch % config.artifact_every == 0
         )
         if artifact_callback is not None and should_save_artifacts:
             artifact_source = eval_data if eval_data is not None else train_data
-            artifact_batch = _first_batch(artifact_source, config.batch_size, sample_axis)
+            artifact_targets = eval_targets if eval_data is not None else train_targets
+            artifact_batch = _first_batch(
+                artifact_source,
+                config.batch_size,
+                sample_axis,
+                artifact_targets,
+            )
             artifact_callback(model, artifact_batch, paths, epoch, metrics)
 
     write_json(
@@ -508,6 +692,11 @@ def train_autoencoder(
             "best_loss": best_loss,
             "best_epoch": metrics["best_epoch"],
             "epochs": config.epochs,
+            "start_epoch": start_epoch,
+            "final_epoch": metrics["epoch"][-1],
+            "resume_from_checkpoint": (
+                str(resume_from_checkpoint) if resume_from_checkpoint is not None else None
+            ),
             "checkpoints": checkpoint_paths,
         },
     )
@@ -526,6 +715,9 @@ def run_eval_only(
     config: AutoencoderExperimentConfig,
     *,
     sample_axis: int = 0,
+    eval_targets: Optional[Array] = None,
+    eval_loss_weights: Optional[Array] = None,
+    prediction_transform: Optional[PredictionTransform] = None,
     task_config: Optional[Dict[str, Any]] = None,
     artifact_callback: Optional[ArtifactCallback] = None,
 ) -> AutoencoderExperimentResult:
@@ -537,6 +729,9 @@ def run_eval_only(
         eval_data,
         batch_size=config.batch_size,
         sample_axis=sample_axis,
+        targets=eval_targets,
+        loss_weights=eval_loss_weights,
+        prediction_transform=prediction_transform,
     )
     metrics = {
         "epoch": [0],
@@ -550,7 +745,12 @@ def run_eval_only(
     write_json(paths.metrics / "summary.json", {"eval_loss": eval_loss})
 
     if artifact_callback is not None:
-        artifact_batch = _first_batch(eval_data, config.batch_size, sample_axis)
+        artifact_batch = _first_batch(
+            eval_data,
+            config.batch_size,
+            sample_axis,
+            eval_targets,
+        )
         artifact_callback(model, artifact_batch, paths, 0, metrics)
 
     return AutoencoderExperimentResult(
@@ -567,8 +767,10 @@ __all__ = [
     "AutoencoderExperimentConfig",
     "AutoencoderExperimentResult",
     "ExperimentPaths",
+    "PredictionTransform",
     "collect_sequence_state_trace",
     "evaluate_autoencoder",
+    "iter_input_target_batches",
     "iter_sample_batches",
     "prepare_experiment_paths",
     "run_eval_only",

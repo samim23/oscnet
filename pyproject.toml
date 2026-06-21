@@ -52,6 +52,9 @@ analysis = [
     "seaborn>=0.12.0",
     "tqdm>=4.65.0",
 ]
+cloud = [
+    "modal>=1.5.0",
+]
 
 [project.urls]
 "Homepage" = "https://github.com/samim23/oscnet"

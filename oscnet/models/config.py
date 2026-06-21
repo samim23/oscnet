@@ -6,10 +6,27 @@ from typing import Any, Dict, Optional, Tuple, Type
 import jax
 
 from oscnet.core.oscillators import NonlinearHarmonicOscillator, Oscillator
-from oscnet.models.oscillatory import OscillatoryAutoencoder, PatchOscillatoryAutoencoder
+from oscnet.models.oscillatory import (
+    ConvLSTMPatchDenoiser,
+    FeedForwardPatchAutoencoder,
+    OscillatoryAutoencoder,
+    PatchOscillatoryAutoencoder,
+    RecurrentConvPatchDenoiser,
+    RecurrentConvPriorRefinementPatchDenoiser,
+)
 from oscnet.models.phase import WinfreePhaseAutoencoder
 from oscnet.models.wavelet import WaveletOscillatoryAutoencoder
-from oscnet.models.winfree import WinfreeFieldAutoencoder, WinfreePatchAutoencoder
+from oscnet.models.winfree import (
+    WinfreeCoarseGlobalRatePhaseConditionalPatchDenoiser,
+    WinfreeCoarsePredictiveRatePhaseConditionalPatchDenoiser,
+    WinfreeCoarseRatePhaseConditionalPatchDenoiser,
+    WinfreeConditionalPatchDenoiser,
+    WinfreeFieldAutoencoder,
+    WinfreeGlobalRatePhaseConditionalPatchDenoiser,
+    WinfreePatchAutoencoder,
+    WinfreePriorRefinementPatchDenoiser,
+    WinfreeRatePhaseConditionalPatchDenoiser,
+)
 
 
 @dataclass(frozen=True)
@@ -28,6 +45,7 @@ class OscillatoryAutoencoderConfig:
     readout_mode: str = "amplitude_velocity"
     latent_conditioning_strength: float = 1.0
     initial_amplitude: float = 0.1
+    output_activation: str = "identity"
 
     def build(self, key: jax.random.PRNGKey) -> OscillatoryAutoencoder:
         return OscillatoryAutoencoder(
@@ -45,6 +63,7 @@ class OscillatoryAutoencoderConfig:
             readout_mode=self.readout_mode,
             latent_conditioning_strength=self.latent_conditioning_strength,
             initial_amplitude=self.initial_amplitude,
+            output_activation=self.output_activation,
             key=key,
         )
 
@@ -64,6 +83,7 @@ class PatchOscillatoryAutoencoderConfig:
     readout_mode: str = "amplitude_velocity"
     latent_conditioning_strength: float = 1.0
     initial_amplitude: float = 0.1
+    output_activation: str = "identity"
 
     def build(self, key: jax.random.PRNGKey) -> PatchOscillatoryAutoencoder:
         return PatchOscillatoryAutoencoder(
@@ -80,6 +100,116 @@ class PatchOscillatoryAutoencoderConfig:
             readout_mode=self.readout_mode,
             latent_conditioning_strength=self.latent_conditioning_strength,
             initial_amplitude=self.initial_amplitude,
+            output_activation=self.output_activation,
+            key=key,
+        )
+
+
+@dataclass(frozen=True)
+class FeedForwardPatchAutoencoderConfig:
+    hidden_dim: int = 64
+    latent_dim: int = 32
+    image_shape: Tuple[int, int] = (28, 28)
+    patch_shape: Tuple[int, int] = (4, 4)
+    latent_output_skip: str = "sequence"
+    latent_output_skip_strength: float = 1.0
+    output_activation: str = "identity"
+
+    def build(self, key: jax.random.PRNGKey) -> FeedForwardPatchAutoencoder:
+        return FeedForwardPatchAutoencoder(
+            hidden_dim=self.hidden_dim,
+            latent_dim=self.latent_dim,
+            image_shape=self.image_shape,
+            patch_shape=self.patch_shape,
+            latent_output_skip=self.latent_output_skip,
+            latent_output_skip_strength=self.latent_output_skip_strength,
+            output_activation=self.output_activation,
+            key=key,
+        )
+
+
+@dataclass(frozen=True)
+class RecurrentConvPatchDenoiserConfig:
+    hidden_dim: int = 64
+    image_shape: Tuple[int, int] = (28, 28)
+    patch_shape: Tuple[int, int] = (4, 4)
+    steps: int = 8
+    kernel_size: int = 3
+    residual_strength: float = 0.5
+    output_activation: str = "identity"
+
+    def build(self, key: jax.random.PRNGKey) -> RecurrentConvPatchDenoiser:
+        return RecurrentConvPatchDenoiser(
+            hidden_dim=self.hidden_dim,
+            image_shape=self.image_shape,
+            patch_shape=self.patch_shape,
+            steps=self.steps,
+            kernel_size=self.kernel_size,
+            residual_strength=self.residual_strength,
+            output_activation=self.output_activation,
+            key=key,
+        )
+
+
+@dataclass(frozen=True)
+class RecurrentConvPriorRefinementPatchDenoiserConfig:
+    input_dim: Optional[int] = None
+    hidden_dim: int = 64
+    latent_dim: int = 64
+    image_shape: Tuple[int, int] = (28, 28)
+    patch_shape: Tuple[int, int] = (4, 4)
+    feedforward_latent_output_skip: str = "sequence"
+    feedforward_latent_output_skip_strength: float = 1.0
+    steps: int = 8
+    kernel_size: int = 3
+    recurrent_residual_strength: float = 0.5
+    refinement_strength: float = 0.5
+    output_activation: str = "identity"
+
+    def build(
+        self,
+        key: jax.random.PRNGKey,
+    ) -> RecurrentConvPriorRefinementPatchDenoiser:
+        return RecurrentConvPriorRefinementPatchDenoiser(
+            input_dim=self.input_dim,
+            hidden_dim=self.hidden_dim,
+            latent_dim=self.latent_dim,
+            image_shape=self.image_shape,
+            patch_shape=self.patch_shape,
+            feedforward_latent_output_skip=self.feedforward_latent_output_skip,
+            feedforward_latent_output_skip_strength=(
+                self.feedforward_latent_output_skip_strength
+            ),
+            steps=self.steps,
+            kernel_size=self.kernel_size,
+            recurrent_residual_strength=self.recurrent_residual_strength,
+            refinement_strength=self.refinement_strength,
+            output_activation=self.output_activation,
+            key=key,
+        )
+
+
+@dataclass(frozen=True)
+class ConvLSTMPatchDenoiserConfig:
+    input_dim: Optional[int] = None
+    hidden_dim: int = 64
+    image_shape: Tuple[int, int] = (28, 28)
+    patch_shape: Tuple[int, int] = (4, 4)
+    steps: int = 8
+    kernel_size: int = 3
+    forget_bias: float = 1.0
+    output_activation: str = "identity"
+
+    def build(self, key: jax.random.PRNGKey) -> ConvLSTMPatchDenoiser:
+        return ConvLSTMPatchDenoiser(
+            input_dim=self.input_dim,
+            hidden_dim=self.hidden_dim,
+            image_shape=self.image_shape,
+            patch_shape=self.patch_shape,
+            steps=self.steps,
+            kernel_size=self.kernel_size,
+            forget_bias=self.forget_bias,
+            output_activation=self.output_activation,
             key=key,
         )
 
@@ -144,7 +274,15 @@ class WinfreeFieldAutoencoderConfig:
     steps: int = 8
     gamma: float = 0.1
     coupling_strength: float = 1.0
+    coupling_decay_length: Optional[float] = None
+    coupling_mode: str = "matrix"
+    coupling_kernel_size: int = 3
+    adaptive_coupling_strength: float = 0.1
     latent_conditioning_strength: float = 1.0
+    latent_readout: str = "none"
+    latent_readout_strength: float = 1.0
+    latent_output_skip: str = "none"
+    latent_output_skip_strength: float = 1.0
     omega_scale: float = 1.0
     field_activation: str = "relu"
     si_func: str = "trig"
@@ -163,7 +301,15 @@ class WinfreeFieldAutoencoderConfig:
             steps=self.steps,
             gamma=self.gamma,
             coupling_strength=self.coupling_strength,
+            coupling_decay_length=self.coupling_decay_length,
+            coupling_mode=self.coupling_mode,
+            coupling_kernel_size=self.coupling_kernel_size,
+            adaptive_coupling_strength=self.adaptive_coupling_strength,
             latent_conditioning_strength=self.latent_conditioning_strength,
+            latent_readout=self.latent_readout,
+            latent_readout_strength=self.latent_readout_strength,
+            latent_output_skip=self.latent_output_skip,
+            latent_output_skip_strength=self.latent_output_skip_strength,
             omega_scale=self.omega_scale,
             field_activation=self.field_activation,
             si_func=self.si_func,
@@ -183,7 +329,15 @@ class WinfreePatchAutoencoderConfig:
     steps: int = 8
     gamma: float = 0.1
     coupling_strength: float = 1.0
+    coupling_decay_length: Optional[float] = None
+    coupling_mode: str = "matrix"
+    coupling_kernel_size: int = 3
+    adaptive_coupling_strength: float = 0.1
     latent_conditioning_strength: float = 1.0
+    latent_readout: str = "none"
+    latent_readout_strength: float = 1.0
+    latent_output_skip: str = "none"
+    latent_output_skip_strength: float = 1.0
     omega_scale: float = 1.0
     field_activation: str = "relu"
     si_func: str = "trig"
@@ -200,7 +354,15 @@ class WinfreePatchAutoencoderConfig:
             steps=self.steps,
             gamma=self.gamma,
             coupling_strength=self.coupling_strength,
+            coupling_decay_length=self.coupling_decay_length,
+            coupling_mode=self.coupling_mode,
+            coupling_kernel_size=self.coupling_kernel_size,
+            adaptive_coupling_strength=self.adaptive_coupling_strength,
             latent_conditioning_strength=self.latent_conditioning_strength,
+            latent_readout=self.latent_readout,
+            latent_readout_strength=self.latent_readout_strength,
+            latent_output_skip=self.latent_output_skip,
+            latent_output_skip_strength=self.latent_output_skip_strength,
             omega_scale=self.omega_scale,
             field_activation=self.field_activation,
             si_func=self.si_func,
@@ -210,11 +372,406 @@ class WinfreePatchAutoencoderConfig:
         )
 
 
+@dataclass(frozen=True)
+class WinfreeConditionalPatchDenoiserConfig:
+    hidden_dim: int = 64
+    image_shape: Tuple[int, int] = (28, 28)
+    patch_shape: Tuple[int, int] = (4, 4)
+    group_size: int = 1
+    steps: int = 8
+    gamma: float = 0.1
+    coupling_strength: float = 1.0
+    coupling_decay_length: Optional[float] = None
+    coupling_mode: str = "conv"
+    coupling_kernel_size: int = 3
+    adaptive_coupling_strength: float = 0.1
+    input_conditioning_strength: float = 1.0
+    omega_scale: float = 1.0
+    phase_init: str = "learned"
+    phase_init_scale: float = 1.0
+    field_activation: str = "relu"
+    si_func: str = "mlp"
+    si_hidden_ratio: int = 2
+    output_activation: str = "identity"
+
+    def build(self, key: jax.random.PRNGKey) -> WinfreeConditionalPatchDenoiser:
+        return WinfreeConditionalPatchDenoiser(
+            hidden_dim=self.hidden_dim,
+            image_shape=self.image_shape,
+            patch_shape=self.patch_shape,
+            group_size=self.group_size,
+            steps=self.steps,
+            gamma=self.gamma,
+            coupling_strength=self.coupling_strength,
+            coupling_decay_length=self.coupling_decay_length,
+            coupling_mode=self.coupling_mode,
+            coupling_kernel_size=self.coupling_kernel_size,
+            adaptive_coupling_strength=self.adaptive_coupling_strength,
+            input_conditioning_strength=self.input_conditioning_strength,
+            omega_scale=self.omega_scale,
+            phase_init=self.phase_init,
+            phase_init_scale=self.phase_init_scale,
+            field_activation=self.field_activation,
+            si_func=self.si_func,
+            si_hidden_ratio=self.si_hidden_ratio,
+            output_activation=self.output_activation,
+            key=key,
+        )
+
+
+@dataclass(frozen=True)
+class WinfreeRatePhaseConditionalPatchDenoiserConfig:
+    input_dim: Optional[int] = None
+    hidden_dim: int = 64
+    image_shape: Tuple[int, int] = (28, 28)
+    patch_shape: Tuple[int, int] = (4, 4)
+    group_size: int = 1
+    steps: int = 8
+    gamma: float = 0.1
+    coupling_strength: float = 1.0
+    coupling_decay_length: Optional[float] = None
+    coupling_mode: str = "conv"
+    coupling_kernel_size: int = 3
+    adaptive_coupling_strength: float = 0.1
+    input_conditioning_strength: float = 1.0
+    omega_scale: float = 1.0
+    phase_init: str = "learned"
+    phase_init_scale: float = 1.0
+    field_activation: str = "relu"
+    si_func: str = "mlp"
+    si_hidden_ratio: int = 2
+    rate_kernel_size: int = 3
+    rate_update_rate: float = 0.5
+    rate_gate_strength: float = 1.0
+    visibility_gate: str = "none"
+    visibility_drive_floor: float = 0.0
+    missing_transport_strength: float = 1.0
+    output_activation: str = "identity"
+
+    def build(self, key: jax.random.PRNGKey) -> WinfreeRatePhaseConditionalPatchDenoiser:
+        return WinfreeRatePhaseConditionalPatchDenoiser(
+            input_dim=self.input_dim,
+            hidden_dim=self.hidden_dim,
+            image_shape=self.image_shape,
+            patch_shape=self.patch_shape,
+            group_size=self.group_size,
+            steps=self.steps,
+            gamma=self.gamma,
+            coupling_strength=self.coupling_strength,
+            coupling_decay_length=self.coupling_decay_length,
+            coupling_mode=self.coupling_mode,
+            coupling_kernel_size=self.coupling_kernel_size,
+            adaptive_coupling_strength=self.adaptive_coupling_strength,
+            input_conditioning_strength=self.input_conditioning_strength,
+            omega_scale=self.omega_scale,
+            phase_init=self.phase_init,
+            phase_init_scale=self.phase_init_scale,
+            field_activation=self.field_activation,
+            si_func=self.si_func,
+            si_hidden_ratio=self.si_hidden_ratio,
+            rate_kernel_size=self.rate_kernel_size,
+            rate_update_rate=self.rate_update_rate,
+            rate_gate_strength=self.rate_gate_strength,
+            visibility_gate=self.visibility_gate,
+            visibility_drive_floor=self.visibility_drive_floor,
+            missing_transport_strength=self.missing_transport_strength,
+            output_activation=self.output_activation,
+            key=key,
+        )
+
+
+@dataclass(frozen=True)
+class WinfreeGlobalRatePhaseConditionalPatchDenoiserConfig:
+    input_dim: Optional[int] = None
+    hidden_dim: int = 64
+    image_shape: Tuple[int, int] = (28, 28)
+    patch_shape: Tuple[int, int] = (4, 4)
+    group_size: int = 1
+    steps: int = 8
+    gamma: float = 0.1
+    global_gamma: float = 0.05
+    coupling_strength: float = 1.0
+    coupling_decay_length: Optional[float] = None
+    coupling_mode: str = "conv"
+    coupling_kernel_size: int = 3
+    adaptive_coupling_strength: float = 0.1
+    input_conditioning_strength: float = 1.0
+    omega_scale: float = 1.0
+    phase_init: str = "learned"
+    phase_init_scale: float = 1.0
+    field_activation: str = "relu"
+    si_func: str = "mlp"
+    si_hidden_ratio: int = 2
+    rate_kernel_size: int = 3
+    rate_update_rate: float = 0.5
+    rate_gate_strength: float = 1.0
+    visibility_gate: str = "none"
+    visibility_drive_floor: float = 0.0
+    missing_transport_strength: float = 1.0
+    global_gate_strength: float = 0.5
+    output_activation: str = "identity"
+
+    def build(
+        self,
+        key: jax.random.PRNGKey,
+    ) -> WinfreeGlobalRatePhaseConditionalPatchDenoiser:
+        return WinfreeGlobalRatePhaseConditionalPatchDenoiser(
+            input_dim=self.input_dim,
+            hidden_dim=self.hidden_dim,
+            image_shape=self.image_shape,
+            patch_shape=self.patch_shape,
+            group_size=self.group_size,
+            steps=self.steps,
+            gamma=self.gamma,
+            global_gamma=self.global_gamma,
+            coupling_strength=self.coupling_strength,
+            coupling_decay_length=self.coupling_decay_length,
+            coupling_mode=self.coupling_mode,
+            coupling_kernel_size=self.coupling_kernel_size,
+            adaptive_coupling_strength=self.adaptive_coupling_strength,
+            input_conditioning_strength=self.input_conditioning_strength,
+            omega_scale=self.omega_scale,
+            phase_init=self.phase_init,
+            phase_init_scale=self.phase_init_scale,
+            field_activation=self.field_activation,
+            si_func=self.si_func,
+            si_hidden_ratio=self.si_hidden_ratio,
+            rate_kernel_size=self.rate_kernel_size,
+            rate_update_rate=self.rate_update_rate,
+            rate_gate_strength=self.rate_gate_strength,
+            visibility_gate=self.visibility_gate,
+            visibility_drive_floor=self.visibility_drive_floor,
+            missing_transport_strength=self.missing_transport_strength,
+            global_gate_strength=self.global_gate_strength,
+            output_activation=self.output_activation,
+            key=key,
+        )
+
+
+@dataclass(frozen=True)
+class WinfreeCoarseGlobalRatePhaseConditionalPatchDenoiserConfig:
+    input_dim: Optional[int] = None
+    hidden_dim: int = 64
+    image_shape: Tuple[int, int] = (28, 28)
+    patch_shape: Tuple[int, int] = (4, 4)
+    coarse_grid_shape: Tuple[int, int] = (2, 2)
+    group_size: int = 1
+    steps: int = 8
+    gamma: float = 0.1
+    global_gamma: float = 0.05
+    coupling_strength: float = 1.0
+    coupling_decay_length: Optional[float] = None
+    coupling_mode: str = "conv"
+    coupling_kernel_size: int = 3
+    adaptive_coupling_strength: float = 0.1
+    input_conditioning_strength: float = 1.0
+    omega_scale: float = 1.0
+    phase_init: str = "learned"
+    phase_init_scale: float = 1.0
+    field_activation: str = "relu"
+    si_func: str = "mlp"
+    si_hidden_ratio: int = 2
+    rate_kernel_size: int = 3
+    rate_update_rate: float = 0.5
+    rate_gate_strength: float = 1.0
+    global_gate_strength: float = 0.5
+    global_phase_control: str = "none"
+    output_activation: str = "identity"
+
+    def build(
+        self,
+        key: jax.random.PRNGKey,
+    ) -> WinfreeCoarseGlobalRatePhaseConditionalPatchDenoiser:
+        return WinfreeCoarseGlobalRatePhaseConditionalPatchDenoiser(
+            input_dim=self.input_dim,
+            hidden_dim=self.hidden_dim,
+            image_shape=self.image_shape,
+            patch_shape=self.patch_shape,
+            coarse_grid_shape=self.coarse_grid_shape,
+            group_size=self.group_size,
+            steps=self.steps,
+            gamma=self.gamma,
+            global_gamma=self.global_gamma,
+            coupling_strength=self.coupling_strength,
+            coupling_decay_length=self.coupling_decay_length,
+            coupling_mode=self.coupling_mode,
+            coupling_kernel_size=self.coupling_kernel_size,
+            adaptive_coupling_strength=self.adaptive_coupling_strength,
+            input_conditioning_strength=self.input_conditioning_strength,
+            omega_scale=self.omega_scale,
+            phase_init=self.phase_init,
+            phase_init_scale=self.phase_init_scale,
+            field_activation=self.field_activation,
+            si_func=self.si_func,
+            si_hidden_ratio=self.si_hidden_ratio,
+            rate_kernel_size=self.rate_kernel_size,
+            rate_update_rate=self.rate_update_rate,
+            rate_gate_strength=self.rate_gate_strength,
+            global_gate_strength=self.global_gate_strength,
+            global_phase_control=self.global_phase_control,
+            output_activation=self.output_activation,
+            key=key,
+        )
+
+
+@dataclass(frozen=True)
+class WinfreeCoarseRatePhaseConditionalPatchDenoiserConfig(
+    WinfreeCoarseGlobalRatePhaseConditionalPatchDenoiserConfig
+):
+    global_content_strength: float = 0.5
+    global_content_control: str = "none"
+
+    def build(
+        self,
+        key: jax.random.PRNGKey,
+    ) -> WinfreeCoarseRatePhaseConditionalPatchDenoiser:
+        return WinfreeCoarseRatePhaseConditionalPatchDenoiser(
+            input_dim=self.input_dim,
+            hidden_dim=self.hidden_dim,
+            image_shape=self.image_shape,
+            patch_shape=self.patch_shape,
+            coarse_grid_shape=self.coarse_grid_shape,
+            group_size=self.group_size,
+            steps=self.steps,
+            gamma=self.gamma,
+            global_gamma=self.global_gamma,
+            coupling_strength=self.coupling_strength,
+            coupling_decay_length=self.coupling_decay_length,
+            coupling_mode=self.coupling_mode,
+            coupling_kernel_size=self.coupling_kernel_size,
+            adaptive_coupling_strength=self.adaptive_coupling_strength,
+            input_conditioning_strength=self.input_conditioning_strength,
+            omega_scale=self.omega_scale,
+            phase_init=self.phase_init,
+            phase_init_scale=self.phase_init_scale,
+            field_activation=self.field_activation,
+            si_func=self.si_func,
+            si_hidden_ratio=self.si_hidden_ratio,
+            rate_kernel_size=self.rate_kernel_size,
+            rate_update_rate=self.rate_update_rate,
+            rate_gate_strength=self.rate_gate_strength,
+            global_gate_strength=self.global_gate_strength,
+            global_phase_control=self.global_phase_control,
+            global_content_strength=self.global_content_strength,
+            global_content_control=self.global_content_control,
+            output_activation=self.output_activation,
+            key=key,
+        )
+
+
+@dataclass(frozen=True)
+class WinfreeCoarsePredictiveRatePhaseConditionalPatchDenoiserConfig(
+    WinfreeCoarseGlobalRatePhaseConditionalPatchDenoiserConfig
+):
+    global_content_control: str = "none"
+    coarse_readout_strength: float = 0.5
+
+    def build(
+        self,
+        key: jax.random.PRNGKey,
+    ) -> WinfreeCoarsePredictiveRatePhaseConditionalPatchDenoiser:
+        return WinfreeCoarsePredictiveRatePhaseConditionalPatchDenoiser(
+            input_dim=self.input_dim,
+            hidden_dim=self.hidden_dim,
+            image_shape=self.image_shape,
+            patch_shape=self.patch_shape,
+            coarse_grid_shape=self.coarse_grid_shape,
+            group_size=self.group_size,
+            steps=self.steps,
+            gamma=self.gamma,
+            global_gamma=self.global_gamma,
+            coupling_strength=self.coupling_strength,
+            coupling_decay_length=self.coupling_decay_length,
+            coupling_mode=self.coupling_mode,
+            coupling_kernel_size=self.coupling_kernel_size,
+            adaptive_coupling_strength=self.adaptive_coupling_strength,
+            input_conditioning_strength=self.input_conditioning_strength,
+            omega_scale=self.omega_scale,
+            phase_init=self.phase_init,
+            phase_init_scale=self.phase_init_scale,
+            field_activation=self.field_activation,
+            si_func=self.si_func,
+            si_hidden_ratio=self.si_hidden_ratio,
+            rate_kernel_size=self.rate_kernel_size,
+            rate_update_rate=self.rate_update_rate,
+            rate_gate_strength=self.rate_gate_strength,
+            global_gate_strength=self.global_gate_strength,
+            global_phase_control=self.global_phase_control,
+            global_content_control=self.global_content_control,
+            coarse_readout_strength=self.coarse_readout_strength,
+            output_activation=self.output_activation,
+            key=key,
+        )
+
+
+@dataclass(frozen=True)
+class WinfreePriorRefinementPatchDenoiserConfig(
+    WinfreeGlobalRatePhaseConditionalPatchDenoiserConfig
+):
+    latent_dim: int = 64
+    feedforward_latent_output_skip: str = "sequence"
+    feedforward_latent_output_skip_strength: float = 1.0
+    refinement_strength: float = 0.25
+
+    def build(
+        self,
+        key: jax.random.PRNGKey,
+    ) -> WinfreePriorRefinementPatchDenoiser:
+        return WinfreePriorRefinementPatchDenoiser(
+            input_dim=self.input_dim,
+            hidden_dim=self.hidden_dim,
+            latent_dim=self.latent_dim,
+            image_shape=self.image_shape,
+            patch_shape=self.patch_shape,
+            feedforward_latent_output_skip=self.feedforward_latent_output_skip,
+            feedforward_latent_output_skip_strength=(
+                self.feedforward_latent_output_skip_strength
+            ),
+            group_size=self.group_size,
+            steps=self.steps,
+            gamma=self.gamma,
+            global_gamma=self.global_gamma,
+            coupling_strength=self.coupling_strength,
+            coupling_decay_length=self.coupling_decay_length,
+            coupling_mode=self.coupling_mode,
+            coupling_kernel_size=self.coupling_kernel_size,
+            adaptive_coupling_strength=self.adaptive_coupling_strength,
+            input_conditioning_strength=self.input_conditioning_strength,
+            omega_scale=self.omega_scale,
+            phase_init=self.phase_init,
+            phase_init_scale=self.phase_init_scale,
+            field_activation=self.field_activation,
+            si_func=self.si_func,
+            si_hidden_ratio=self.si_hidden_ratio,
+            rate_kernel_size=self.rate_kernel_size,
+            rate_update_rate=self.rate_update_rate,
+            rate_gate_strength=self.rate_gate_strength,
+            global_gate_strength=self.global_gate_strength,
+            visibility_gate=self.visibility_gate,
+            visibility_drive_floor=self.visibility_drive_floor,
+            missing_transport_strength=self.missing_transport_strength,
+            refinement_strength=self.refinement_strength,
+            output_activation=self.output_activation,
+            key=key,
+        )
+
+
 __all__ = [
     "OscillatoryAutoencoderConfig",
     "PatchOscillatoryAutoencoderConfig",
+    "FeedForwardPatchAutoencoderConfig",
+    "RecurrentConvPatchDenoiserConfig",
+    "RecurrentConvPriorRefinementPatchDenoiserConfig",
+    "ConvLSTMPatchDenoiserConfig",
     "WaveletAutoencoderConfig",
     "WinfreePhaseAutoencoderConfig",
     "WinfreeFieldAutoencoderConfig",
     "WinfreePatchAutoencoderConfig",
+    "WinfreeConditionalPatchDenoiserConfig",
+    "WinfreeRatePhaseConditionalPatchDenoiserConfig",
+    "WinfreeGlobalRatePhaseConditionalPatchDenoiserConfig",
+    "WinfreeCoarseGlobalRatePhaseConditionalPatchDenoiserConfig",
+    "WinfreeCoarseRatePhaseConditionalPatchDenoiserConfig",
+    "WinfreeCoarsePredictiveRatePhaseConditionalPatchDenoiserConfig",
+    "WinfreePriorRefinementPatchDenoiserConfig",
 ]

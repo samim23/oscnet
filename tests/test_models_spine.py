@@ -3,11 +3,22 @@ import jax.numpy as jnp
 
 from oscnet.models import (
     AutoregressiveOscillatoryDecoder,
+    ConvLSTMPatchDenoiser,
+    FeedForwardPatchAutoencoder,
     OscillatoryAutoencoder,
     PatchOscillatoryAutoencoder,
     PositionalLatentOscillatoryDecoder,
+    RecurrentConvPatchDenoiser,
+    RecurrentConvPriorRefinementPatchDenoiser,
+    WinfreeCoarseGlobalRatePhaseConditionalPatchDenoiser,
+    WinfreeCoarsePredictiveRatePhaseConditionalPatchDenoiser,
+    WinfreeCoarseRatePhaseConditionalPatchDenoiser,
+    WinfreeConditionalPatchDenoiser,
     WinfreeFieldLayer,
+    WinfreeGlobalRatePhaseConditionalPatchDenoiser,
     WinfreePatchAutoencoder,
+    WinfreePriorRefinementPatchDenoiser,
+    WinfreeRatePhaseConditionalPatchDenoiser,
 )
 
 
@@ -69,6 +80,29 @@ def test_sequence_autoencoder_positional_mode_shapes():
     assert jnp.all(jnp.isfinite(reconstruction))
 
 
+def test_sequence_autoencoder_output_activation_bounds_reconstructions():
+    model = OscillatoryAutoencoder(
+        input_dim=6,
+        hidden_dim=12,
+        latent_dim=5,
+        sequence_length=4,
+        decoder_mode="positional",
+        output_activation="sigmoid",
+        key=jax.random.PRNGKey(7),
+    )
+    inputs = jnp.ones((4, 2, 6))
+
+    reconstruction, latent = model(inputs, return_latent=True)
+    decoded = model.decode(latent, sequence_length=inputs.shape[0])
+
+    assert reconstruction.shape == inputs.shape
+    assert decoded.shape == inputs.shape
+    assert jnp.all(reconstruction >= 0.0)
+    assert jnp.all(reconstruction <= 1.0)
+    assert jnp.all(decoded >= 0.0)
+    assert jnp.all(decoded <= 1.0)
+
+
 def test_patch_autoencoder_maps_flat_images_back_to_flat_images():
     model = PatchOscillatoryAutoencoder(
         hidden_dim=8,
@@ -85,6 +119,140 @@ def test_patch_autoencoder_maps_flat_images_back_to_flat_images():
     assert sequence.shape == (4, 2, 16)
     assert reconstruction.shape == images.shape
     assert jnp.all(jnp.isfinite(reconstruction))
+
+
+def test_feedforward_patch_autoencoder_maps_flat_images_back_to_flat_images():
+    model = FeedForwardPatchAutoencoder(
+        hidden_dim=8,
+        latent_dim=4,
+        image_shape=(8, 8),
+        patch_shape=(4, 4),
+        output_activation="sigmoid",
+        key=jax.random.PRNGKey(13),
+    )
+    images = jnp.ones((2, 64))
+
+    sequence = model.images_to_sequence(images)
+    reconstruction = model(images)
+    trace = model.collect_trace(images)
+
+    assert sequence.shape == (4, 2, 16)
+    assert reconstruction.shape == images.shape
+    assert trace["latent"].shape == (2, 4)
+    assert trace["encoder_hidden"].shape == (2, 4, 8)
+    assert trace["decoder_hidden"].shape == (2, 4, 8)
+    assert jnp.all(reconstruction >= 0.0)
+    assert jnp.all(reconstruction <= 1.0)
+
+
+def test_core_patch_models_accept_extra_input_channel_and_output_one_image():
+    images = jnp.ones((2, 2 * 64))
+    model_specs = [
+        (
+            FeedForwardPatchAutoencoder,
+            {
+                "latent_dim": 4,
+                "output_activation": "sigmoid",
+            },
+        ),
+        (
+            RecurrentConvPatchDenoiser,
+            {
+                "steps": 2,
+                "output_activation": "sigmoid",
+            },
+        ),
+        (
+            ConvLSTMPatchDenoiser,
+            {
+                "steps": 2,
+                "output_activation": "sigmoid",
+            },
+        ),
+        (
+            WinfreeRatePhaseConditionalPatchDenoiser,
+            {
+                "steps": 2,
+                "output_activation": "sigmoid",
+            },
+        ),
+        (
+            WinfreeGlobalRatePhaseConditionalPatchDenoiser,
+            {
+                "steps": 2,
+                "output_activation": "sigmoid",
+            },
+        ),
+    ]
+
+    for index, (model_cls, kwargs) in enumerate(model_specs):
+        model = model_cls(
+            input_dim=32,
+            hidden_dim=6,
+            image_shape=(8, 8),
+            patch_shape=(4, 4),
+            key=jax.random.PRNGKey(100 + index),
+            **kwargs,
+        )
+
+        sequence = model.images_to_sequence(images)
+        reconstruction = model(images)
+
+        assert sequence.shape == (4, 2, 32)
+        assert reconstruction.shape == (2, 64)
+        assert jnp.all(reconstruction >= 0.0)
+        assert jnp.all(reconstruction <= 1.0)
+
+
+def test_recurrent_conv_patch_denoiser_maps_flat_images_back_to_flat_images():
+    model = RecurrentConvPatchDenoiser(
+        hidden_dim=8,
+        image_shape=(8, 8),
+        patch_shape=(4, 4),
+        steps=3,
+        output_activation="sigmoid",
+        key=jax.random.PRNGKey(15),
+    )
+    images = jnp.ones((2, 64))
+
+    sequence = model.images_to_sequence(images)
+    reconstruction = model(images)
+    trace = model.collect_trace(images)
+
+    assert sequence.shape == (4, 2, 16)
+    assert reconstruction.shape == images.shape
+    assert trace["latent"].shape == (2, 8)
+    assert trace["initial_hidden"].shape == (2, 4, 8)
+    assert trace["hidden_states"].shape == (3, 2, 4, 8)
+    assert trace["reconstruction_sequence"].shape == (4, 2, 16)
+    assert jnp.all(reconstruction >= 0.0)
+    assert jnp.all(reconstruction <= 1.0)
+
+
+def test_conv_lstm_patch_denoiser_maps_flat_images_back_to_flat_images():
+    model = ConvLSTMPatchDenoiser(
+        hidden_dim=8,
+        image_shape=(8, 8),
+        patch_shape=(4, 4),
+        steps=3,
+        output_activation="sigmoid",
+        key=jax.random.PRNGKey(16),
+    )
+    images = jnp.ones((2, 64))
+
+    sequence = model.images_to_sequence(images)
+    reconstruction = model(images)
+    trace = model.collect_trace(images)
+
+    assert sequence.shape == (4, 2, 16)
+    assert reconstruction.shape == images.shape
+    assert trace["latent"].shape == (2, 8)
+    assert trace["drive"].shape == (2, 4, 8)
+    assert trace["hidden_states"].shape == (3, 2, 4, 8)
+    assert trace["cell_states"].shape == (3, 2, 4, 8)
+    assert trace["reconstruction_sequence"].shape == (4, 2, 16)
+    assert jnp.all(reconstruction >= 0.0)
+    assert jnp.all(reconstruction <= 1.0)
 
 
 def test_winfree_field_layer_records_phase_and_energy_trace():
@@ -131,6 +299,390 @@ def test_winfree_patch_autoencoder_maps_flat_images_back_to_flat_images():
     assert jnp.all(jnp.isfinite(reconstruction))
 
 
+def test_winfree_conditional_patch_denoiser_maps_flat_images_back_to_flat_images():
+    model = WinfreeConditionalPatchDenoiser(
+        hidden_dim=6,
+        image_shape=(8, 8),
+        patch_shape=(4, 4),
+        steps=2,
+        output_activation="sigmoid",
+        key=jax.random.PRNGKey(14),
+    )
+    images = jnp.ones((2, 64))
+
+    reconstruction = model(images)
+    trace = model.collect_trace(images)
+
+    assert reconstruction.shape == images.shape
+    assert trace["latent"].shape == (2, 12)
+    assert trace["omega"].shape == (2, 4, 6)
+    assert trace["thetas"].shape == (2, 2, 4, 6)
+    assert trace["reconstruction_sequence"].shape == (4, 2, 16)
+    assert jnp.all(reconstruction >= 0.0)
+    assert jnp.all(reconstruction <= 1.0)
+
+
+def test_winfree_conditional_patch_denoiser_supports_rotary_2d_phase_init():
+    model_a = WinfreeConditionalPatchDenoiser(
+        hidden_dim=6,
+        image_shape=(8, 8),
+        patch_shape=(4, 4),
+        steps=2,
+        phase_init="rotary_2d",
+        phase_init_scale=0.75,
+        key=jax.random.PRNGKey(16),
+    )
+    model_b = WinfreeConditionalPatchDenoiser(
+        hidden_dim=6,
+        image_shape=(8, 8),
+        patch_shape=(4, 4),
+        steps=2,
+        phase_init="rotary_2d",
+        phase_init_scale=0.75,
+        key=jax.random.PRNGKey(17),
+    )
+
+    assert model_a.phase_init == "rotary_2d"
+    assert model_a.positional_theta.shape == (4, 6)
+    assert jnp.allclose(model_a.positional_theta, model_b.positional_theta)
+    assert jnp.all(model_a.positional_theta <= jnp.pi + 1e-6)
+    assert jnp.all(model_a.positional_theta >= -jnp.pi - 1e-6)
+
+
+def test_winfree_rate_phase_conditional_denoiser_maps_flat_images_back_to_flat_images():
+    model = WinfreeRatePhaseConditionalPatchDenoiser(
+        hidden_dim=6,
+        image_shape=(8, 8),
+        patch_shape=(4, 4),
+        steps=2,
+        output_activation="sigmoid",
+        key=jax.random.PRNGKey(18),
+    )
+    images = jnp.ones((2, 64))
+
+    reconstruction = model(images)
+    trace = model.collect_trace(images)
+
+    assert reconstruction.shape == images.shape
+    assert trace["latent"].shape == (2, 18)
+    assert trace["omega"].shape == (2, 4, 6)
+    assert trace["thetas"].shape == (2, 2, 4, 6)
+    assert trace["rate_states"].shape == (2, 2, 4, 6)
+    assert trace["reconstruction_sequence"].shape == (4, 2, 16)
+    assert jnp.all(reconstruction >= 0.0)
+    assert jnp.all(reconstruction <= 1.0)
+
+
+def test_winfree_rate_phase_visibility_gate_uses_second_input_channel():
+    model = WinfreeRatePhaseConditionalPatchDenoiser(
+        input_dim=32,
+        hidden_dim=6,
+        image_shape=(8, 8),
+        patch_shape=(4, 4),
+        steps=2,
+        visibility_gate="visibility",
+        visibility_drive_floor=0.0,
+        missing_transport_strength=1.0,
+        output_activation="sigmoid",
+        key=jax.random.PRNGKey(118),
+    )
+    image = jnp.ones((2, 64))
+    visibility = jnp.concatenate([jnp.ones((2, 32)), jnp.zeros((2, 32))], axis=1)
+    inputs = jnp.concatenate([image, visibility], axis=1)
+
+    reconstruction = model(inputs)
+    trace = model.collect_trace(inputs)
+
+    assert reconstruction.shape == (2, 64)
+    assert trace["visibility"].shape == (2, 4, 1)
+    assert jnp.any(trace["visibility"] == 0.0)
+    assert jnp.any(trace["visibility"] == 1.0)
+    assert jnp.all(reconstruction >= 0.0)
+    assert jnp.all(reconstruction <= 1.0)
+
+
+def test_winfree_global_rate_phase_conditional_denoiser_traces_global_phase():
+    model = WinfreeGlobalRatePhaseConditionalPatchDenoiser(
+        hidden_dim=6,
+        image_shape=(8, 8),
+        patch_shape=(4, 4),
+        steps=2,
+        global_gate_strength=0.25,
+        output_activation="sigmoid",
+        key=jax.random.PRNGKey(19),
+    )
+    images = jnp.ones((2, 64))
+
+    reconstruction = model(images)
+    trace = model.collect_trace(images)
+
+    assert reconstruction.shape == images.shape
+    assert trace["latent"].shape == (2, 30)
+    assert trace["omega"].shape == (2, 4, 6)
+    assert trace["global_omega"].shape == (2, 1, 6)
+    assert trace["thetas"].shape == (2, 2, 4, 6)
+    assert trace["global_thetas"].shape == (2, 2, 1, 6)
+    assert trace["rate_states"].shape == (2, 2, 4, 6)
+    assert jnp.all(reconstruction >= 0.0)
+    assert jnp.all(reconstruction <= 1.0)
+
+
+def test_winfree_coarse_global_rate_phase_denoiser_traces_coarse_phase_mesh():
+    model = WinfreeCoarseGlobalRatePhaseConditionalPatchDenoiser(
+        hidden_dim=4,
+        image_shape=(12, 12),
+        patch_shape=(4, 4),
+        coarse_grid_shape=(2, 2),
+        steps=2,
+        global_gate_strength=0.25,
+        output_activation="sigmoid",
+        key=jax.random.PRNGKey(20),
+    )
+    images = jnp.ones((2, 144))
+
+    reconstruction = model(images)
+    trace = model.collect_trace(images)
+
+    assert reconstruction.shape == images.shape
+    assert trace["latent"].shape == (2, 44)
+    assert trace["omega"].shape == (2, 9, 4)
+    assert trace["coarse_omega"].shape == (2, 4, 4)
+    assert trace["thetas"].shape == (2, 2, 9, 4)
+    assert trace["coarse_thetas"].shape == (2, 2, 4, 4)
+    assert trace["rate_states"].shape == (2, 2, 9, 4)
+    assert trace["fine_to_coarse_weights"].shape == (4, 9)
+    assert trace["coarse_to_fine_weights"].shape == (9, 4)
+    assert jnp.allclose(trace["fine_to_coarse_weights"].sum(axis=1), 1.0)
+    assert jnp.allclose(trace["coarse_to_fine_weights"].sum(axis=1), 1.0)
+    assert jnp.all(reconstruction >= 0.0)
+    assert jnp.all(reconstruction <= 1.0)
+
+
+def test_winfree_coarse_global_rate_phase_supports_phase_shuffle_control():
+    model = WinfreeCoarseGlobalRatePhaseConditionalPatchDenoiser(
+        hidden_dim=4,
+        image_shape=(12, 12),
+        patch_shape=(4, 4),
+        coarse_grid_shape=(2, 2),
+        steps=1,
+        global_phase_control="shuffle",
+        key=jax.random.PRNGKey(21),
+    )
+
+    assert model.global_phase_control == "shuffle"
+    assert model.coarse_phase_permutation != (0, 1, 2, 3)
+    assert model(jnp.ones((2, 144))).shape == (2, 144)
+
+
+def test_winfree_coarse_rate_phase_denoiser_traces_content_transport():
+    model = WinfreeCoarseRatePhaseConditionalPatchDenoiser(
+        hidden_dim=4,
+        image_shape=(12, 12),
+        patch_shape=(4, 4),
+        coarse_grid_shape=(2, 2),
+        steps=2,
+        global_gate_strength=0.25,
+        global_content_strength=0.5,
+        output_activation="sigmoid",
+        key=jax.random.PRNGKey(22),
+    )
+    images = jnp.ones((2, 144))
+
+    reconstruction = model(images)
+    trace = model.collect_trace(images)
+
+    assert reconstruction.shape == images.shape
+    assert trace["latent"].shape == (2, 60)
+    assert trace["omega"].shape == (2, 9, 4)
+    assert trace["coarse_omega"].shape == (2, 4, 4)
+    assert trace["thetas"].shape == (2, 2, 9, 4)
+    assert trace["coarse_thetas"].shape == (2, 2, 4, 4)
+    assert trace["rate_states"].shape == (2, 2, 9, 4)
+    assert trace["coarse_rate_states"].shape == (2, 2, 4, 4)
+    assert trace["coarse_rate_drive"].shape == (2, 4, 4)
+    assert trace["coarse_rate_to_fine"].shape == (2, 9, 4)
+    assert trace["fine_to_coarse_weights"].shape == (4, 9)
+    assert trace["coarse_to_fine_weights"].shape == (9, 4)
+    assert jnp.all(reconstruction >= 0.0)
+    assert jnp.all(reconstruction <= 1.0)
+
+
+def test_winfree_coarse_rate_phase_supports_content_shuffle_control():
+    model = WinfreeCoarseRatePhaseConditionalPatchDenoiser(
+        hidden_dim=4,
+        image_shape=(12, 12),
+        patch_shape=(4, 4),
+        coarse_grid_shape=(2, 2),
+        steps=1,
+        global_content_control="shuffle",
+        key=jax.random.PRNGKey(23),
+    )
+
+    assert model.global_content_control == "shuffle"
+    assert model.coarse_phase_permutation != (0, 1, 2, 3)
+    assert model(jnp.ones((2, 144))).shape == (2, 144)
+
+
+def test_winfree_coarse_predictive_rate_phase_uses_readout_branch():
+    model = WinfreeCoarsePredictiveRatePhaseConditionalPatchDenoiser(
+        hidden_dim=4,
+        image_shape=(12, 12),
+        patch_shape=(4, 4),
+        coarse_grid_shape=(2, 2),
+        steps=2,
+        global_gate_strength=0.25,
+        global_content_control="shuffle",
+        coarse_readout_strength=0.35,
+        output_activation="sigmoid",
+        key=jax.random.PRNGKey(24),
+    )
+    images = jnp.ones((2, 144))
+
+    reconstruction = model(images)
+    trace = model.collect_trace(images)
+
+    assert reconstruction.shape == images.shape
+    assert model.global_content_strength == 0.0
+    assert model.global_content_control == "shuffle"
+    assert model.coarse_readout_strength == 0.35
+    assert trace["latent"].shape == (2, 60)
+    assert trace["local_readout_sequence"].shape == (9, 2, 16)
+    assert trace["coarse_readout_sequence"].shape == (9, 2, 16)
+    assert trace["coarse_readout_to_fine"].shape == (2, 9, 16)
+    assert trace["coarse_rate_states"].shape == (2, 2, 4, 4)
+    assert jnp.all(reconstruction >= 0.0)
+    assert jnp.all(reconstruction <= 1.0)
+
+
+def test_winfree_prior_refinement_denoiser_combines_prior_and_residual():
+    model = WinfreePriorRefinementPatchDenoiser(
+        input_dim=32,
+        hidden_dim=4,
+        latent_dim=3,
+        image_shape=(8, 8),
+        patch_shape=(4, 4),
+        steps=1,
+        refinement_strength=0.25,
+        output_activation="sigmoid",
+        key=jax.random.PRNGKey(25),
+    )
+    images = jnp.ones((2, 128))
+
+    reconstruction = model(images)
+    trace = model.collect_trace(images)
+
+    assert reconstruction.shape == (2, 64)
+    assert model.refinement_strength == 0.25
+    assert trace["prior_reconstruction"].shape == (2, 64)
+    assert trace["residual_reconstruction"].shape == (2, 64)
+    assert trace["combined_reconstruction"].shape == (2, 64)
+    assert trace["reconstruction_sequence"].shape == (4, 2, 16)
+    assert trace["refiner_reconstruction_sequence"].shape == (4, 2, 16)
+    assert jnp.all(reconstruction >= 0.0)
+    assert jnp.all(reconstruction <= 1.0)
+
+
+def test_recurrent_conv_prior_refinement_denoiser_combines_prior_and_residual():
+    model = RecurrentConvPriorRefinementPatchDenoiser(
+        input_dim=32,
+        hidden_dim=4,
+        latent_dim=3,
+        image_shape=(8, 8),
+        patch_shape=(4, 4),
+        steps=2,
+        refinement_strength=0.5,
+        output_activation="sigmoid",
+        key=jax.random.PRNGKey(26),
+    )
+    images = jnp.ones((2, 128))
+
+    reconstruction = model(images)
+    trace = model.collect_trace(images)
+
+    assert reconstruction.shape == (2, 64)
+    assert model.refinement_strength == 0.5
+    assert trace["prior_reconstruction"].shape == (2, 64)
+    assert trace["residual_reconstruction"].shape == (2, 64)
+    assert trace["combined_reconstruction"].shape == (2, 64)
+    assert trace["reconstruction_sequence"].shape == (4, 2, 16)
+    assert trace["refiner_hidden_states"].shape == (2, 2, 4, 4)
+    assert trace["refiner_reconstruction_sequence"].shape == (4, 2, 16)
+    assert jnp.all(reconstruction >= 0.0)
+    assert jnp.all(reconstruction <= 1.0)
+
+
+def test_winfree_patch_autoencoder_supports_latent_phase_readout():
+    model = WinfreePatchAutoencoder(
+        hidden_dim=6,
+        latent_dim=4,
+        image_shape=(8, 8),
+        patch_shape=(4, 4),
+        steps=2,
+        latent_readout="phase_bias",
+        latent_readout_strength=1.5,
+        output_activation="sigmoid",
+        key=jax.random.PRNGKey(10),
+    )
+    images = jnp.ones((2, 64))
+
+    reconstruction = model(images)
+    trace = model.collect_trace(images)
+
+    assert reconstruction.shape == images.shape
+    assert model.decoder.latent_readout == "phase_bias"
+    assert model.decoder.latent_to_readout is not None
+    assert trace["reconstruction_sequence"].shape == (4, 2, 16)
+    assert jnp.all(reconstruction >= 0.0)
+    assert jnp.all(reconstruction <= 1.0)
+
+
+def test_winfree_patch_autoencoder_supports_latent_concat_readout():
+    model = WinfreePatchAutoencoder(
+        hidden_dim=6,
+        latent_dim=4,
+        image_shape=(8, 8),
+        patch_shape=(4, 4),
+        steps=2,
+        latent_readout="concat",
+        latent_readout_strength=1.5,
+        output_activation="sigmoid",
+        key=jax.random.PRNGKey(11),
+    )
+    images = jnp.ones((2, 64))
+
+    reconstruction = model(images)
+
+    assert reconstruction.shape == images.shape
+    assert model.decoder.latent_readout == "concat"
+    assert model.decoder.theta_to_output.weight.shape == (16, 16)
+    assert jnp.all(reconstruction >= 0.0)
+    assert jnp.all(reconstruction <= 1.0)
+
+
+def test_winfree_patch_autoencoder_supports_latent_sequence_output_skip():
+    model = WinfreePatchAutoencoder(
+        hidden_dim=6,
+        latent_dim=4,
+        image_shape=(8, 8),
+        patch_shape=(4, 4),
+        steps=2,
+        latent_output_skip="sequence",
+        latent_output_skip_strength=1.5,
+        output_activation="sigmoid",
+        key=jax.random.PRNGKey(12),
+    )
+    images = jnp.ones((2, 64))
+
+    reconstruction = model(images)
+
+    assert reconstruction.shape == images.shape
+    assert model.decoder.latent_output_skip == "sequence"
+    assert model.decoder.latent_to_output_skip is not None
+    assert model.decoder.latent_to_output_skip.weight.shape == (64, 4)
+    assert jnp.all(reconstruction >= 0.0)
+    assert jnp.all(reconstruction <= 1.0)
+
+
 def test_winfree_field_layer_supports_learned_grouped_interactions():
     layer = WinfreeFieldLayer(
         num_positions=16,
@@ -154,3 +706,147 @@ def test_winfree_field_layer_supports_learned_grouped_interactions():
     assert jnp.all(trace["thetas"] <= jnp.pi + 1e-6)
     assert jnp.all(trace["thetas"] >= -jnp.pi - 1e-6)
     assert jnp.all(jnp.isfinite(trace["energies"]))
+
+
+def test_winfree_field_layer_supports_spatial_coupling_decay():
+    layer = WinfreeFieldLayer(
+        num_positions=49,
+        channels=3,
+        grid_shape=(7, 7),
+        coupling_decay_length=2.0,
+        steps=2,
+        gamma=0.1,
+        key=jax.random.PRNGKey(8),
+    )
+    no_decay = WinfreeFieldLayer(
+        num_positions=49,
+        channels=3,
+        grid_shape=(7, 7),
+        steps=2,
+        gamma=0.1,
+        key=jax.random.PRNGKey(9),
+    )
+
+    mask = jnp.asarray(layer.coupling_decay_mask)
+    no_decay_mask = jnp.asarray(no_decay.coupling_decay_mask)
+    assert mask.shape == (49, 49)
+    assert mask[0, 0] > mask[0, 1]
+    assert mask[0, 1] > mask[0, -1]
+    assert jnp.allclose(no_decay_mask, 1.0)
+
+
+def test_winfree_field_layer_supports_local_conv_coupling():
+    layer = WinfreeFieldLayer(
+        num_positions=16,
+        channels=4,
+        grid_shape=(4, 4),
+        coupling_mode="conv",
+        coupling_kernel_size=3,
+        si_func="mlp",
+        steps=2,
+        gamma=0.1,
+        key=jax.random.PRNGKey(13),
+    )
+    theta = jnp.ones((2, 16, 4)) * 0.2
+    omega = jnp.ones((2, 16, 4)) * 0.1
+
+    output = layer(theta, omega)
+    trace = layer(theta, omega, return_trajectory=True)
+
+    assert layer.coupling_mode == "conv"
+    assert layer.conv_kernel is not None
+    assert layer.conv_bias is not None
+    assert layer.conv_kernel.shape == (3, 3, 4, 4)
+    assert layer.conv_bias.shape == (4,)
+    assert output.shape == theta.shape
+    assert trace["final_theta"].shape == theta.shape
+    assert jnp.all(jnp.isfinite(output))
+
+
+def test_winfree_field_layer_supports_adaptive_local_coupling():
+    layer = WinfreeFieldLayer(
+        num_positions=16,
+        channels=4,
+        grid_shape=(4, 4),
+        coupling_mode="adaptive",
+        coupling_kernel_size=3,
+        si_func="mlp",
+        steps=2,
+        gamma=0.1,
+        key=jax.random.PRNGKey(14),
+    )
+    theta = jnp.ones((2, 16, 4)) * 0.2
+    omega = jnp.ones((2, 16, 4)) * 0.1
+
+    output = layer(theta, omega)
+    trace = layer(theta, omega, return_trajectory=True)
+    local_mask = jnp.asarray(layer.local_coupling_mask)
+
+    assert layer.coupling_mode == "adaptive"
+    assert layer.adaptive_query is not None
+    assert layer.adaptive_key is not None
+    assert layer.adaptive_value is not None
+    assert local_mask.shape == (16, 16)
+    assert bool(local_mask[0, 0])
+    assert bool(local_mask[0, 1])
+    assert not bool(local_mask[0, -1])
+    assert output.shape == theta.shape
+    assert trace["final_theta"].shape == theta.shape
+    assert jnp.all(jnp.isfinite(output))
+
+
+def test_winfree_field_layer_supports_residual_conv_adaptive_coupling():
+    layer = WinfreeFieldLayer(
+        num_positions=16,
+        channels=4,
+        grid_shape=(4, 4),
+        coupling_mode="conv_adaptive",
+        coupling_kernel_size=3,
+        adaptive_coupling_strength=0.05,
+        si_func="mlp",
+        steps=2,
+        gamma=0.1,
+        key=jax.random.PRNGKey(15),
+    )
+    theta = jnp.ones((2, 16, 4)) * 0.2
+    omega = jnp.ones((2, 16, 4)) * 0.1
+
+    output = layer(theta, omega)
+
+    assert layer.coupling_mode == "conv_adaptive"
+    assert layer.adaptive_coupling_strength == 0.05
+    assert layer.conv_kernel is not None
+    assert layer.conv_bias is not None
+    assert layer.adaptive_query is not None
+    assert layer.adaptive_key is not None
+    assert layer.adaptive_value is not None
+    assert output.shape == theta.shape
+    assert jnp.all(jnp.isfinite(output))
+
+
+def test_winfree_field_layer_supports_residual_conv_matrix_coupling():
+    layer = WinfreeFieldLayer(
+        num_positions=16,
+        channels=4,
+        grid_shape=(4, 4),
+        coupling_mode="conv_matrix",
+        coupling_decay_length=2.0,
+        coupling_kernel_size=3,
+        adaptive_coupling_strength=0.05,
+        si_func="mlp",
+        steps=2,
+        gamma=0.1,
+        key=jax.random.PRNGKey(16),
+    )
+    theta = jnp.ones((2, 16, 4)) * 0.2
+    omega = jnp.ones((2, 16, 4)) * 0.1
+
+    output = layer(theta, omega)
+
+    assert layer.coupling_mode == "conv_matrix"
+    assert layer.adaptive_coupling_strength == 0.05
+    assert layer.conv_kernel is not None
+    assert layer.conv_bias is not None
+    assert jnp.asarray(layer.coupling_decay_mask).shape == (16, 16)
+    assert output.shape == theta.shape
+    assert jnp.all(jnp.isfinite(output))

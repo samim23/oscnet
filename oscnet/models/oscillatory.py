@@ -43,6 +43,103 @@ def _omega_array(oscillator: Oscillator, hidden_dim: int) -> Array:
     return jnp.broadcast_to(omega, (hidden_dim,))
 
 
+def _apply_output_activation(outputs: Array, activation: str) -> Array:
+    if activation == "identity":
+        return outputs
+    if activation == "sigmoid":
+        return jax.nn.sigmoid(outputs)
+    if activation == "tanh01":
+        return 0.5 * (jnp.tanh(outputs) + 1.0)
+    raise ValueError("output_activation must be 'identity', 'sigmoid', or 'tanh01'")
+
+
+def _infer_patch_channels(
+    input_dim: Optional[int],
+    patch_shape: Tuple[int, int],
+) -> Tuple[int, int]:
+    patch_pixels = patch_shape[0] * patch_shape[1]
+    if input_dim is None:
+        return patch_pixels, 1
+    if input_dim < patch_pixels or input_dim % patch_pixels != 0:
+        raise ValueError(
+            f"input_dim must be a positive multiple of patch size ({patch_pixels})"
+        )
+    return int(input_dim), int(input_dim // patch_pixels)
+
+
+def _images_to_patch_sequence(
+    images: Array,
+    image_shape: Tuple[int, int],
+    patch_shape: Tuple[int, int],
+    channels: int,
+) -> Array:
+    """Convert flattened channel-first images to time-major patch sequences."""
+
+    height, width = image_shape
+    patch_height, patch_width = patch_shape
+    batch_size = images.shape[0]
+    num_patches = (height // patch_height) * (width // patch_width)
+    patch_dim = patch_height * patch_width * channels
+
+    images = images.reshape(batch_size, channels, height, width)
+    patches = images.reshape(
+        batch_size,
+        channels,
+        height // patch_height,
+        patch_height,
+        width // patch_width,
+        patch_width,
+    )
+    patches = patches.transpose(0, 2, 4, 1, 3, 5)
+    patches = patches.reshape(batch_size, num_patches, patch_dim)
+    return patches.transpose(1, 0, 2)
+
+
+def _patch_sequence_to_images(
+    sequence: Array,
+    image_shape: Tuple[int, int],
+    patch_shape: Tuple[int, int],
+    channels: int,
+    *,
+    flatten: bool = True,
+) -> Array:
+    """Convert time-major patch sequences back to flattened channel-first images."""
+
+    height, width = image_shape
+    patch_height, patch_width = patch_shape
+    batch_size = sequence.shape[1]
+
+    patches = sequence.transpose(1, 0, 2)
+    images = patches.reshape(
+        batch_size,
+        height // patch_height,
+        width // patch_width,
+        channels,
+        patch_height,
+        patch_width,
+    )
+    images = images.transpose(0, 3, 1, 4, 2, 5)
+    images = images.reshape(batch_size, channels, height, width)
+    if channels == 1:
+        images = images[:, 0]
+    if flatten:
+        return images.reshape(batch_size, channels * height * width)
+    return images
+
+
+def _apply_same_conv2d(kernel: Array, bias: Array, grid: Array) -> Array:
+    """Apply a same-padded convolution to NHWC grid data."""
+
+    field = jax.lax.conv_general_dilated(
+        grid,
+        kernel,
+        window_strides=(1, 1),
+        padding="SAME",
+        dimension_numbers=("NHWC", "HWIO", "NHWC"),
+    )
+    return field + bias[None, None, None, :]
+
+
 class AmplitudeVelocityOscillatorCell(eqx.Module):
     """
     Oscillatory recurrent cell that exposes both amplitude and velocity.
@@ -518,6 +615,7 @@ class OscillatoryAutoencoder(eqx.Module):
     encoder: OscillatoryEncoder
     decoder: eqx.Module
     decoder_mode: str = eqx.field(static=True)
+    output_activation: str = eqx.field(static=True)
 
     def __init__(
         self,
@@ -537,12 +635,19 @@ class OscillatoryAutoencoder(eqx.Module):
         encoder_phases: Optional[Array] = None,
         decoder_phases: Optional[Array] = None,
         initial_amplitude: float = 0.1,
+        output_activation: str = "identity",
         *,
         key: jax.random.PRNGKey,
     ):
+        if output_activation not in {"identity", "sigmoid", "tanh01"}:
+            raise ValueError(
+                "output_activation must be 'identity', 'sigmoid', or 'tanh01'"
+            )
+
         keys = jax.random.split(key, 2)
         output_dim = input_dim if output_dim is None else output_dim
         self.decoder_mode = decoder_mode
+        self.output_activation = output_activation
 
         self.encoder = OscillatoryEncoder(
             input_dim=input_dim,
@@ -597,11 +702,12 @@ class OscillatoryAutoencoder(eqx.Module):
         sequence_length: Optional[int] = None,
         use_phase_init: bool = False,
     ) -> Array:
-        return self.decoder(
+        outputs = self.decoder(
             latent,
             sequence_length=sequence_length,
             use_phase_init=use_phase_init,
         )
+        return _apply_output_activation(outputs, self.output_activation)
 
     def __call__(
         self,
@@ -647,6 +753,7 @@ class PatchOscillatoryAutoencoder(eqx.Module):
         encoder_phases: Optional[Array] = None,
         decoder_phases: Optional[Array] = None,
         initial_amplitude: float = 0.1,
+        output_activation: str = "identity",
         key: Optional[jax.random.PRNGKey] = None,
     ):
         if key is None:
@@ -682,6 +789,7 @@ class PatchOscillatoryAutoencoder(eqx.Module):
             encoder_phases=encoder_phases,
             decoder_phases=decoder_phases,
             initial_amplitude=initial_amplitude,
+            output_activation=output_activation,
             key=key,
         )
 
@@ -741,6 +849,699 @@ class PatchOscillatoryAutoencoder(eqx.Module):
         return self.autoencoder.decoder
 
 
+class FeedForwardPatchAutoencoder(eqx.Module):
+    """
+    Non-oscillatory patch autoencoder control.
+
+    This model intentionally matches the MNIST patch/latent benchmark surface
+    without recurrent oscillator dynamics. It gives attribution experiments a
+    plain neural baseline for testing whether a latent scaffold alone explains
+    a Winfree-field result.
+    """
+
+    patch_to_hidden: eqx.nn.Linear
+    to_latent: eqx.nn.Linear
+    latent_to_hidden_sequence: eqx.nn.Linear
+    hidden_to_patch: eqx.nn.Linear
+    latent_to_output_skip: Optional[eqx.nn.Linear]
+    positional_hidden: Array
+    decoder_positional_hidden: Array
+
+    image_shape: Tuple[int, int] = eqx.field(static=True)
+    patch_shape: Tuple[int, int] = eqx.field(static=True)
+    num_patches: int = eqx.field(static=True)
+    patch_dim: int = eqx.field(static=True)
+    input_patch_dim: int = eqx.field(static=True)
+    input_channels: int = eqx.field(static=True)
+    output_channels: int = eqx.field(static=True)
+    hidden_dim: int = eqx.field(static=True)
+    latent_dim: int = eqx.field(static=True)
+    latent_output_skip: str = eqx.field(static=True)
+    latent_output_skip_strength: float = eqx.field(static=True)
+    output_activation: str = eqx.field(static=True)
+
+    def __init__(
+        self,
+        input_dim: Optional[int] = None,
+        hidden_dim: int = 64,
+        latent_dim: int = 32,
+        image_shape: Tuple[int, int] = (28, 28),
+        patch_shape: Tuple[int, int] = (4, 4),
+        latent_output_skip: str = "sequence",
+        latent_output_skip_strength: float = 1.0,
+        output_activation: str = "identity",
+        key: Optional[jax.random.PRNGKey] = None,
+    ):
+        if key is None:
+            key = jax.random.PRNGKey(42)
+        if latent_output_skip not in {"none", "sequence"}:
+            raise ValueError("latent_output_skip must be 'none' or 'sequence'")
+        if output_activation not in {"identity", "sigmoid", "tanh01"}:
+            raise ValueError(
+                "output_activation must be 'identity', 'sigmoid', or 'tanh01'"
+            )
+
+        height, width = image_shape
+        patch_height, patch_width = patch_shape
+        if height % patch_height != 0 or width % patch_width != 0:
+            raise ValueError("image_shape must be divisible by patch_shape")
+
+        patch_dim = patch_height * patch_width
+        input_patch_dim, input_channels = _infer_patch_channels(
+            input_dim,
+            patch_shape,
+        )
+
+        keys = jax.random.split(key, 7)
+        num_patches = (height // patch_height) * (width // patch_width)
+        self.image_shape = image_shape
+        self.patch_shape = patch_shape
+        self.num_patches = int(num_patches)
+        self.patch_dim = int(patch_dim)
+        self.input_patch_dim = int(input_patch_dim)
+        self.input_channels = int(input_channels)
+        self.output_channels = 1
+        self.hidden_dim = int(hidden_dim)
+        self.latent_dim = int(latent_dim)
+        self.latent_output_skip = latent_output_skip
+        self.latent_output_skip_strength = float(latent_output_skip_strength)
+        self.output_activation = output_activation
+
+        self.patch_to_hidden = eqx.nn.Linear(input_patch_dim, hidden_dim, key=keys[0])
+        self.to_latent = eqx.nn.Linear(
+            num_patches * hidden_dim,
+            latent_dim,
+            key=keys[1],
+        )
+        self.latent_to_hidden_sequence = eqx.nn.Linear(
+            latent_dim,
+            num_patches * hidden_dim,
+            key=keys[2],
+        )
+        self.hidden_to_patch = eqx.nn.Linear(hidden_dim, patch_dim, key=keys[3])
+        if latent_output_skip == "sequence":
+            self.latent_to_output_skip = eqx.nn.Linear(
+                latent_dim,
+                num_patches * patch_dim,
+                key=keys[4],
+            )
+        else:
+            self.latent_to_output_skip = None
+        self.positional_hidden = (
+            jax.random.normal(keys[5], (num_patches, hidden_dim)) * 0.02
+        )
+        self.decoder_positional_hidden = (
+            jax.random.normal(keys[6], (num_patches, hidden_dim)) * 0.02
+        )
+
+    def images_to_sequence(self, images: Array) -> Array:
+        return _images_to_patch_sequence(
+            images,
+            self.image_shape,
+            self.patch_shape,
+            self.input_channels,
+        )
+
+    def sequence_to_images(self, sequence: Array, flatten: bool = True) -> Array:
+        return _patch_sequence_to_images(
+            sequence,
+            self.image_shape,
+            self.patch_shape,
+            self.output_channels,
+            flatten=flatten,
+        )
+
+    def _encode_sequence(self, sequence: Array) -> Tuple[Array, Array]:
+        sequence_btf = sequence.transpose(1, 0, 2)
+        hidden = jax.nn.relu(
+            jax.vmap(jax.vmap(self.patch_to_hidden))(sequence_btf)
+            + self.positional_hidden[None, :, :]
+        )
+        latent = jax.vmap(self.to_latent)(hidden.reshape(hidden.shape[0], -1))
+        return latent, hidden
+
+    def encode(self, images: Array, use_phase_init: bool = False) -> Array:
+        del use_phase_init
+        sequence = self.images_to_sequence(images)
+        latent, _ = self._encode_sequence(sequence)
+        return latent
+
+    def decode(self, latent: Array, sequence_length: Optional[int] = None) -> Array:
+        length = sequence_length or self.num_patches
+        if length != self.num_patches:
+            raise ValueError("FeedForwardPatchAutoencoder requires its configured length")
+
+        hidden = jax.vmap(self.latent_to_hidden_sequence)(latent)
+        hidden = hidden.reshape(latent.shape[0], self.num_patches, self.hidden_dim)
+        hidden = jax.nn.relu(hidden + self.decoder_positional_hidden[None, :, :])
+        outputs = jax.vmap(jax.vmap(self.hidden_to_patch))(hidden)
+        if self.latent_output_skip == "sequence":
+            if self.latent_to_output_skip is None:
+                raise RuntimeError("latent output skip parameters are missing")
+            output_skip = jax.vmap(self.latent_to_output_skip)(latent)
+            output_skip = output_skip.reshape(
+                latent.shape[0],
+                self.num_patches,
+                self.patch_dim,
+            )
+            outputs = outputs + self.latent_output_skip_strength * output_skip
+        outputs = _apply_output_activation(outputs, self.output_activation)
+        return outputs.transpose(1, 0, 2)
+
+    def collect_trace(self, images: Array) -> Dict[str, Array]:
+        sequence = self.images_to_sequence(images)
+        latent, encoder_hidden = self._encode_sequence(sequence)
+        reconstruction_sequence = self.decode(latent)
+        decoder_hidden = jax.vmap(self.latent_to_hidden_sequence)(latent)
+        decoder_hidden = decoder_hidden.reshape(
+            latent.shape[0],
+            self.num_patches,
+            self.hidden_dim,
+        )
+        return {
+            "latent": latent,
+            "reconstruction_sequence": reconstruction_sequence,
+            "encoder_hidden": encoder_hidden,
+            "decoder_hidden": decoder_hidden,
+        }
+
+    def __call__(self, images: Array, use_phase_init: bool = False) -> Array:
+        del use_phase_init
+        latent = self.encode(images)
+        reconstruction = self.decode(latent)
+        return self.sequence_to_images(reconstruction, flatten=True)
+
+
+class RecurrentConvPatchDenoiser(eqx.Module):
+    """
+    Non-oscillatory local recurrent patch denoiser.
+
+    This is an attribution control for conditional Winfree phase fields. It
+    keeps the same flat-image patch interface and direct corrupted-input to
+    clean-output task shape, but replaces phase dynamics with tied local
+    convolutional message passing over the patch grid.
+    """
+
+    patch_to_hidden: eqx.nn.Linear
+    hidden_to_patch: eqx.nn.Linear
+    conv_kernel: Array
+    conv_bias: Array
+    positional_hidden: Array
+
+    image_shape: Tuple[int, int] = eqx.field(static=True)
+    patch_shape: Tuple[int, int] = eqx.field(static=True)
+    grid_shape: Tuple[int, int] = eqx.field(static=True)
+    num_patches: int = eqx.field(static=True)
+    patch_dim: int = eqx.field(static=True)
+    input_patch_dim: int = eqx.field(static=True)
+    input_channels: int = eqx.field(static=True)
+    output_channels: int = eqx.field(static=True)
+    hidden_dim: int = eqx.field(static=True)
+    steps: int = eqx.field(static=True)
+    kernel_size: int = eqx.field(static=True)
+    residual_strength: float = eqx.field(static=True)
+    output_activation: str = eqx.field(static=True)
+
+    def __init__(
+        self,
+        input_dim: Optional[int] = None,
+        hidden_dim: int = 64,
+        image_shape: Tuple[int, int] = (28, 28),
+        patch_shape: Tuple[int, int] = (4, 4),
+        steps: int = 8,
+        kernel_size: int = 3,
+        residual_strength: float = 0.5,
+        output_activation: str = "identity",
+        key: Optional[jax.random.PRNGKey] = None,
+    ):
+        if key is None:
+            key = jax.random.PRNGKey(42)
+        if steps < 1:
+            raise ValueError("steps must be >= 1")
+        if kernel_size < 1 or kernel_size % 2 == 0:
+            raise ValueError("kernel_size must be a positive odd integer")
+        if output_activation not in {"identity", "sigmoid", "tanh01"}:
+            raise ValueError(
+                "output_activation must be 'identity', 'sigmoid', or 'tanh01'"
+            )
+
+        height, width = image_shape
+        patch_height, patch_width = patch_shape
+        if height % patch_height != 0 or width % patch_width != 0:
+            raise ValueError("image_shape must be divisible by patch_shape")
+
+        patch_dim = patch_height * patch_width
+        input_patch_dim, input_channels = _infer_patch_channels(
+            input_dim,
+            patch_shape,
+        )
+
+        keys = jax.random.split(key, 4)
+        grid_shape = (height // patch_height, width // patch_width)
+        num_patches = grid_shape[0] * grid_shape[1]
+        conv_scale = 1.0 / jnp.sqrt(float(kernel_size * kernel_size * hidden_dim))
+
+        self.image_shape = image_shape
+        self.patch_shape = patch_shape
+        self.grid_shape = grid_shape
+        self.num_patches = int(num_patches)
+        self.patch_dim = int(patch_dim)
+        self.input_patch_dim = int(input_patch_dim)
+        self.input_channels = int(input_channels)
+        self.output_channels = 1
+        self.hidden_dim = int(hidden_dim)
+        self.steps = int(steps)
+        self.kernel_size = int(kernel_size)
+        self.residual_strength = float(residual_strength)
+        self.output_activation = output_activation
+
+        self.patch_to_hidden = eqx.nn.Linear(input_patch_dim, hidden_dim, key=keys[0])
+        self.hidden_to_patch = eqx.nn.Linear(hidden_dim, patch_dim, key=keys[1])
+        self.conv_kernel = (
+            jax.random.normal(
+                keys[2],
+                (kernel_size, kernel_size, hidden_dim, hidden_dim),
+            )
+            * conv_scale
+        )
+        self.conv_bias = jnp.zeros((hidden_dim,))
+        self.positional_hidden = (
+            jax.random.normal(keys[3], (num_patches, hidden_dim)) * 0.02
+        )
+
+    def images_to_sequence(self, images: Array) -> Array:
+        return _images_to_patch_sequence(
+            images,
+            self.image_shape,
+            self.patch_shape,
+            self.input_channels,
+        )
+
+    def sequence_to_images(self, sequence: Array, flatten: bool = True) -> Array:
+        return _patch_sequence_to_images(
+            sequence,
+            self.image_shape,
+            self.patch_shape,
+            self.output_channels,
+            flatten=flatten,
+        )
+
+    def _initial_hidden(self, images: Array) -> Array:
+        sequence = self.images_to_sequence(images).transpose(1, 0, 2)
+        hidden = jnp.tanh(
+            jax.vmap(jax.vmap(self.patch_to_hidden))(sequence)
+            + self.positional_hidden[None, :, :]
+        )
+        return hidden
+
+    def _step(self, hidden: Array, drive: Array) -> Array:
+        batch_size = hidden.shape[0]
+        grid_h, grid_w = self.grid_shape
+        hidden_grid = hidden.reshape(batch_size, grid_h, grid_w, self.hidden_dim)
+        conv = _apply_same_conv2d(
+            self.conv_kernel,
+            self.conv_bias,
+            hidden_grid,
+        )
+        conv = conv.reshape(batch_size, self.num_patches, self.hidden_dim)
+        update_rate = jnp.clip(self.residual_strength, 0.0, 1.0)
+        proposal = jnp.tanh(drive + conv)
+        return (1.0 - update_rate) * hidden + update_rate * proposal
+
+    def _evolve(self, hidden: Array, return_trajectory: bool = False):
+        drive = hidden
+
+        if return_trajectory:
+
+            def scan_trace(carry, _):
+                next_hidden = self._step(carry, drive)
+                return next_hidden, next_hidden
+
+            final_hidden, hidden_states = jax.lax.scan(
+                scan_trace,
+                hidden,
+                None,
+                length=self.steps,
+            )
+            return final_hidden, hidden_states
+
+        def scan_final(carry, _):
+            return self._step(carry, drive), None
+
+        final_hidden, _ = jax.lax.scan(scan_final, hidden, None, length=self.steps)
+        return final_hidden
+
+    def _readout(self, hidden: Array) -> Array:
+        outputs = jax.vmap(jax.vmap(self.hidden_to_patch))(hidden)
+        outputs = _apply_output_activation(outputs, self.output_activation)
+        return outputs.transpose(1, 0, 2)
+
+    def encode(self, images: Array, use_phase_init: bool = False) -> Array:
+        del use_phase_init
+        hidden = self._initial_hidden(images)
+        final_hidden = self._evolve(hidden)
+        return jnp.mean(final_hidden, axis=1)
+
+    def collect_trace(self, images: Array) -> Dict[str, Array]:
+        hidden = self._initial_hidden(images)
+        final_hidden, hidden_states = self._evolve(hidden, return_trajectory=True)
+        reconstruction_sequence = self._readout(final_hidden)
+        return {
+            "latent": jnp.mean(final_hidden, axis=1),
+            "reconstruction_sequence": reconstruction_sequence,
+            "initial_hidden": hidden,
+            "final_hidden": final_hidden,
+            "hidden_states": hidden_states,
+        }
+
+    def __call__(self, images: Array, use_phase_init: bool = False) -> Array:
+        del use_phase_init
+        hidden = self._initial_hidden(images)
+        final_hidden = self._evolve(hidden)
+        reconstruction = self._readout(final_hidden)
+        return self.sequence_to_images(reconstruction, flatten=True)
+
+
+class RecurrentConvPriorRefinementPatchDenoiser(eqx.Module):
+    """
+    Feedforward semantic prior plus non-oscillatory recurrent-conv residual.
+
+    This mirrors ``WinfreePriorRefinementPatchDenoiser`` without phase dynamics.
+    It is an attribution control for asking whether the prior+residual gains
+    come from oscillatory dynamics specifically, or from adding a recurrent
+    local residual branch to the same feedforward prior.
+    """
+
+    prior: FeedForwardPatchAutoencoder
+    refiner: RecurrentConvPatchDenoiser
+
+    refinement_strength: float = eqx.field(static=True)
+    output_activation: str = eqx.field(static=True)
+
+    def __init__(
+        self,
+        input_dim: Optional[int] = None,
+        hidden_dim: int = 64,
+        latent_dim: int = 64,
+        image_shape: Tuple[int, int] = (28, 28),
+        patch_shape: Tuple[int, int] = (4, 4),
+        feedforward_latent_output_skip: str = "sequence",
+        feedforward_latent_output_skip_strength: float = 1.0,
+        steps: int = 8,
+        kernel_size: int = 3,
+        recurrent_residual_strength: float = 0.5,
+        refinement_strength: float = 0.5,
+        output_activation: str = "identity",
+        key: Optional[jax.random.PRNGKey] = None,
+    ):
+        if key is None:
+            key = jax.random.PRNGKey(42)
+        if refinement_strength < 0.0:
+            raise ValueError("refinement_strength must be non-negative")
+        if output_activation not in {"identity", "sigmoid", "tanh01"}:
+            raise ValueError(
+                "output_activation must be 'identity', 'sigmoid', or 'tanh01'"
+            )
+
+        keys = jax.random.split(key, 2)
+        self.refinement_strength = float(refinement_strength)
+        self.output_activation = output_activation
+        self.prior = FeedForwardPatchAutoencoder(
+            input_dim=input_dim,
+            hidden_dim=hidden_dim,
+            latent_dim=latent_dim,
+            image_shape=image_shape,
+            patch_shape=patch_shape,
+            latent_output_skip=feedforward_latent_output_skip,
+            latent_output_skip_strength=feedforward_latent_output_skip_strength,
+            output_activation="identity",
+            key=keys[0],
+        )
+        self.refiner = RecurrentConvPatchDenoiser(
+            input_dim=input_dim,
+            hidden_dim=hidden_dim,
+            image_shape=image_shape,
+            patch_shape=patch_shape,
+            steps=steps,
+            kernel_size=kernel_size,
+            residual_strength=recurrent_residual_strength,
+            output_activation="identity",
+            key=keys[1],
+        )
+
+    def images_to_sequence(self, images: Array) -> Array:
+        return self.prior.images_to_sequence(images)
+
+    def sequence_to_images(self, sequence: Array, flatten: bool = True) -> Array:
+        return self.prior.sequence_to_images(sequence, flatten=flatten)
+
+    def _raw_components(self, images: Array) -> Tuple[Array, Array, Array]:
+        prior = self.prior(images)
+        residual = jnp.tanh(self.refiner(images))
+        combined = prior + self.refinement_strength * residual
+        return prior, residual, combined
+
+    def encode(self, images: Array, use_phase_init: bool = False) -> Array:
+        del use_phase_init
+        return jnp.concatenate(
+            [
+                self.prior.encode(images),
+                self.refiner.encode(images),
+            ],
+            axis=-1,
+        )
+
+    def collect_trace(self, images: Array) -> Dict[str, Array]:
+        prior, residual, combined = self._raw_components(images)
+        output = _apply_output_activation(combined, self.output_activation)
+        trace = self.refiner.collect_trace(images)
+        return {
+            **{f"refiner_{key}": value for key, value in trace.items()},
+            "latent": self.encode(images),
+            "prior_reconstruction": prior,
+            "residual_reconstruction": residual,
+            "combined_reconstruction": combined,
+            "reconstruction_sequence": _images_to_patch_sequence(
+                output,
+                self.prior.image_shape,
+                self.prior.patch_shape,
+                self.prior.output_channels,
+            ),
+        }
+
+    def __call__(self, images: Array, use_phase_init: bool = False) -> Array:
+        del use_phase_init
+        _, _, combined = self._raw_components(images)
+        return _apply_output_activation(combined, self.output_activation)
+
+
+class ConvLSTMPatchDenoiser(eqx.Module):
+    """
+    Gated recurrent convolutional patch denoiser control.
+
+    This is a stronger non-oscillatory recurrent baseline than
+    ``RecurrentConvPatchDenoiser``. It keeps the same patch-grid task surface,
+    but replaces the tied residual conv update with a ConvLSTM-style hidden and
+    cell state over the patch grid.
+    """
+
+    patch_to_hidden: eqx.nn.Linear
+    hidden_to_patch: eqx.nn.Linear
+    gate_kernel: Array
+    gate_bias: Array
+    positional_hidden: Array
+
+    image_shape: Tuple[int, int] = eqx.field(static=True)
+    patch_shape: Tuple[int, int] = eqx.field(static=True)
+    grid_shape: Tuple[int, int] = eqx.field(static=True)
+    num_patches: int = eqx.field(static=True)
+    patch_dim: int = eqx.field(static=True)
+    input_patch_dim: int = eqx.field(static=True)
+    input_channels: int = eqx.field(static=True)
+    output_channels: int = eqx.field(static=True)
+    hidden_dim: int = eqx.field(static=True)
+    steps: int = eqx.field(static=True)
+    kernel_size: int = eqx.field(static=True)
+    forget_bias: float = eqx.field(static=True)
+    output_activation: str = eqx.field(static=True)
+
+    def __init__(
+        self,
+        input_dim: Optional[int] = None,
+        hidden_dim: int = 64,
+        image_shape: Tuple[int, int] = (28, 28),
+        patch_shape: Tuple[int, int] = (4, 4),
+        steps: int = 8,
+        kernel_size: int = 3,
+        forget_bias: float = 1.0,
+        output_activation: str = "identity",
+        key: Optional[jax.random.PRNGKey] = None,
+    ):
+        if key is None:
+            key = jax.random.PRNGKey(42)
+        if steps < 1:
+            raise ValueError("steps must be >= 1")
+        if kernel_size < 1 or kernel_size % 2 == 0:
+            raise ValueError("kernel_size must be a positive odd integer")
+        if output_activation not in {"identity", "sigmoid", "tanh01"}:
+            raise ValueError(
+                "output_activation must be 'identity', 'sigmoid', or 'tanh01'"
+            )
+
+        height, width = image_shape
+        patch_height, patch_width = patch_shape
+        if height % patch_height != 0 or width % patch_width != 0:
+            raise ValueError("image_shape must be divisible by patch_shape")
+
+        patch_dim = patch_height * patch_width
+        input_patch_dim, input_channels = _infer_patch_channels(
+            input_dim,
+            patch_shape,
+        )
+
+        keys = jax.random.split(key, 4)
+        grid_shape = (height // patch_height, width // patch_width)
+        num_patches = grid_shape[0] * grid_shape[1]
+        gate_in_dim = 2 * hidden_dim
+        gate_out_dim = 4 * hidden_dim
+        gate_scale = 1.0 / jnp.sqrt(float(kernel_size * kernel_size * gate_in_dim))
+
+        self.image_shape = image_shape
+        self.patch_shape = patch_shape
+        self.grid_shape = grid_shape
+        self.num_patches = int(num_patches)
+        self.patch_dim = int(patch_dim)
+        self.input_patch_dim = int(input_patch_dim)
+        self.input_channels = int(input_channels)
+        self.output_channels = 1
+        self.hidden_dim = int(hidden_dim)
+        self.steps = int(steps)
+        self.kernel_size = int(kernel_size)
+        self.forget_bias = float(forget_bias)
+        self.output_activation = output_activation
+
+        self.patch_to_hidden = eqx.nn.Linear(input_patch_dim, hidden_dim, key=keys[0])
+        self.hidden_to_patch = eqx.nn.Linear(hidden_dim, patch_dim, key=keys[1])
+        self.gate_kernel = (
+            jax.random.normal(
+                keys[2],
+                (kernel_size, kernel_size, gate_in_dim, gate_out_dim),
+            )
+            * gate_scale
+        )
+        self.gate_bias = jnp.zeros((gate_out_dim,))
+        self.positional_hidden = (
+            jax.random.normal(keys[3], (num_patches, hidden_dim)) * 0.02
+        )
+
+    def images_to_sequence(self, images: Array) -> Array:
+        return _images_to_patch_sequence(
+            images,
+            self.image_shape,
+            self.patch_shape,
+            self.input_channels,
+        )
+
+    def sequence_to_images(self, sequence: Array, flatten: bool = True) -> Array:
+        return _patch_sequence_to_images(
+            sequence,
+            self.image_shape,
+            self.patch_shape,
+            self.output_channels,
+            flatten=flatten,
+        )
+
+    def _drive(self, images: Array) -> Array:
+        sequence = self.images_to_sequence(images).transpose(1, 0, 2)
+        return jnp.tanh(
+            jax.vmap(jax.vmap(self.patch_to_hidden))(sequence)
+            + self.positional_hidden[None, :, :]
+        )
+
+    def _step(self, state: Tuple[Array, Array], drive: Array) -> Tuple[Array, Array]:
+        hidden, cell = state
+        batch_size = hidden.shape[0]
+        grid_h, grid_w = self.grid_shape
+        drive_grid = drive.reshape(batch_size, grid_h, grid_w, self.hidden_dim)
+        hidden_grid = hidden.reshape(batch_size, grid_h, grid_w, self.hidden_dim)
+        gate_inputs = jnp.concatenate([drive_grid, hidden_grid], axis=-1)
+        gates = _apply_same_conv2d(self.gate_kernel, self.gate_bias, gate_inputs)
+        gates = gates.reshape(batch_size, self.num_patches, 4 * self.hidden_dim)
+        input_gate, forget_gate, output_gate, candidate = jnp.split(gates, 4, axis=-1)
+        input_gate = jax.nn.sigmoid(input_gate)
+        forget_gate = jax.nn.sigmoid(forget_gate + self.forget_bias)
+        output_gate = jax.nn.sigmoid(output_gate)
+        candidate = jnp.tanh(candidate)
+        next_cell = forget_gate * cell + input_gate * candidate
+        next_hidden = output_gate * jnp.tanh(next_cell)
+        return next_hidden, next_cell
+
+    def _evolve(self, drive: Array, return_trajectory: bool = False):
+        initial_hidden = drive
+        initial_cell = jnp.zeros_like(drive)
+
+        if return_trajectory:
+
+            def scan_trace(carry, _):
+                next_state = self._step(carry, drive)
+                return next_state, next_state
+
+            final_state, states = jax.lax.scan(
+                scan_trace,
+                (initial_hidden, initial_cell),
+                None,
+                length=self.steps,
+            )
+            hidden_states, cell_states = states
+            return final_state, hidden_states, cell_states
+
+        def scan_final(carry, _):
+            return self._step(carry, drive), None
+
+        final_state, _ = jax.lax.scan(
+            scan_final,
+            (initial_hidden, initial_cell),
+            None,
+            length=self.steps,
+        )
+        return final_state
+
+    def _readout(self, hidden: Array) -> Array:
+        outputs = jax.vmap(jax.vmap(self.hidden_to_patch))(hidden)
+        outputs = _apply_output_activation(outputs, self.output_activation)
+        return outputs.transpose(1, 0, 2)
+
+    def encode(self, images: Array, use_phase_init: bool = False) -> Array:
+        del use_phase_init
+        drive = self._drive(images)
+        final_hidden, _ = self._evolve(drive)
+        return jnp.mean(final_hidden, axis=1)
+
+    def collect_trace(self, images: Array) -> Dict[str, Array]:
+        drive = self._drive(images)
+        (final_hidden, final_cell), hidden_states, cell_states = self._evolve(
+            drive,
+            return_trajectory=True,
+        )
+        reconstruction_sequence = self._readout(final_hidden)
+        return {
+            "latent": jnp.mean(final_hidden, axis=1),
+            "reconstruction_sequence": reconstruction_sequence,
+            "drive": drive,
+            "final_hidden": final_hidden,
+            "final_cell": final_cell,
+            "hidden_states": hidden_states,
+            "cell_states": cell_states,
+        }
+
+    def __call__(self, images: Array, use_phase_init: bool = False) -> Array:
+        del use_phase_init
+        drive = self._drive(images)
+        final_hidden, _ = self._evolve(drive)
+        reconstruction = self._readout(final_hidden)
+        return self.sequence_to_images(reconstruction, flatten=True)
+
+
 AmplitudeVelocityHORNCell = AmplitudeVelocityOscillatorCell
 AmplitudeVelocityHORN = OscillatorySequenceLayer
 AmplitudeVelocityEncoder = OscillatoryEncoder
@@ -759,6 +1560,10 @@ __all__ = [
     "AutoregressiveOscillatoryDecoder",
     "OscillatoryAutoencoder",
     "PatchOscillatoryAutoencoder",
+    "FeedForwardPatchAutoencoder",
+    "RecurrentConvPatchDenoiser",
+    "RecurrentConvPriorRefinementPatchDenoiser",
+    "ConvLSTMPatchDenoiser",
     "AmplitudeVelocityHORNCell",
     "AmplitudeVelocityHORN",
     "AmplitudeVelocityEncoder",

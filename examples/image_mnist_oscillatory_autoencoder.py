@@ -14,11 +14,28 @@ from oscnet.experiments.mnist_autoencoder import (
     prepare_reconstructions,
     run_mnist_experiment,
 )
-from oscnet.models import AmplitudeVelocityAutoencoder, WinfreePatchAutoencoder
+from oscnet.models import (
+    AmplitudeVelocityAutoencoder,
+    FeedForwardPatchAutoencoder,
+    RecurrentConvPatchDenoiser,
+    WinfreeCoarseGlobalRatePhaseConditionalPatchDenoiser,
+    WinfreeCoarseRatePhaseConditionalPatchDenoiser,
+    WinfreeConditionalPatchDenoiser,
+    WinfreeGlobalRatePhaseConditionalPatchDenoiser,
+    WinfreePatchAutoencoder,
+    WinfreeRatePhaseConditionalPatchDenoiser,
+)
 
 __all__ = [
     "AmplitudeVelocityAutoencoder",
+    "FeedForwardPatchAutoencoder",
+    "RecurrentConvPatchDenoiser",
+    "WinfreeCoarseGlobalRatePhaseConditionalPatchDenoiser",
+    "WinfreeCoarseRatePhaseConditionalPatchDenoiser",
+    "WinfreeConditionalPatchDenoiser",
+    "WinfreeGlobalRatePhaseConditionalPatchDenoiser",
     "WinfreePatchAutoencoder",
+    "WinfreeRatePhaseConditionalPatchDenoiser",
     "build_arg_parser",
     "config_from_args",
     "export_encoder_complex_states",
