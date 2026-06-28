@@ -52,7 +52,9 @@ fields instead of raw pixels. Use
 field where channel 0 is pixel occupancy and channel 1 is an auxiliary smooth
 shape field. Use `--target-representation centered_pixels_signed_distance` for
 the same two-channel target in centered `[-1, 1]` coordinates, decoded back to
-pixel space for sample metrics and PNG artifacts.
+pixel space for sample metrics and PNG artifacts. Set
+`--sample-readout-mode shape_gated` to multiply the decoded pixel channel by
+the decoded shape channel during sample metrics/artifact export.
 
 Use **MNIST masked representation** if you care about masked image recovery,
 block occlusion, or representation-prediction controls. This branch is useful

@@ -63,6 +63,9 @@ SWEEP_CSVS = {
     "mnist_phase_flow_centered_pixel_shape_probe": Path(
         "outputs/analysis/modal_mnist_phase_flow_centered_pixel_shape_probe.csv"
     ),
+    "mnist_phase_flow_centered_shape_gated_probe": Path(
+        "outputs/analysis/modal_mnist_phase_flow_centered_shape_gated_probe.csv"
+    ),
 }
 
 REMOTE_PACKAGES = [
@@ -386,6 +389,8 @@ def _mnist_phase_flow_coarse_closure_probe_sweep() -> list[tuple[list[str], str]
 
 def _mnist_phase_flow_target_probe_sweep(
     target_representation: str,
+    *,
+    sample_readout_mode: str = "primary",
 ) -> list[tuple[list[str], str]]:
     common = [
         "--data-source idx",
@@ -410,6 +415,7 @@ def _mnist_phase_flow_target_probe_sweep(
         "--clean-loss-weight 0.25",
         "--closure-loss-weight 0.0",
         f"--target-representation {target_representation}",
+        f"--sample-readout-mode {sample_readout_mode}",
         "--sample-steps 16",
         "--sample-method euler",
         "--learning-rate 0.001",
@@ -425,7 +431,7 @@ def _mnist_phase_flow_target_probe_sweep(
     for seed in (31,):
         for suffix, variant_args in variants:
             run_name = (
-                f"mnist_phase_flow_{target_representation}_"
+                f"mnist_phase_flow_{target_representation}_{sample_readout_mode}_"
                 f"{suffix}_c8_steps8_seed{seed}_20e"
             )
             args = shlex.split(" ".join([f"--seed {seed}", *common, *variant_args]))
@@ -451,6 +457,13 @@ def _mnist_phase_flow_centered_pixel_shape_probe_sweep() -> list[tuple[list[str]
     return _mnist_phase_flow_target_probe_sweep("centered_pixels_signed_distance")
 
 
+def _mnist_phase_flow_centered_shape_gated_probe_sweep() -> list[tuple[list[str], str]]:
+    return _mnist_phase_flow_target_probe_sweep(
+        "centered_pixels_signed_distance",
+        sample_readout_mode="shape_gated",
+    )
+
+
 def _sweep_entries(preset: str) -> list[tuple[list[str], str]]:
     if preset == "mnist_phase_flow_core":
         return _mnist_phase_flow_core_sweep()
@@ -474,6 +487,8 @@ def _sweep_entries(preset: str) -> list[tuple[list[str], str]]:
         return _mnist_phase_flow_pixel_shape_probe_sweep()
     if preset == "mnist_phase_flow_centered_pixel_shape_probe":
         return _mnist_phase_flow_centered_pixel_shape_probe_sweep()
+    if preset == "mnist_phase_flow_centered_shape_gated_probe":
+        return _mnist_phase_flow_centered_shape_gated_probe_sweep()
     raise ValueError("unknown sweep preset")
 
 
@@ -498,6 +513,7 @@ def _write_sweep_csv(results: list[dict[str, Any]], path: Path) -> None:
         "phase_flow.target_channels",
         "phase_flow.sample_steps",
         "phase_flow.sample_method",
+        "phase_flow.sample_readout_mode",
         "phase_flow.sample_mean",
         "phase_flow.sample_std",
         "phase_flow.sample_pixel_mean_mse",
@@ -615,6 +631,7 @@ def run_mnist_phase_flow_remote(
         eval_sample_count=args.eval_sample_count,
         sample_steps=args.sample_steps,
         sample_method=args.sample_method,
+        sample_readout_mode=args.sample_readout_mode,
         target_representation=args.target_representation,
         data_source=args.data_source,
         train_limit=args.train_limit,

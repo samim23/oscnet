@@ -3394,6 +3394,53 @@ Interpretation:
   potential for pixel occupancy instead of asking both channels to emerge
   equally from Gaussian noise.
 
+Centered shape-gated readout probe:
+
+The phase-flow experiment now supports `sample_readout_mode="shape_gated"` /
+`--sample-readout-mode shape_gated`. This does not retrain a different model:
+the model still samples both visible channels, but sample metrics and PNG
+artifacts multiply the decoded pixel channel by a smooth gate from the decoded
+shape channel. This is the smallest staged-readout test of whether the
+signed-distance field carries useful cleanup structure for the pixel channel.
+
+Run:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_phase_flow.py \
+  --sweep-preset mnist_phase_flow_centered_shape_gated_probe
+```
+
+Result:
+
+```text
+outputs/analysis/modal_mnist_phase_flow_centered_shape_gated_probe.csv
+outputs/analysis/modal_mnist_phase_flow_samples/
+```
+
+| model | best eval loss | velocity loss | clean loss | nearest-real MSE | active frac | components | largest frac |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| coarse/global phase-flow | 0.215639 | 0.200101 | 0.068739 | 0.062428 | 0.117267 | 2.828125 | 0.727435 |
+| recurrent-conv flow | 0.269668 | 0.248895 | 0.086666 | 0.046949 | 0.063935 | 2.531250 | 0.680363 |
+| real MNIST pixels | n/a | n/a | n/a | 0.059272 | 0.143973 | 1.015625 | 0.995226 |
+
+Interpretation:
+
+- Shape-gating is a real cleanup step. Compared with the centered primary
+  readout, the coarse/global oscillator improves from `17.39` components to
+  `2.83`, and nearest-real MSE improves from `0.090784` to `0.062428`.
+- The oscillator remains the better trained field model: lower objective,
+  lower velocity loss, lower clean loss, better pixel-mean matching, more
+  realistic active mass, and a larger dominant component than the recurrent
+  control.
+- The recurrent-conv control gets lower nearest-real MSE (`0.046949`), but it
+  underdraws strongly (`active_fraction=0.063935` versus real `0.143973`) and
+  preserves less dominant mass. This makes nearest-real MSE alone misleading.
+- This is still not a solved generator. The samples are cleaner fragments, not
+  coherent MNIST digits. But the signed-distance field is doing useful work as
+  a potential/gate. The next meaningful step is to make that staging learned or
+  dynamical: settle shape first, then run a pixel-refinement field conditioned
+  on that settled shape, instead of relying on a fixed readout gate.
+
 ## Maintenance Notes
 
 - Put numerical benchmark summaries in this file and/or `outputs/analysis`.

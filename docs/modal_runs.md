@@ -823,6 +823,23 @@ outputs/analysis/modal_mnist_phase_flow_centered_pixel_shape_probe.csv
 outputs/analysis/modal_mnist_phase_flow_samples/
 ```
 
+Run the centered shape-gated readout probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_phase_flow.py \
+  --sweep-preset mnist_phase_flow_centered_shape_gated_probe
+```
+
+This uses `--target-representation centered_pixels_signed_distance` and
+`--sample-readout-mode shape_gated`. The model still samples both channels,
+but metric/PNG export multiplies the decoded pixel channel by the decoded
+shape channel as a smooth gate. It writes:
+
+```text
+outputs/analysis/modal_mnist_phase_flow_centered_shape_gated_probe.csv
+outputs/analysis/modal_mnist_phase_flow_samples/
+```
+
 To rerun the full four-way attribution matrix in one request:
 
 ```bash

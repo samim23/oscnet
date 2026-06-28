@@ -67,6 +67,7 @@ class MNISTPhaseFlowExperimentConfig:
     eval_sample_count: int = 64
     sample_steps: int = 16
     sample_method: str = "euler"
+    sample_readout_mode: str = "primary"
     target_representation: str = "pixels"
     data_source: str = "idx"
     train_limit: Optional[int] = 10_000
@@ -180,6 +181,7 @@ def _checkpoint_hyperparams(config: MNISTPhaseFlowExperimentConfig) -> Dict[str,
         "closure_loss_weight": config.closure_loss_weight,
         "sample_steps": config.sample_steps,
         "sample_method": config.sample_method,
+        "sample_readout_mode": config.sample_readout_mode,
         "target_representation": config.target_representation,
         "target_channels": phase_flow_target_channels(config.target_representation),
     }
@@ -365,6 +367,51 @@ def decode_phase_flow_primary_channel(
     if target_representation == "centered_pixels_signed_distance":
         primary = 0.5 * (primary + 1.0)
     return jnp.clip(primary, 0.0, 1.0)
+
+
+def decode_phase_flow_shape_channel(
+    images: Array,
+    *,
+    value_channels: int,
+    target_representation: str,
+) -> Array:
+    """Extract a decoded shape/potential channel when present."""
+
+    if value_channels < 2:
+        return jnp.ones_like(primary_phase_flow_channel(images, value_channels))
+    batch_size = images.shape[0]
+    grid = images.reshape(batch_size, 28, 28, int(value_channels))
+    shape = grid[..., 1].reshape(batch_size, 28 * 28)
+    if target_representation == "centered_pixels_signed_distance":
+        shape = 0.5 * (shape + 1.0)
+    return jnp.clip(shape, 0.0, 1.0)
+
+
+def decode_phase_flow_sample_readout(
+    samples: Array,
+    *,
+    value_channels: int,
+    target_representation: str,
+    sample_readout_mode: str,
+) -> Array:
+    """Decode the image used for sample metrics and PNG artifacts."""
+
+    primary = decode_phase_flow_primary_channel(
+        samples,
+        value_channels=value_channels,
+        target_representation=target_representation,
+    )
+    if sample_readout_mode == "primary":
+        return primary
+    if sample_readout_mode == "shape_gated":
+        shape = decode_phase_flow_shape_channel(
+            samples,
+            value_channels=value_channels,
+            target_representation=target_representation,
+        )
+        gate = jax.nn.sigmoid(8.0 * (shape - 0.35))
+        return jnp.clip(primary * gate, 0.0, 1.0)
+    raise ValueError("sample_readout_mode must be 'primary' or 'shape_gated'")
 
 
 def phase_flow_sample_clip(target_representation: str) -> bool:
@@ -717,6 +764,7 @@ def compute_phase_flow_quality_metrics(
     *,
     value_channels: int = 1,
     target_representation: str = "pixels",
+    sample_readout_mode: str = "primary",
 ) -> Dict[str, float]:
     """Compute lightweight sample diagnostics."""
 
@@ -725,10 +773,11 @@ def compute_phase_flow_quality_metrics(
         value_channels=value_channels,
         target_representation=target_representation,
     )
-    sample_primary = decode_phase_flow_primary_channel(
+    sample_primary = decode_phase_flow_sample_readout(
         samples,
         value_channels=value_channels,
         target_representation=target_representation,
+        sample_readout_mode=sample_readout_mode,
     )
     real = np.asarray(real_primary, dtype=np.float32).reshape(
         real_primary.shape[0],
@@ -871,6 +920,7 @@ def save_phase_flow_artifacts(
     conditional: bool,
     num_classes: int,
     target_representation: str,
+    sample_readout_mode: str,
 ) -> None:
     """Save denoising examples, samples, and oscillator traces."""
 
@@ -915,10 +965,11 @@ def save_phase_flow_artifacts(
         value_channels=model.value_channels,
         target_representation=target_representation,
     )
-    samples_primary = decode_phase_flow_primary_channel(
+    samples_primary = decode_phase_flow_sample_readout(
         samples,
         value_channels=model.value_channels,
         target_representation=target_representation,
+        sample_readout_mode=sample_readout_mode,
     )
     np.savez(
         paths.artifacts / f"mnist_phase_flow_epoch_{epoch:03d}.npz",
@@ -1100,6 +1151,7 @@ def run_mnist_phase_flow_experiment(
                 conditional=config.conditional,
                 num_classes=config.num_classes,
                 target_representation=config.target_representation,
+                sample_readout_mode=config.sample_readout_mode,
             )
 
         history["epoch"].append(float(epoch))
@@ -1152,6 +1204,7 @@ def run_mnist_phase_flow_experiment(
         samples,
         value_channels=model.value_channels,
         target_representation=config.target_representation,
+        sample_readout_mode=config.sample_readout_mode,
     )
     trace_noise = jax.random.normal(
         jax.random.fold_in(key, 30_002),
@@ -1207,6 +1260,7 @@ def run_mnist_phase_flow_experiment(
             "target_representation": config.target_representation,
             "sample_steps": int(config.sample_steps),
             "sample_method": config.sample_method,
+            "sample_readout_mode": config.sample_readout_mode,
             "coarse_grid_size": (
                 int(model.coarse_grid_size)
                 if hasattr(model, "coarse_grid_size")
@@ -1281,6 +1335,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--sample-steps", type=int, default=16)
     parser.add_argument("--sample-method", choices=["euler", "heun"], default="euler")
     parser.add_argument(
+        "--sample-readout-mode",
+        choices=["primary", "shape_gated"],
+        default="primary",
+    )
+    parser.add_argument(
         "--target-representation",
         choices=[
             "pixels",
@@ -1335,6 +1394,7 @@ def main() -> None:
         eval_sample_count=args.eval_sample_count,
         sample_steps=args.sample_steps,
         sample_method=args.sample_method,
+        sample_readout_mode=args.sample_readout_mode,
         target_representation=args.target_representation,
         data_source=args.data_source,
         train_limit=args.train_limit,

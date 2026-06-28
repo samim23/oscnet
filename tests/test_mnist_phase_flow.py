@@ -8,6 +8,7 @@ from oscnet.experiments.mnist_phase_flow import (
     MNISTPhaseFlowExperimentConfig,
     closure_loss,
     decode_phase_flow_primary_channel,
+    decode_phase_flow_sample_readout,
     phase_flow_target_channels,
     phase_flow_loss,
     prepare_phase_flow_targets,
@@ -222,6 +223,43 @@ def test_centered_pixels_signed_distance_targets_decode_to_pixels():
     assert jnp.allclose(decoded, images)
 
 
+def test_shape_gated_sample_readout_uses_auxiliary_shape_channel():
+    primary = jnp.ones((1, 28 * 28))
+    high_shape = jnp.ones((1, 28 * 28))
+    low_shape = -jnp.ones((1, 28 * 28))
+    high_samples = jnp.stack(
+        [primary.reshape(1, 28, 28), high_shape.reshape(1, 28, 28)],
+        axis=-1,
+    ).reshape(1, 28 * 28 * 2)
+    low_samples = jnp.stack(
+        [primary.reshape(1, 28, 28), low_shape.reshape(1, 28, 28)],
+        axis=-1,
+    ).reshape(1, 28 * 28 * 2)
+
+    high_readout = decode_phase_flow_sample_readout(
+        high_samples,
+        value_channels=2,
+        target_representation="centered_pixels_signed_distance",
+        sample_readout_mode="shape_gated",
+    )
+    low_readout = decode_phase_flow_sample_readout(
+        low_samples,
+        value_channels=2,
+        target_representation="centered_pixels_signed_distance",
+        sample_readout_mode="shape_gated",
+    )
+    primary_readout = decode_phase_flow_sample_readout(
+        low_samples,
+        value_channels=2,
+        target_representation="centered_pixels_signed_distance",
+        sample_readout_mode="primary",
+    )
+
+    assert jnp.mean(high_readout) > 0.9
+    assert jnp.mean(low_readout) < 0.1
+    assert jnp.mean(primary_readout) == 1.0
+
+
 def test_phase_flow_loss_includes_optional_closure_term():
     model = PhaseRateFlowField(
         field_channels=2,
@@ -412,6 +450,7 @@ def test_mnist_phase_flow_synthetic_training_smoke(tmp_path):
     assert summary["phase_flow"]["model_family"] == "phase_flow"
     assert summary["phase_flow"]["steps"] == 1
     assert summary["phase_flow"]["sample_method"] == "euler"
+    assert summary["phase_flow"]["sample_readout_mode"] == "primary"
     assert summary["phase_flow"]["closure_loss_weight"] == 0.5
     assert summary["phase_flow"]["target_representation"] == "pixels_signed_distance"
     assert summary["phase_flow"]["target_channels"] == 2

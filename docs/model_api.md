@@ -297,7 +297,10 @@ and internally convert them to patch sequences.
   `value_channels` for these multi-channel visible-field experiments. Use
   `target_representation="centered_pixels_signed_distance"` to train the same
   two-channel field in centered `[-1, 1]` coordinates while decoding channel 0
-  back to pixel space for metrics and artifacts.
+  back to pixel space for metrics and artifacts. Set
+  `sample_readout_mode="shape_gated"` to use the auxiliary shape channel as a
+  smooth gate on the pixel channel when computing sample metrics and PNG
+  artifacts.
 
 `RecurrentConvFlowField`
 : A matched non-oscillatory recurrent-flow control for `PhaseRateFlowField`.
