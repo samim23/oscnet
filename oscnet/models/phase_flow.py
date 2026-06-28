@@ -472,6 +472,7 @@ class PhaseRateFlowField(eqx.Module):
         *,
         labels: Optional[Array] = None,
         outer_steps: int = 16,
+        clip: bool = True,
     ) -> Array:
         """Generate images by integrating the learned rectified-flow field."""
 
@@ -491,7 +492,9 @@ class PhaseRateFlowField(eqx.Module):
 
         steps = jnp.arange(int(outer_steps), dtype=jnp.float32)
         x, _ = jax.lax.scan(scan_fn, x, steps)
-        return jnp.clip(x, 0.0, 1.0)
+        if clip:
+            return jnp.clip(x, 0.0, 1.0)
+        return x
 
     def collect_trace(
         self,
@@ -1045,6 +1048,7 @@ class CoarseGlobalPhaseRateFlowField(eqx.Module):
         *,
         labels: Optional[Array] = None,
         outer_steps: int = 16,
+        clip: bool = True,
     ) -> Array:
         """Generate images by integrating the learned rectified-flow field."""
 
@@ -1064,7 +1068,9 @@ class CoarseGlobalPhaseRateFlowField(eqx.Module):
 
         steps = jnp.arange(int(outer_steps), dtype=jnp.float32)
         x, _ = jax.lax.scan(scan_fn, x, steps)
-        return jnp.clip(x, 0.0, 1.0)
+        if clip:
+            return jnp.clip(x, 0.0, 1.0)
+        return x
 
     def collect_trace(
         self,
@@ -1393,6 +1399,7 @@ class RecurrentConvFlowField(eqx.Module):
         *,
         labels: Optional[Array] = None,
         outer_steps: int = 16,
+        clip: bool = True,
     ) -> Array:
         """Generate images by integrating the learned rectified-flow field."""
 
@@ -1412,7 +1419,9 @@ class RecurrentConvFlowField(eqx.Module):
 
         steps = jnp.arange(int(outer_steps), dtype=jnp.float32)
         x, _ = jax.lax.scan(scan_fn, x, steps)
-        return jnp.clip(x, 0.0, 1.0)
+        if clip:
+            return jnp.clip(x, 0.0, 1.0)
+        return x
 
     def collect_trace(
         self,

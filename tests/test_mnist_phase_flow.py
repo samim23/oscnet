@@ -7,6 +7,7 @@ from oscnet.experiments.harness import AutoencoderExperimentConfig
 from oscnet.experiments.mnist_phase_flow import (
     MNISTPhaseFlowExperimentConfig,
     closure_loss,
+    decode_phase_flow_primary_channel,
     phase_flow_target_channels,
     phase_flow_loss,
     prepare_phase_flow_targets,
@@ -75,6 +76,25 @@ def test_phase_rate_flow_field_supports_two_value_channels():
     assert trace["theta_trajectory"].shape == (2, 2, 28, 28, 3)
     assert jnp.all(samples >= 0.0)
     assert jnp.all(samples <= 1.0)
+
+
+def test_phase_rate_flow_field_can_sample_without_clipping():
+    model = PhaseRateFlowField(
+        value_channels=2,
+        field_channels=2,
+        steps=1,
+        key=jax.random.PRNGKey(43),
+    )
+
+    samples = model.sample(
+        jax.random.PRNGKey(44),
+        4,
+        outer_steps=2,
+        clip=False,
+    )
+
+    assert samples.shape == (4, 28 * 28 * 2)
+    assert jnp.any(samples < 0.0) or jnp.any(samples > 1.0)
 
 
 def test_phase_flow_loss_backprops_to_model():
@@ -180,6 +200,26 @@ def test_pixels_signed_distance_targets_keep_pixel_channel_primary():
         signed_distance_targets(images),
     )
     assert jnp.allclose(primary_phase_flow_channel(targets, 2), images)
+
+
+def test_centered_pixels_signed_distance_targets_decode_to_pixels():
+    images = jnp.zeros((2, 28 * 28))
+    images = images.at[:, 8:20].set(1.0)
+
+    targets = prepare_phase_flow_targets(images, "centered_pixels_signed_distance")
+    target_grid = targets.reshape(2, 28, 28, 2)
+    decoded = decode_phase_flow_primary_channel(
+        targets,
+        value_channels=2,
+        target_representation="centered_pixels_signed_distance",
+    )
+
+    assert phase_flow_target_channels("centered_pixels_signed_distance") == 2
+    assert targets.shape == (2, 28 * 28 * 2)
+    assert jnp.min(targets) >= -1.0
+    assert jnp.max(targets) <= 1.0
+    assert jnp.allclose(target_grid[..., 0].reshape(2, 28 * 28), 2.0 * images - 1.0)
+    assert jnp.allclose(decoded, images)
 
 
 def test_phase_flow_loss_includes_optional_closure_term():

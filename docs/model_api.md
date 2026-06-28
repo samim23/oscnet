@@ -294,7 +294,10 @@ and internally convert them to patch sequences.
   `target_representation="pixels_signed_distance"` to train a two-channel
   visible field: pixel occupancy in channel 0 and a smooth signed-distance
   shape target in channel 1. The underlying phase-flow models expose
-  `value_channels` for these multi-channel visible-field experiments.
+  `value_channels` for these multi-channel visible-field experiments. Use
+  `target_representation="centered_pixels_signed_distance"` to train the same
+  two-channel field in centered `[-1, 1]` coordinates while decoding channel 0
+  back to pixel space for metrics and artifacts.
 
 `RecurrentConvFlowField`
 : A matched non-oscillatory recurrent-flow control for `PhaseRateFlowField`.

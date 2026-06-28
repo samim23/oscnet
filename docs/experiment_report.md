@@ -3346,6 +3346,54 @@ Interpretation:
   and gates pixel occupancy instead of being integrated as an equal visible
   channel from Gaussian noise.
 
+Centered two-channel pixel/shape phase-flow probe:
+
+The next probe keeps the same two-channel pixel/shape field but centers both
+channels into `[-1, 1]` during training and sampling:
+`target_representation="centered_pixels_signed_distance"`. Metrics and PNG
+artifacts decode channel 0 back into pixel space. The model-level sampler can
+now run without clipping in native target space, which directly tests whether
+the prior-coordinate geometry caused the all-white collapse.
+
+Run:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_phase_flow.py \
+  --sweep-preset mnist_phase_flow_centered_pixel_shape_probe
+```
+
+Result:
+
+```text
+outputs/analysis/modal_mnist_phase_flow_centered_pixel_shape_probe.csv
+outputs/analysis/modal_mnist_phase_flow_samples/
+```
+
+| model | best eval loss | velocity loss | clean loss | nearest-real MSE | active frac | components | largest frac |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| coarse/global phase-flow | 0.214916 | 0.202983 | 0.068884 | 0.090784 | 0.172951 | 17.390625 | 0.609082 |
+| recurrent-conv flow | 0.269278 | 0.248835 | 0.086680 | 0.077987 | 0.112663 | 20.953125 | 0.456661 |
+| real MNIST pixels | n/a | n/a | n/a | 0.059272 | 0.143973 | 1.015625 | 0.995226 |
+
+Interpretation:
+
+- Centering fixes the all-white collapse. Channel-0 samples now have plausible
+  mean/variance and active mass instead of saturating to `1.0`.
+- The coarse/global oscillator remains the better supervised field model: lower
+  best eval loss, lower velocity loss, lower clean loss, better pixel-mean
+  matching, fewer fragments, and a larger dominant component than the
+  recurrent-conv control.
+- This is still not a solved generator. Samples are speckled and fragmented;
+  component count remains far from real MNIST (`17.39` versus `1.02`).
+  The recurrent-conv control has better nearest-real MSE, likely because it
+  underdraws foreground mass, but it fragments even more.
+- Updated bottleneck: the sampler no longer falls into a white attractor. The
+  remaining failure is binding/cleanup: turning scattered pixel/shape evidence
+  into one coherent digit component. A staged field may be the right next move:
+  first settle a smooth signed-distance field, then use it as a gate or
+  potential for pixel occupancy instead of asking both channels to emerge
+  equally from Gaussian noise.
+
 ## Maintenance Notes
 
 - Put numerical benchmark summaries in this file and/or `outputs/analysis`.

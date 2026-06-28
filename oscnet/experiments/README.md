@@ -50,7 +50,9 @@ contour maps or `--target-representation signed_distance` for smooth shape
 fields instead of raw pixels. Use
 `--target-representation pixels_signed_distance` to train a two-channel visible
 field where channel 0 is pixel occupancy and channel 1 is an auxiliary smooth
-shape field.
+shape field. Use `--target-representation centered_pixels_signed_distance` for
+the same two-channel target in centered `[-1, 1]` coordinates, decoded back to
+pixel space for sample metrics and PNG artifacts.
 
 Use **MNIST masked representation** if you care about masked image recovery,
 block occlusion, or representation-prediction controls. This branch is useful

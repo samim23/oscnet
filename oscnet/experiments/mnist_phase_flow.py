@@ -305,11 +305,12 @@ def phase_flow_target_channels(representation: str) -> int:
 
     if representation in {"pixels", "sobel_edges", "signed_distance"}:
         return 1
-    if representation == "pixels_signed_distance":
+    if representation in {"pixels_signed_distance", "centered_pixels_signed_distance"}:
         return 2
     raise ValueError(
         "target_representation must be 'pixels', 'sobel_edges', "
-        "'signed_distance', or 'pixels_signed_distance'"
+        "'signed_distance', 'pixels_signed_distance', "
+        "or 'centered_pixels_signed_distance'"
     )
 
 
@@ -330,6 +331,12 @@ def prepare_phase_flow_targets(images: Array, representation: str) -> Array:
         return signed_distance_targets(images)
     if representation == "pixels_signed_distance":
         return _stack_phase_flow_channels(images, signed_distance_targets(images))
+    if representation == "centered_pixels_signed_distance":
+        signed_distance = signed_distance_targets(images)
+        return _stack_phase_flow_channels(
+            2.0 * images - 1.0,
+            2.0 * signed_distance - 1.0,
+        )
     phase_flow_target_channels(representation)
     raise AssertionError("unreachable")
 
@@ -344,6 +351,26 @@ def primary_phase_flow_channel(images: Array, value_channels: int) -> Array:
     batch_size = images.shape[0]
     grid = images.reshape(batch_size, 28, 28, int(value_channels))
     return grid[..., 0].reshape(batch_size, 28 * 28)
+
+
+def decode_phase_flow_primary_channel(
+    images: Array,
+    *,
+    value_channels: int,
+    target_representation: str,
+) -> Array:
+    """Extract the primary channel and decode it to metric/display space."""
+
+    primary = primary_phase_flow_channel(images, value_channels)
+    if target_representation == "centered_pixels_signed_distance":
+        primary = 0.5 * (primary + 1.0)
+    return jnp.clip(primary, 0.0, 1.0)
+
+
+def phase_flow_sample_clip(target_representation: str) -> bool:
+    """Return whether model sampling should clip in native target space."""
+
+    return target_representation != "centered_pixels_signed_distance"
 
 
 def _mean_pool_flat_images(images: Array, grid_size: int) -> Array:
@@ -427,6 +454,7 @@ def phase_flow_loss(
     *,
     clean_loss_weight: float,
     closure_loss_weight: float = 0.0,
+    target_representation: str = "pixels",
     t_min: float,
     t_max: float,
 ) -> Tuple[Array, Dict[str, Array]]:
@@ -443,8 +471,16 @@ def phase_flow_loss(
     clean_prediction = noisy + (1.0 - t[:, None]) * velocity
     clean_loss = jnp.mean((clean_prediction - images) ** 2)
     shape_loss = closure_loss(
-        primary_phase_flow_channel(clean_prediction, model.value_channels),
-        primary_phase_flow_channel(images, model.value_channels),
+        decode_phase_flow_primary_channel(
+            clean_prediction,
+            value_channels=model.value_channels,
+            target_representation=target_representation,
+        ),
+        decode_phase_flow_primary_channel(
+            images,
+            value_channels=model.value_channels,
+            target_representation=target_representation,
+        ),
     )
     total = (
         velocity_loss
@@ -476,6 +512,7 @@ def _train_step(
     max_grad_norm: float,
     clean_loss_weight: float,
     closure_loss_weight: float,
+    target_representation: str,
     t_min: float,
     t_max: float,
 ):
@@ -487,6 +524,7 @@ def _train_step(
             sample_key,
             clean_loss_weight=clean_loss_weight,
             closure_loss_weight=closure_loss_weight,
+            target_representation=target_representation,
             t_min=t_min,
             t_max=t_max,
         )
@@ -511,6 +549,7 @@ def _eval_step(
     sample_key: jax.random.PRNGKey,
     clean_loss_weight: float,
     closure_loss_weight: float,
+    target_representation: str,
     t_min: float,
     t_max: float,
 ):
@@ -521,6 +560,7 @@ def _eval_step(
         sample_key,
         clean_loss_weight=clean_loss_weight,
         closure_loss_weight=closure_loss_weight,
+        target_representation=target_representation,
         t_min=t_min,
         t_max=t_max,
     )
@@ -535,6 +575,7 @@ def evaluate_phase_flow(
     key: jax.random.PRNGKey,
     clean_loss_weight: float,
     closure_loss_weight: float,
+    target_representation: str,
     t_min: float,
     t_max: float,
 ) -> Tuple[float, Dict[str, float]]:
@@ -560,6 +601,7 @@ def evaluate_phase_flow(
             jax.random.fold_in(key, batch_index),
             clean_loss_weight,
             closure_loss_weight,
+            target_representation,
             t_min,
             t_max,
         )
@@ -589,6 +631,7 @@ def sample_phase_flow_images(
     sample_method: str,
     labels: Optional[Array],
     batch_size: int,
+    clip_samples: bool = True,
 ) -> Array:
     """Generate samples in batches."""
 
@@ -610,6 +653,7 @@ def sample_phase_flow_images(
                 current,
                 labels=current_labels,
                 outer_steps=sample_steps,
+                clip=clip_samples,
             )
         else:
             batch_samples = _sample_phase_flow_heun(
@@ -618,6 +662,7 @@ def sample_phase_flow_images(
                 current,
                 labels=current_labels,
                 sample_steps=sample_steps,
+                clip=clip_samples,
             )
         samples.append(batch_samples)
         start += current
@@ -633,6 +678,7 @@ def _sample_phase_flow_heun(
     *,
     labels: Optional[Array],
     sample_steps: int,
+    clip: bool = True,
 ) -> Array:
     """Generate images with a second-order predictor-corrector sampler."""
 
@@ -660,7 +706,9 @@ def _sample_phase_flow_heun(
 
     steps = jnp.arange(int(sample_steps), dtype=jnp.float32)
     x, _ = jax.lax.scan(scan_fn, x, steps)
-    return jnp.clip(x, 0.0, 1.0)
+    if clip:
+        return jnp.clip(x, 0.0, 1.0)
+    return x
 
 
 def compute_phase_flow_quality_metrics(
@@ -668,11 +716,20 @@ def compute_phase_flow_quality_metrics(
     samples: Array,
     *,
     value_channels: int = 1,
+    target_representation: str = "pixels",
 ) -> Dict[str, float]:
     """Compute lightweight sample diagnostics."""
 
-    real_primary = primary_phase_flow_channel(real_images, value_channels)
-    sample_primary = primary_phase_flow_channel(samples, value_channels)
+    real_primary = decode_phase_flow_primary_channel(
+        real_images,
+        value_channels=value_channels,
+        target_representation=target_representation,
+    )
+    sample_primary = decode_phase_flow_primary_channel(
+        samples,
+        value_channels=value_channels,
+        target_representation=target_representation,
+    )
     real = np.asarray(real_primary, dtype=np.float32).reshape(
         real_primary.shape[0],
         -1,
@@ -813,6 +870,7 @@ def save_phase_flow_artifacts(
     batch_size: int,
     conditional: bool,
     num_classes: int,
+    target_representation: str,
 ) -> None:
     """Save denoising examples, samples, and oscillator traces."""
 
@@ -824,7 +882,7 @@ def save_phase_flow_artifacts(
     t = jnp.full((count,), 0.5)
     noisy = 0.5 * noise + 0.5 * real
     velocity, trace = model(noisy, t, labels, return_trace=True)
-    denoised = jnp.clip(noisy + 0.5 * velocity, 0.0, 1.0)
+    denoised = noisy + 0.5 * velocity
     sample_labels = _sample_labels(
         labels,
         sample_count=count,
@@ -839,12 +897,29 @@ def save_phase_flow_artifacts(
         sample_method=sample_method,
         labels=sample_labels,
         batch_size=batch_size,
+        clip_samples=phase_flow_sample_clip(target_representation),
     )
 
-    real_primary = primary_phase_flow_channel(real, model.value_channels)
-    noisy_primary = primary_phase_flow_channel(noisy, model.value_channels)
-    denoised_primary = primary_phase_flow_channel(denoised, model.value_channels)
-    samples_primary = primary_phase_flow_channel(samples, model.value_channels)
+    real_primary = decode_phase_flow_primary_channel(
+        real,
+        value_channels=model.value_channels,
+        target_representation=target_representation,
+    )
+    noisy_primary = decode_phase_flow_primary_channel(
+        noisy,
+        value_channels=model.value_channels,
+        target_representation=target_representation,
+    )
+    denoised_primary = decode_phase_flow_primary_channel(
+        denoised,
+        value_channels=model.value_channels,
+        target_representation=target_representation,
+    )
+    samples_primary = decode_phase_flow_primary_channel(
+        samples,
+        value_channels=model.value_channels,
+        target_representation=target_representation,
+    )
     np.savez(
         paths.artifacts / f"mnist_phase_flow_epoch_{epoch:03d}.npz",
         real=np.asarray(real),
@@ -955,6 +1030,7 @@ def run_mnist_phase_flow_experiment(
                 config.run.max_grad_norm,
                 config.clean_loss_weight,
                 config.closure_loss_weight,
+                config.target_representation,
                 config.t_min,
                 config.t_max,
             )
@@ -972,6 +1048,7 @@ def run_mnist_phase_flow_experiment(
             key=jax.random.fold_in(key, 10_000 + epoch),
             clean_loss_weight=config.clean_loss_weight,
             closure_loss_weight=config.closure_loss_weight,
+            target_representation=config.target_representation,
             t_min=config.t_min,
             t_max=config.t_max,
         )
@@ -1022,6 +1099,7 @@ def run_mnist_phase_flow_experiment(
                 batch_size=config.run.batch_size,
                 conditional=config.conditional,
                 num_classes=config.num_classes,
+                target_representation=config.target_representation,
             )
 
         history["epoch"].append(float(epoch))
@@ -1067,11 +1145,13 @@ def run_mnist_phase_flow_experiment(
         sample_method=config.sample_method,
         labels=sample_labels,
         batch_size=config.run.batch_size,
+        clip_samples=phase_flow_sample_clip(config.target_representation),
     )
     quality = compute_phase_flow_quality_metrics(
         eval_images[:count],
         samples,
         value_channels=model.value_channels,
+        target_representation=config.target_representation,
     )
     trace_noise = jax.random.normal(
         jax.random.fold_in(key, 30_002),
@@ -1207,6 +1287,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
             "sobel_edges",
             "signed_distance",
             "pixels_signed_distance",
+            "centered_pixels_signed_distance",
         ],
         default="pixels",
     )

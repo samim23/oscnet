@@ -807,6 +807,22 @@ outputs/analysis/modal_mnist_phase_flow_pixel_shape_probe.csv
 outputs/analysis/modal_mnist_phase_flow_samples/
 ```
 
+Run the centered two-channel pixel/shape target probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_phase_flow.py \
+  --sweep-preset mnist_phase_flow_centered_pixel_shape_probe
+```
+
+This adds `--target-representation centered_pixels_signed_distance`, training
+the same two-channel visible field in centered `[-1, 1]` coordinates. Metrics
+and PNG artifacts decode channel 0 back to pixel space. It writes:
+
+```text
+outputs/analysis/modal_mnist_phase_flow_centered_pixel_shape_probe.csv
+outputs/analysis/modal_mnist_phase_flow_samples/
+```
+
 To rerun the full four-way attribution matrix in one request:
 
 ```bash

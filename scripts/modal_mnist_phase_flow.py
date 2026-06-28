@@ -60,6 +60,9 @@ SWEEP_CSVS = {
     "mnist_phase_flow_pixel_shape_probe": Path(
         "outputs/analysis/modal_mnist_phase_flow_pixel_shape_probe.csv"
     ),
+    "mnist_phase_flow_centered_pixel_shape_probe": Path(
+        "outputs/analysis/modal_mnist_phase_flow_centered_pixel_shape_probe.csv"
+    ),
 }
 
 REMOTE_PACKAGES = [
@@ -444,6 +447,10 @@ def _mnist_phase_flow_pixel_shape_probe_sweep() -> list[tuple[list[str], str]]:
     return _mnist_phase_flow_target_probe_sweep("pixels_signed_distance")
 
 
+def _mnist_phase_flow_centered_pixel_shape_probe_sweep() -> list[tuple[list[str], str]]:
+    return _mnist_phase_flow_target_probe_sweep("centered_pixels_signed_distance")
+
+
 def _sweep_entries(preset: str) -> list[tuple[list[str], str]]:
     if preset == "mnist_phase_flow_core":
         return _mnist_phase_flow_core_sweep()
@@ -465,6 +472,8 @@ def _sweep_entries(preset: str) -> list[tuple[list[str], str]]:
         return _mnist_phase_flow_signed_distance_probe_sweep()
     if preset == "mnist_phase_flow_pixel_shape_probe":
         return _mnist_phase_flow_pixel_shape_probe_sweep()
+    if preset == "mnist_phase_flow_centered_pixel_shape_probe":
+        return _mnist_phase_flow_centered_pixel_shape_probe_sweep()
     raise ValueError("unknown sweep preset")
 
 
