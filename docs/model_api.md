@@ -223,7 +223,9 @@ and internally convert them to patch sequences.
   profile and optional weak attractive bias to learned pairwise couplings. Use
   `coupling_profile="local_radius"` for a sparse binary spatial mask; in that
   mode `coupling_length_scale` is the local interaction radius on the
-  normalized oscillator grid.
+  normalized oscillator grid. `conditioning_strength` scales the conditioning
+  drive in `class_coupling` and `class_oscillator` modes without changing the
+  main recurrent coupling.
   Generator experiments support distributional pixel matching, Un-0-style
   conditional pixel drift, fixed structural feature drift, and learned MNIST
   feature drift via a frozen `MNISTFeatureClassifier`. Conditional drift can
@@ -270,10 +272,10 @@ and internally convert them to patch sequences.
   This makes HORN the best current OscNet generator branch while keeping the
   claim precise: it is a conditional MNIST generator with useful learned
   oscillator dynamics, not yet a general image-generation win over all
-  conventional models. Use `sparse_horn_mnist_class_coupling` to probe the
-  stricter route where class information cannot enter as a direct initial
-  label shift; this route currently improves through settling but is not yet as
-  visually strong.
+  conventional models. Use `sparse_horn_mnist_class_coupling_strength8` to probe
+  the stricter route where class information cannot enter as a direct initial
+  label shift; this route currently starts near chance and becomes readable
+  through oscillator settling.
 
 `StateMLPImageGenerator`
 : A non-oscillatory latent-state control for the HORN generator. It keeps the
@@ -282,7 +284,9 @@ and internally convert them to patch sequences.
   `model_family="state_mlp"`, `"frozen_state_mlp"`, or
   `"state_mlp_decoder_only"` when checking whether HORN's recurrent field beats
   a conventional trainable latent-state mapper under the same objective and
-  readout.
+  readout. In `class_coupling` and `class_oscillator` modes, StateMLP receives
+  the same learned class-drive term as HORN, so it is a matched no-direct-label
+  control rather than a label-blind baseline.
 
 `KuramotoPhaseVAE`
 : A MNIST-native generative autoencoder that encodes images into a Gaussian

@@ -137,7 +137,11 @@ class HORNImageGenerator(KuramotoImageGenerator):
 
         displacement = anchor[:, None, :] - position[:, :, None]
         drive = jnp.sum(condition_coupling * displacement, axis=-1)
-        return drive / float(max(self.num_condition_oscillators, 1))
+        return (
+            float(self.conditioning_strength)
+            * drive
+            / float(max(self.num_condition_oscillators, 1))
+        )
 
     def _horn_dynamic_conditioning_drive(
         self,
@@ -158,7 +162,11 @@ class HORNImageGenerator(KuramotoImageGenerator):
             condition_coupling = jax.lax.stop_gradient(condition_coupling)
         displacement = condition_position[:, None, :] - position[:, :, None]
         drive = jnp.sum(condition_coupling * displacement, axis=-1)
-        return drive / float(max(self.num_condition_oscillators, 1))
+        return (
+            float(self.conditioning_strength)
+            * drive
+            / float(max(self.num_condition_oscillators, 1))
+        )
 
     def _bound_state(self, state: Array) -> Array:
         if self.horn_state_bound <= 0.0:
@@ -656,5 +664,4 @@ class HORNImageGenerator(KuramotoImageGenerator):
     ) -> Array:
         final_position, final_velocity = self.sample_state(key, batch_size, labels)
         return self.decode_state(final_position, final_velocity)
-
 

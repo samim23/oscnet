@@ -75,7 +75,8 @@ route. To probe the stricter route where class information has to enter through
 dynamics instead:
 
 ```bash
-python examples/image_mnist_generator.py --preset sparse_horn_mnist_class_coupling
+python examples/image_mnist_generator.py --preset sparse_horn_mnist_class_coupling_strength8
+python examples/image_mnist_generator.py --preset sparse_horn_mnist_state_mlp_class_coupling_strong
 ```
 
 ## Example Menu

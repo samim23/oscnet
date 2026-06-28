@@ -25,6 +25,7 @@ class MNISTGeneratorExperimentConfig:
     coupling_length_scale: float = 0.0
     coupling_floor: float = 0.0
     coupling_bias_strength: float = 0.0
+    conditioning_strength: float = 1.0
     horn_frequency: float = 1.0
     horn_damping: float = 0.15
     horn_nonlinearity: float = 0.05
@@ -78,5 +79,4 @@ class MNISTGeneratorExperimentConfig:
     data_source: str = "idx"
     train_limit: Optional[int] = 10_000
     eval_limit: Optional[int] = 1_000
-
 

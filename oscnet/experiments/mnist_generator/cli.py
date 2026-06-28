@@ -107,6 +107,7 @@ def build_arg_parser(preset: str = "none") -> argparse.ArgumentParser:
     parser.add_argument("--coupling-length-scale", type=float, default=0.0)
     parser.add_argument("--coupling-floor", type=float, default=0.0)
     parser.add_argument("--coupling-bias-strength", type=float, default=0.0)
+    parser.add_argument("--conditioning-strength", type=float, default=1.0)
     parser.add_argument("--horn-frequency", type=float, default=1.0)
     parser.add_argument("--horn-damping", type=float, default=0.15)
     parser.add_argument("--horn-nonlinearity", type=float, default=0.05)
@@ -268,6 +269,7 @@ def config_from_args(args: argparse.Namespace) -> MNISTGeneratorExperimentConfig
         coupling_length_scale=args.coupling_length_scale,
         coupling_floor=args.coupling_floor,
         coupling_bias_strength=args.coupling_bias_strength,
+        conditioning_strength=args.conditioning_strength,
         horn_frequency=args.horn_frequency,
         horn_damping=args.horn_damping,
         horn_nonlinearity=args.horn_nonlinearity,

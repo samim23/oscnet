@@ -96,6 +96,7 @@ def _checkpoint_hyperparams(config: MNISTGeneratorExperimentConfig) -> Dict[str,
         "coupling_length_scale": config.coupling_length_scale,
         "coupling_floor": config.coupling_floor,
         "coupling_bias_strength": config.coupling_bias_strength,
+        "conditioning_strength": config.conditioning_strength,
         "horn_frequency": config.horn_frequency,
         "horn_damping": config.horn_damping,
         "horn_nonlinearity": config.horn_nonlinearity,
@@ -143,5 +144,4 @@ def _checkpoint_hyperparams(config: MNISTGeneratorExperimentConfig) -> Dict[str,
         "train_settling_steps": config.train_settling_steps,
         "settling_steps": config.settling_steps,
     }
-
 

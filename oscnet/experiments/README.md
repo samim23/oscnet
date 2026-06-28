@@ -24,9 +24,10 @@ outputs/               generated local run artifacts
 
 For runnable commands, start with `examples/README.md`.
 
-## Current Leading Branch
+## Recommended Generator Workflow
 
-The leading experimental branch is the **sparse local HORN MNIST generator**:
+The strongest end-to-end image-generation workflow is the **sparse local HORN
+MNIST generator**:
 
 ```bash
 python examples/image_mnist_generator.py --preset sparse_horn_mnist
@@ -43,9 +44,13 @@ What to keep honest:
 
 - `sparse_horn_mnist_step1` is nearly as strong, so the standard preset can
   exploit a direct label-initialization route.
-- `sparse_horn_mnist_class_coupling` is the stricter anti-shortcut lead: class
-  information enters through a dynamic coupling route, starts near chance, and
-  improves through settling, but it is not yet as good visually.
+- `sparse_horn_mnist_class_coupling_strength8` is the stricter anti-shortcut lead:
+  class information enters through a dynamic coupling route, starts near
+  chance, and improves through settling without the direct initial-state label
+  shift.
+- `sparse_horn_mnist_state_mlp_class_coupling_strong` is the matched
+  non-oscillatory control for that stricter route. Use it before claiming a
+  HORN-specific advantage.
 - Detailed results and caveats live in `docs/experiment_report.md`.
 
 ## Harness Menu
@@ -76,8 +81,9 @@ settling. Keep the matched controls nearby when turning it into a claim:
 `sparse_horn_mnist_frozen`, `sparse_horn_mnist_decoder_only`,
 `sparse_horn_mnist_state_mlp`, `sparse_horn_mnist_state_mlp_frozen`,
 `sparse_horn_mnist_state_mlp_decoder_only`, and `sparse_horn_mnist_step1`.
-Use `sparse_horn_mnist_class_coupling` when probing the stricter no-direct-label
-route.
+Use `sparse_horn_mnist_class_coupling_strength8` when probing the stricter
+no-direct-label route, and compare against
+`sparse_horn_mnist_state_mlp_class_coupling_strong`.
 
 Use **MNIST phase-flow** if you want the most direct "oscillators as the
 generative medium" experiment. Set `--target-representation sobel_edges` for

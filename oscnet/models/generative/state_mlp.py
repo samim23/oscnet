@@ -5,6 +5,7 @@ from __future__ import annotations
 from .common import Array, Optional, Tuple, eqx, jax, jnp
 from .horn import HORNImageGenerator
 
+
 class StateMLPImageGenerator(HORNImageGenerator):
     """Non-oscillatory residual latent-state generator control.
 
@@ -95,12 +96,16 @@ class StateMLPImageGenerator(HORNImageGenerator):
     ) -> Tuple[Array, Array]:
         """Advance one non-oscillatory residual latent-state step."""
 
-        del labels
         position, velocity = state
         delta_position, delta_velocity = self._state_mlp_delta(position, velocity)
+        condition_drive = self._horn_static_conditioning_drive(position, labels)
         scale = float(self.state_mlp_residual_scale)
         next_position = self._bound_state(position + scale * delta_position)
-        next_velocity = self._bound_state(velocity + scale * delta_velocity)
+        next_velocity = self._bound_state(
+            velocity
+            + scale * delta_velocity
+            + self.dt * float(self.coupling_strength) * condition_drive
+        )
         return next_position, next_velocity
 
     def step_joint_state(
@@ -111,4 +116,19 @@ class StateMLPImageGenerator(HORNImageGenerator):
     ) -> Tuple[Tuple[Array, Array], Tuple[Array, Array]]:
         """Advance the main state and pass conditioning state through."""
 
-        return self.step_state(state, labels), condition_state
+        position, velocity = state
+        condition_position, _ = condition_state
+        delta_position, delta_velocity = self._state_mlp_delta(position, velocity)
+        condition_drive = self._horn_dynamic_conditioning_drive(
+            position,
+            condition_position,
+            labels,
+        )
+        scale = float(self.state_mlp_residual_scale)
+        next_position = self._bound_state(position + scale * delta_position)
+        next_velocity = self._bound_state(
+            velocity
+            + scale * delta_velocity
+            + self.dt * float(self.coupling_strength) * condition_drive
+        )
+        return (next_position, next_velocity), condition_state

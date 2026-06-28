@@ -72,6 +72,7 @@ def build_mnist_generator_model(
         "coupling_length_scale": config.coupling_length_scale,
         "coupling_floor": config.coupling_floor,
         "coupling_bias_strength": config.coupling_bias_strength,
+        "conditioning_strength": config.conditioning_strength,
         "train_dynamics": train_dynamics,
         "train_recurrent_dynamics": train_recurrent_dynamics,
         "train_conditioning_dynamics": train_conditioning_dynamics,
@@ -114,5 +115,4 @@ def build_mnist_generator_model(
             }
         )
     return model_class(**model_kwargs)
-
 

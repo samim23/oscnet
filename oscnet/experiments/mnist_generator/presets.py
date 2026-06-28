@@ -39,6 +39,7 @@ SPARSE_HORN_MNIST_BASE: Dict[str, Any] = {
     "batch_size": 128,
     "dt": 0.1,
     "coupling_strength": 1.0,
+    "conditioning_strength": 1.0,
     "omega_scale": 0.1,
     "coupling_init_scale": 0.05,
     "horn_frequency": 1.0,
@@ -154,6 +155,123 @@ GENERATOR_PRESETS: Dict[str, Dict[str, Any]] = {
         output_dir=(
             "outputs/reference/"
             "mnist_generator_sparse_horn_mnist_class_coupling_step1"
+        ),
+    ),
+    "sparse_horn_mnist_class_coupling_long": _preset(
+        conditioning_mode="class_coupling",
+        num_condition_oscillators=32,
+        steps=32,
+        train_settling_steps=(16, 32, 48),
+        settling_steps=(0, 1, 8, 16, 32, 48, 64),
+        output_dir=(
+            "outputs/reference/"
+            "mnist_generator_sparse_horn_mnist_class_coupling_long"
+        ),
+    ),
+    "sparse_horn_mnist_class_coupling_strong": _preset(
+        conditioning_mode="class_coupling",
+        num_condition_oscillators=32,
+        conditioning_strength=2.0,
+        steps=32,
+        train_settling_steps=(16, 32, 48),
+        settling_steps=(0, 1, 8, 16, 32, 48, 64),
+        output_dir=(
+            "outputs/reference/"
+            "mnist_generator_sparse_horn_mnist_class_coupling_strong"
+        ),
+    ),
+    "sparse_horn_mnist_class_coupling_strength4": _preset(
+        conditioning_mode="class_coupling",
+        num_condition_oscillators=32,
+        conditioning_strength=4.0,
+        steps=32,
+        train_settling_steps=(16, 32, 48),
+        settling_steps=(0, 1, 8, 16, 32, 48, 64),
+        output_dir=(
+            "outputs/reference/"
+            "mnist_generator_sparse_horn_mnist_class_coupling_strength4"
+        ),
+    ),
+    "sparse_horn_mnist_class_coupling_strength8": _preset(
+        conditioning_mode="class_coupling",
+        num_condition_oscillators=32,
+        conditioning_strength=8.0,
+        steps=32,
+        train_settling_steps=(16, 32, 48),
+        settling_steps=(0, 1, 8, 16, 32, 48, 64),
+        output_dir=(
+            "outputs/reference/"
+            "mnist_generator_sparse_horn_mnist_class_coupling_strength8"
+        ),
+    ),
+    "sparse_horn_mnist_class_coupling_strong_frozen": _preset(
+        model_family="frozen_horn",
+        conditioning_mode="class_coupling",
+        num_condition_oscillators=32,
+        conditioning_strength=2.0,
+        steps=32,
+        train_settling_steps=(16, 32, 48),
+        settling_steps=(0, 1, 8, 16, 32, 48, 64),
+        output_dir=(
+            "outputs/reference/"
+            "mnist_generator_sparse_horn_mnist_class_coupling_strong_frozen"
+        ),
+    ),
+    "sparse_horn_mnist_class_coupling_strong_decoder_only": _preset(
+        model_family="horn_decoder_only",
+        conditioning_mode="class_coupling",
+        num_condition_oscillators=32,
+        conditioning_strength=2.0,
+        steps=32,
+        train_settling_steps=(),
+        settling_steps=(0, 1, 8, 16, 32, 48, 64),
+        output_dir=(
+            "outputs/reference/"
+            "mnist_generator_sparse_horn_mnist_class_coupling_strong_decoder_only"
+        ),
+    ),
+    "sparse_horn_mnist_state_mlp_class_coupling_strong": _preset(
+        model_family="state_mlp",
+        conditioning_mode="class_coupling",
+        num_condition_oscillators=32,
+        conditioning_strength=2.0,
+        state_mlp_hidden_dim=48,
+        state_mlp_depth=1,
+        state_mlp_residual_scale=0.1,
+        steps=32,
+        train_settling_steps=(16, 32, 48),
+        settling_steps=(0, 1, 8, 16, 32, 48, 64),
+        output_dir=(
+            "outputs/reference/"
+            "mnist_generator_sparse_horn_mnist_state_mlp_class_coupling_strong"
+        ),
+    ),
+    "sparse_horn_mnist_state_mlp_class_coupling_strong_frozen": _preset(
+        model_family="frozen_state_mlp",
+        conditioning_mode="class_coupling",
+        num_condition_oscillators=32,
+        conditioning_strength=2.0,
+        state_mlp_hidden_dim=48,
+        state_mlp_depth=1,
+        state_mlp_residual_scale=0.1,
+        steps=32,
+        train_settling_steps=(16, 32, 48),
+        settling_steps=(0, 1, 8, 16, 32, 48, 64),
+        output_dir=(
+            "outputs/reference/"
+            "mnist_generator_sparse_horn_mnist_state_mlp_class_coupling_strong_frozen"
+        ),
+    ),
+    "sparse_horn_mnist_class_coupling_anchor": _preset(
+        conditioning_mode="class_coupling",
+        num_condition_oscillators=32,
+        label_phase_scale=0.5,
+        steps=32,
+        train_settling_steps=(16, 32, 48),
+        settling_steps=(0, 1, 8, 16, 32, 48, 64),
+        output_dir=(
+            "outputs/reference/"
+            "mnist_generator_sparse_horn_mnist_class_coupling_anchor"
         ),
     ),
 }

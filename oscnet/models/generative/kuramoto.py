@@ -55,6 +55,7 @@ class KuramotoImageGenerator(eqx.Module):
     coupling_length_scale: float = eqx.field(static=True)
     coupling_floor: float = eqx.field(static=True)
     coupling_bias_strength: float = eqx.field(static=True)
+    conditioning_strength: float = eqx.field(static=True)
     train_dynamics: bool = eqx.field(static=True)
     train_recurrent_dynamics: bool = eqx.field(static=True)
     train_conditioning_dynamics: bool = eqx.field(static=True)
@@ -84,6 +85,7 @@ class KuramotoImageGenerator(eqx.Module):
         coupling_length_scale: float = 0.0,
         coupling_floor: float = 0.0,
         coupling_bias_strength: float = 0.0,
+        conditioning_strength: float = 1.0,
         train_dynamics: bool = True,
         train_recurrent_dynamics: Optional[bool] = None,
         train_conditioning_dynamics: Optional[bool] = None,
@@ -158,6 +160,8 @@ class KuramotoImageGenerator(eqx.Module):
             )
         if coupling_floor < 0.0 or coupling_floor > 1.0:
             raise ValueError("coupling_floor must be in [0, 1]")
+        if conditioning_strength < 0.0:
+            raise ValueError("conditioning_strength must be non-negative")
         if key is None:
             key = jax.random.PRNGKey(42)
 
@@ -173,6 +177,7 @@ class KuramotoImageGenerator(eqx.Module):
         self.coupling_length_scale = float(coupling_length_scale)
         self.coupling_floor = float(coupling_floor)
         self.coupling_bias_strength = float(coupling_bias_strength)
+        self.conditioning_strength = float(conditioning_strength)
         if train_recurrent_dynamics is None:
             train_recurrent_dynamics = bool(train_dynamics)
         if train_conditioning_dynamics is None:
@@ -516,7 +521,11 @@ class KuramotoImageGenerator(eqx.Module):
 
         phase_diff = condition_phase[:, None, :] - theta[:, :, None]
         drive = jnp.sum(condition_coupling * jnp.sin(phase_diff), axis=-1)
-        return drive / float(max(self.num_condition_oscillators, 1))
+        return (
+            float(self.conditioning_strength)
+            * drive
+            / float(max(self.num_condition_oscillators, 1))
+        )
 
     def _dynamic_conditioning_drive(
         self,
@@ -536,7 +545,11 @@ class KuramotoImageGenerator(eqx.Module):
             condition_coupling = jax.lax.stop_gradient(condition_coupling)
         phase_diff = condition_theta[:, None, :] - theta[:, :, None]
         drive = jnp.sum(condition_coupling * jnp.sin(phase_diff), axis=-1)
-        return drive / float(max(self.num_condition_oscillators, 1))
+        return (
+            float(self.conditioning_strength)
+            * drive
+            / float(max(self.num_condition_oscillators, 1))
+        )
 
     def step(self, theta: Array, labels: Optional[Array] = None) -> Array:
         """Advance one Kuramoto step for a batch of phases."""
@@ -891,5 +904,3 @@ class KuramotoImageGenerator(eqx.Module):
     ) -> Array:
         final_theta = self.sample_phase(key, batch_size, labels)
         return self.decode_phase(final_theta)
-
-

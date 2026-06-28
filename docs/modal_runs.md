@@ -733,6 +733,67 @@ OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_generator.py \
   --print-only
 ```
 
+Run the sparse-HORN class-coupling sharpen probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_sparse_horn_class_coupling_sharpen_probe
+```
+
+This compares the older no-direct-label `class_coupling` preset against longer
+settling, stronger dynamic class drive, and a small explicit anchor. Results
+write to
+`outputs/analysis/modal_mnist_generator_sparse_horn_class_coupling_sharpen_probe.csv`.
+
+Dry-run it first:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_sparse_horn_class_coupling_sharpen_probe \
+  --print-only
+```
+
+Run the sparse-HORN strong class-coupling control probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_sparse_horn_class_coupling_strong_control_probe
+```
+
+This is the stricter three-seed audit for the no-direct-label generator route.
+It compares trainable HORN against frozen HORN, decoder-only HORN, and a
+matched `StateMLPImageGenerator` that receives the same dynamic class drive.
+Results write to
+`outputs/analysis/modal_mnist_generator_sparse_horn_class_coupling_strong_control_probe.csv`.
+
+Dry-run it first:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_sparse_horn_class_coupling_strong_control_probe \
+  --print-only
+```
+
+Run the sparse-HORN class-drive strength probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_sparse_horn_class_coupling_strength_probe
+```
+
+This keeps the strict no-direct-label `class_coupling` HORN recipe fixed and
+varies `conditioning_strength` across `2.0`, `4.0`, and `8.0` for seeds
+`11/12/13`. Results write to
+`outputs/analysis/modal_mnist_generator_sparse_horn_class_coupling_strength_probe.csv`.
+
+Dry-run it first:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_sparse_horn_class_coupling_strength_probe \
+  --print-only
+```
+
 Run the resize-conv generator with Un-0-style dynamic conditioning oscillators:
 
 ```bash

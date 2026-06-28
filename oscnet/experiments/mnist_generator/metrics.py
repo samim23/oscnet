@@ -372,6 +372,7 @@ def compute_generator_success_diagnostics(
         "coupling_length_scale": float(model.coupling_length_scale),
         "coupling_floor": float(model.coupling_floor),
         "coupling_bias_strength": float(model.coupling_bias_strength),
+        "conditioning_strength": float(model.conditioning_strength),
         "conditioning_mode": model.conditioning_mode,
         "readout_mode": model.readout_mode,
         "num_condition_oscillators": int(model.num_condition_oscillators),
@@ -434,5 +435,4 @@ def compute_generator_success_diagnostics(
             )
 
     return diagnostics
-
 

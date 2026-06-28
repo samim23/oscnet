@@ -4811,6 +4811,160 @@ Interpretation:
   horizons and strengthen the dynamic class drive without reintroducing a
   direct initial-state label code.
 
+Sparse local HORN class-coupling sharpen probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_sparse_horn_class_coupling_sharpen_probe
+```
+
+The probe wrote:
+
+```text
+outputs/analysis/modal_mnist_generator_sparse_horn_class_coupling_sharpen_probe.csv
+outputs/analysis/modal_mnist_generator_sparse_horn_class_coupling_sharpen_probe.json
+outputs/analysis/class_coupling_sharpen_samples/comparison.png
+```
+
+This follow-up keeps the no-direct-label `class_coupling` route and asks which
+intervention actually sharpens it: longer settling, stronger dynamic class
+drive, or a small explicit phase anchor.
+
+Single-seed compact probe, seed 11:
+
+| Variant | Label phase scale | Conditioning strength | Final classifier acc | Best acc | Step 0 | Step 1 | Step 8 | Step 16 | Step 32 | Diversity | Nearest-real MSE | Visual read |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| baseline class-coupling | 0.0 | 1.0 | 0.5273 | 0.6445 @ 32 | 0.0957 | 0.1113 | 0.2871 | 0.5313 | 0.6445 | 1.4861 | 0.0977 | Blurry blobs |
+| long settling | 0.0 | 1.0 | 0.7461 | 0.7383 @ 32 | 0.0938 | 0.0977 | 0.2305 | 0.4902 | 0.7383 | 1.5392 | 0.1018 | Cleaner but soft |
+| strong class drive | 0.0 | 2.0 | 0.9609 | 0.9707 @ 32 | 0.1035 | 0.1152 | 0.4492 | 0.8672 | 0.9707 | 1.4362 | 0.0839 | Readable digits |
+| small anchor | 0.5 | 1.0 | 1.0000 | 0.9961 @ 32 | 0.0918 | 0.1426 | 0.6738 | 0.9746 | 0.9961 | 1.1989 | 0.0580 | Very crisp digits |
+
+Interpretation:
+
+- Stronger dynamic class coupling is the clean win. It keeps step 0 near
+  chance, avoids the direct initial phase-shift route, and reaches `0.9707`
+  best-settled classifier accuracy with readable digit grids.
+- Longer settling alone helps but is not enough. It improves the old baseline
+  from roughly `0.64` to `0.74` best-settled accuracy, but the samples remain
+  softer and farther from real digits.
+- The small anchor is visually best, but it reintroduces a weak explicit
+  label-initialization path. It is useful as a ceiling/continuation trick, not
+  as the cleanest ONN-native claim.
+- Updated research read: sparse local HORN now has two useful presets. Use
+  `sparse_horn_mnist` as the practical polished generator recipe. Use
+  `sparse_horn_mnist_class_coupling_strong` when testing the stricter claim
+  that class information can be routed through learned oscillator settling
+  rather than injected directly into the initial state.
+
+Sparse local HORN class-coupling strong control probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_sparse_horn_class_coupling_strong_control_probe
+```
+
+The probe wrote:
+
+```text
+outputs/analysis/modal_mnist_generator_sparse_horn_class_coupling_strong_control_probe.csv
+outputs/analysis/modal_mnist_generator_sparse_horn_class_coupling_strong_control_probe.json
+outputs/analysis/class_coupling_strong_control_samples/comparison_by_seed.png
+```
+
+This is the fairer control audit after the `class_coupling_strong` one-seed
+win. The previous `state_mlp` control ignored labels under the
+`class_coupling` route, so it was too weak. The updated
+`StateMLPImageGenerator` now receives the same learned dynamic class drive as
+HORN while keeping a non-oscillatory residual MLP state transition.
+
+Three-seed compact probe, seeds 11/12/13:
+
+| Variant | Final classifier acc | Best acc | Step 0 | Step 16 | Step 32 | Diversity | Nearest-real MSE | Visual read |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| HORN strong class-coupling | 0.8229 +/- 0.2631 | 0.8249 +/- 0.2731 | 0.1022 | 0.6797 | 0.8249 | 1.2745 | 0.0803 | Two crisp seeds, one washed-out seed |
+| HORN frozen | 0.1029 +/- 0.0130 | 0.1120 +/- 0.0045 | 0.1087 | 0.1016 | 0.1081 | 0.2779 | 0.0428 | Chance-like texture |
+| HORN decoder-only | 0.1042 +/- 0.0074 | 0.1107 +/- 0.0041 | 0.1061 | 0.1094 | 0.1087 | 0.3191 | 0.0443 | Chance-like texture |
+| StateMLP + class drive | 0.9993 +/- 0.0011 | 1.0000 +/- 0.0000 | 0.1139 | 0.9850 | 0.9987 | 0.6343 | 0.0371 | Crisp class prototypes |
+| Frozen StateMLP + class drive | 0.0951 +/- 0.0100 | 0.1152 +/- 0.0070 | 0.1074 | 0.1042 | 0.1055 | 0.1817 | 0.0392 | Class-agnostic blobs |
+
+Per-seed best settled classifier accuracy:
+
+| Variant | Seed 11 | Seed 12 | Seed 13 |
+| --- | ---: | ---: | ---: |
+| HORN strong class-coupling | 0.9707 @ 32 | 0.5098 @ 32 | 0.9941 @ 32 |
+| StateMLP + class drive | 1.0000 @ 16 | 1.0000 @ 48 | 1.0000 @ 32 |
+
+Interpretation:
+
+- The no-direct-label HORN signal remains real: trainable HORN crushes frozen
+  HORN and decoder-only HORN, starts near chance at step 0, and improves
+  through settling.
+- The stronger claim does not hold yet. Once the matched non-oscillatory
+  StateMLP gets the same class-drive route, it beats HORN on classifier
+  accuracy and nearest-real MSE across all three seeds.
+- The StateMLP win is not a perfect generative win: visual samples are crisp
+  but prototype-like, with much lower diversity (`0.6343`) than HORN
+  (`1.2745`). HORN remains more varied, but seed 12 is unstable and washed out.
+- Updated research read: the breakthrough path is not simply "HORN plus
+  dynamic class coupling." The next HORN-specific question is how to preserve
+  HORN's diversity while improving robustness/contrast across seeds. Candidate
+  targeted probes: stronger HORN class drive, damping/state-bound tuning,
+  contrast-aware objectives, or a diversity-preserving state-MLP control so the
+  comparison does not collapse to class prototypes.
+
+Sparse local HORN class-drive strength probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_sparse_horn_class_coupling_strength_probe
+```
+
+The probe wrote:
+
+```text
+outputs/analysis/modal_mnist_generator_sparse_horn_class_coupling_strength_probe.csv
+outputs/analysis/modal_mnist_generator_sparse_horn_class_coupling_strength_probe.json
+outputs/analysis/class_coupling_strength_samples/comparison_by_seed.png
+```
+
+This directly tested the hypothesis from the control audit: HORN was moving the
+latent field too weakly relative to the conditioned StateMLP. The sweep kept
+the no-direct-label `class_coupling` route fixed and varied only
+`conditioning_strength`.
+
+Three-seed compact probe, seeds 11/12/13:
+
+| HORN conditioning strength | Final classifier acc | Best acc | Step 0 | Step 16 | Step 32 | Diversity | Nearest-real MSE | Visual read |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| 2.0 | 0.8229 +/- 0.2631 | 0.8242 +/- 0.2743 | 0.1022 | 0.6797 | 0.8242 | 1.2754 | 0.0803 | Two crisp seeds, one washed-out seed |
+| 4.0 | 0.9857 +/- 0.0200 | 0.9850 +/- 0.0226 | 0.1120 | 0.9499 | 0.9850 | 1.2015 | 0.0641 | Crisp, seed 12 mostly rescued |
+| 8.0 | 0.9941 +/- 0.0101 | 0.9935 +/- 0.0113 | 0.1029 | 0.9727 | 0.9935 | 1.1397 | 0.0543 | Crisp across all seeds |
+
+Per-seed best settled classifier accuracy:
+
+| Strength | Seed 11 | Seed 12 | Seed 13 |
+| --- | ---: | ---: | ---: |
+| 2.0 | 0.9707 @ 32 | 0.5078 @ 32 | 0.9941 @ 32 |
+| 4.0 | 0.9961 @ 32 | 0.9590 @ 32 | 1.0000 @ 32 |
+| 8.0 | 1.0000 @ 32 | 0.9805 @ 32 | 1.0000 @ 32 |
+
+Interpretation:
+
+- This rescues the strict HORN route. The poor seed-12 result was not a
+  fundamental class-coupling failure; it was an underpowered class-drive
+  regime.
+- Strength 8 keeps the important attribution pattern: step 0 remains near
+  chance, and class accuracy emerges through oscillator settling.
+- Compared with the matched StateMLP control, strength-8 HORN has slightly
+  lower classifier accuracy (`0.9941` vs `0.9993`) and worse nearest-real MSE
+  (`0.0543` vs `0.0371`), but much higher diversity (`1.1397` vs `0.6343`) and
+  visibly less prototype-collapse.
+- Updated research read: `sparse_horn_mnist_class_coupling_strength8` is now
+  the strongest strict no-direct-label HORN generator preset. The central next
+  comparison is no longer "can HORN generate digits?" It can. The next question
+  is whether HORN's higher-diversity settling can beat a diversity-regularized
+  StateMLP or improve nearest-real quality without collapsing to prototypes.
+
 ## Maintenance Notes
 
 - Put numerical benchmark summaries in this file and/or `outputs/analysis`.

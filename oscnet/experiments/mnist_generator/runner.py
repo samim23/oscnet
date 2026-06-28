@@ -789,6 +789,7 @@ def run_mnist_generator_experiment(
             "coupling_length_scale": float(model.coupling_length_scale),
             "coupling_floor": float(model.coupling_floor),
             "coupling_bias_strength": float(model.coupling_bias_strength),
+            "conditioning_strength": float(model.conditioning_strength),
             "dynamics_family": str(getattr(model, "dynamics_family", "kuramoto")),
             "horn_frequency": config.horn_frequency,
             "horn_damping": config.horn_damping,
@@ -819,5 +820,4 @@ def run_mnist_generator_experiment(
         paths=paths,
         checkpoint_paths=checkpoint_paths,
     )
-
 

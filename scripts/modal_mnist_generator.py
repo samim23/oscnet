@@ -126,6 +126,18 @@ SWEEP_CSVS = {
         "outputs/analysis/"
         "modal_mnist_generator_sparse_horn_conditioning_route_probe.csv"
     ),
+    "mnist_generator_sparse_horn_class_coupling_sharpen_probe": Path(
+        "outputs/analysis/"
+        "modal_mnist_generator_sparse_horn_class_coupling_sharpen_probe.csv"
+    ),
+    "mnist_generator_sparse_horn_class_coupling_strong_control_probe": Path(
+        "outputs/analysis/"
+        "modal_mnist_generator_sparse_horn_class_coupling_strong_control_probe.csv"
+    ),
+    "mnist_generator_sparse_horn_class_coupling_strength_probe": Path(
+        "outputs/analysis/"
+        "modal_mnist_generator_sparse_horn_class_coupling_strength_probe.csv"
+    ),
 }
 
 REMOTE_PACKAGES = [
@@ -2037,6 +2049,84 @@ def _mnist_generator_sparse_horn_conditioning_route_probe_sweep() -> list[
     return entries
 
 
+def _mnist_generator_sparse_horn_class_coupling_sharpen_probe_sweep() -> list[
+    tuple[list[str], str]
+]:
+    """Try to sharpen class coupling without reintroducing phase-shift labels."""
+
+    entries = []
+    variants = [
+        ("baseline", "sparse_horn_mnist_class_coupling"),
+        ("long", "sparse_horn_mnist_class_coupling_long"),
+        ("strong", "sparse_horn_mnist_class_coupling_strong"),
+        ("anchor", "sparse_horn_mnist_class_coupling_anchor"),
+    ]
+    for seed in (11,):
+        for variant_suffix, local_preset in variants:
+            run_name = (
+                "mnist_generator_sparse_horn_class_coupling_sharpen_"
+                f"{variant_suffix}_n196_resizeconv_train500_seed{seed}_20e"
+            )
+            args = shlex.split(f"--seed {seed} --preset {local_preset}")
+            output_dir = VOLUME_MOUNT / "mnist_generator" / run_name
+            args = _with_default_arg(args, "--output-dir", output_dir)
+            entries.append((args, run_name))
+    return entries
+
+
+def _mnist_generator_sparse_horn_class_coupling_strong_control_probe_sweep() -> list[
+    tuple[list[str], str]
+]:
+    """Replicate strong class coupling against matched dynamics controls."""
+
+    entries = []
+    variants = [
+        ("horn_strong", "sparse_horn_mnist_class_coupling_strong"),
+        ("horn_frozen", "sparse_horn_mnist_class_coupling_strong_frozen"),
+        ("horn_decoder", "sparse_horn_mnist_class_coupling_strong_decoder_only"),
+        ("state_mlp", "sparse_horn_mnist_state_mlp_class_coupling_strong"),
+        (
+            "state_mlp_frozen",
+            "sparse_horn_mnist_state_mlp_class_coupling_strong_frozen",
+        ),
+    ]
+    for seed in (11, 12, 13):
+        for variant_suffix, local_preset in variants:
+            run_name = (
+                "mnist_generator_sparse_horn_class_coupling_strong_control_"
+                f"{variant_suffix}_n196_resizeconv_train500_seed{seed}_20e"
+            )
+            args = shlex.split(f"--seed {seed} --preset {local_preset}")
+            output_dir = VOLUME_MOUNT / "mnist_generator" / run_name
+            args = _with_default_arg(args, "--output-dir", output_dir)
+            entries.append((args, run_name))
+    return entries
+
+
+def _mnist_generator_sparse_horn_class_coupling_strength_probe_sweep() -> list[
+    tuple[list[str], str]
+]:
+    """Probe whether stronger HORN class drive fixes seed instability."""
+
+    entries = []
+    variants = [
+        ("strength2", "sparse_horn_mnist_class_coupling_strong"),
+        ("strength4", "sparse_horn_mnist_class_coupling_strength4"),
+        ("strength8", "sparse_horn_mnist_class_coupling_strength8"),
+    ]
+    for seed in (11, 12, 13):
+        for variant_suffix, local_preset in variants:
+            run_name = (
+                "mnist_generator_sparse_horn_class_coupling_strength_"
+                f"{variant_suffix}_n196_resizeconv_train500_seed{seed}_20e"
+            )
+            args = shlex.split(f"--seed {seed} --preset {local_preset}")
+            output_dir = VOLUME_MOUNT / "mnist_generator" / run_name
+            args = _with_default_arg(args, "--output-dir", output_dir)
+            entries.append((args, run_name))
+    return entries
+
+
 def _sweep_entries(preset: str) -> list[tuple[list[str], str]]:
     if preset == "mnist_generator_core":
         return _mnist_generator_core_sweep()
@@ -2094,6 +2184,14 @@ def _sweep_entries(preset: str) -> list[tuple[list[str], str]]:
         return _mnist_generator_sparse_horn_attribution_probe_sweep()
     if preset == "mnist_generator_sparse_horn_conditioning_route_probe":
         return _mnist_generator_sparse_horn_conditioning_route_probe_sweep()
+    if preset == "mnist_generator_sparse_horn_class_coupling_sharpen_probe":
+        return _mnist_generator_sparse_horn_class_coupling_sharpen_probe_sweep()
+    if preset == "mnist_generator_sparse_horn_class_coupling_strong_control_probe":
+        return (
+            _mnist_generator_sparse_horn_class_coupling_strong_control_probe_sweep()
+        )
+    if preset == "mnist_generator_sparse_horn_class_coupling_strength_probe":
+        return _mnist_generator_sparse_horn_class_coupling_strength_probe_sweep()
     raise ValueError("unknown sweep preset")
 
 
@@ -2125,6 +2223,7 @@ def _write_sweep_csv(results: list[dict[str, Any]], path: Path) -> None:
         "generator.coupling_length_scale",
         "generator.coupling_floor",
         "generator.coupling_bias_strength",
+        "generator.conditioning_strength",
         "generator.train_recurrent_dynamics",
         "generator.train_conditioning_dynamics",
         "generator.readout_mode",
@@ -2175,6 +2274,7 @@ def _write_sweep_csv(results: list[dict[str, Any]], path: Path) -> None:
         "generator.success_diagnostics.coupling_profile_std",
         "generator.success_diagnostics.coupling_profile_min",
         "generator.success_diagnostics.coupling_profile_max",
+        "generator.success_diagnostics.conditioning_strength",
         "generator.success_diagnostics.samples_per_train_second",
         "generator.success_diagnostics.phase_mean_abs_displacement",
         "generator.success_diagnostics.phase_final_order",

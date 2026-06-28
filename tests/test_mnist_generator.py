@@ -89,6 +89,15 @@ def test_sparse_horn_mnist_control_presets_share_recipe():
         "sparse_horn_mnist_class_oscillator_frozen": "frozen_horn",
         "sparse_horn_mnist_class_coupling": "horn",
         "sparse_horn_mnist_class_coupling_step1": "horn",
+        "sparse_horn_mnist_class_coupling_long": "horn",
+        "sparse_horn_mnist_class_coupling_strong": "horn",
+        "sparse_horn_mnist_class_coupling_strength4": "horn",
+        "sparse_horn_mnist_class_coupling_strength8": "horn",
+        "sparse_horn_mnist_class_coupling_strong_frozen": "frozen_horn",
+        "sparse_horn_mnist_class_coupling_strong_decoder_only": "horn_decoder_only",
+        "sparse_horn_mnist_state_mlp_class_coupling_strong": "state_mlp",
+        "sparse_horn_mnist_state_mlp_class_coupling_strong_frozen": "frozen_state_mlp",
+        "sparse_horn_mnist_class_coupling_anchor": "horn",
     }
 
     for preset, model_family in expected.items():
@@ -102,6 +111,26 @@ def test_sparse_horn_mnist_control_presets_share_recipe():
     step1 = config_from_args(parse_args(["--preset", "sparse_horn_mnist_step1"]))
     assert step1.steps == 1
     assert step1.train_settling_steps == (1,)
+
+    strong = config_from_args(
+        parse_args(["--preset", "sparse_horn_mnist_class_coupling_strong"])
+    )
+    assert strong.conditioning_mode == "class_coupling"
+    assert strong.conditioning_strength == 2.0
+    assert strong.train_settling_steps == (16, 32, 48)
+    assert strong.settling_steps == (0, 1, 8, 16, 32, 48, 64)
+
+    strength8 = config_from_args(
+        parse_args(["--preset", "sparse_horn_mnist_class_coupling_strength8"])
+    )
+    assert strength8.conditioning_mode == "class_coupling"
+    assert strength8.conditioning_strength == 8.0
+
+    anchor = config_from_args(
+        parse_args(["--preset", "sparse_horn_mnist_class_coupling_anchor"])
+    )
+    assert anchor.conditioning_mode == "class_coupling"
+    assert anchor.label_phase_scale == 0.5
 
 
 def test_class_oscillator_preset_removes_initial_label_shift():
@@ -127,6 +156,63 @@ def test_class_oscillator_preset_removes_initial_label_shift():
     assert model.label_condition_coupling is not None
     assert model.condition_omega is not None
     assert model.condition_coupling is not None
+
+
+def test_class_coupling_strong_preset_keeps_no_initial_label_shift():
+    parsed = config_from_args(
+        parse_args(
+            [
+                "--preset",
+                "sparse_horn_mnist_class_coupling_strong",
+                "--epochs",
+                "1",
+                "--train-limit",
+                "8",
+            ]
+        )
+    )
+
+    model = build_mnist_generator_model(parsed, jax.random.PRNGKey(0))
+
+    assert model.conditioning_mode == "class_coupling"
+    assert model.conditioning_strength == 2.0
+    assert model.label_phase_shift is None
+    assert model.label_condition_phase is not None
+    assert model.label_condition_coupling is not None
+
+
+def test_state_mlp_class_coupling_strong_uses_label_drive():
+    parsed = config_from_args(
+        parse_args(
+            [
+                "--preset",
+                "sparse_horn_mnist_state_mlp_class_coupling_strong",
+                "--epochs",
+                "1",
+                "--train-limit",
+                "8",
+            ]
+        )
+    )
+
+    model = build_mnist_generator_model(parsed, jax.random.PRNGKey(0))
+    position, velocity = model.initial_state(jax.random.PRNGKey(1), 1, None)
+    next_zero = model.step_state(
+        (position, velocity),
+        jnp.asarray([0], dtype=jnp.int32),
+    )
+    next_one = model.step_state(
+        (position, velocity),
+        jnp.asarray([1], dtype=jnp.int32),
+    )
+
+    assert model.dynamics_family == "state_mlp"
+    assert model.conditioning_mode == "class_coupling"
+    assert model.conditioning_strength == 2.0
+    assert model.label_phase_shift is None
+    assert model.label_condition_phase is not None
+    assert model.label_condition_coupling is not None
+    assert float(jnp.max(jnp.abs(next_zero[1] - next_one[1]))) > 0.0
 
 
 def test_conditional_generator_loss_uses_class_terms():
