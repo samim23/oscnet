@@ -4395,6 +4395,49 @@ ought to matter beyond semantic class alignment: diversity, interpolation
 smoothness, settling/refinement, robustness to fewer training samples, or
 out-of-distribution/noisy latent initial states.
 
+Low-data sample-efficiency probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_horn_state_mlp_low_data_probe
+```
+
+The probe wrote:
+
+```text
+outputs/analysis/modal_mnist_generator_horn_state_mlp_low_data_probe.csv
+outputs/analysis/modal_mnist_generator_horn_state_mlp_low_data_probe.json
+outputs/analysis/modal_mnist_generator_horn_state_mlp_low_data_samples/
+```
+
+This keeps the label-zero pixel-drift setup fixed but reduces the training set
+to 500 MNIST examples. Three-seed means:
+
+| Variant | Mean final eval | Mean classifier label acc | Mean prototype acc | Mean diversity | Mean nearest-real MSE |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Trainable HORN | 0.001100 | 0.9661 | 0.9993 | 1.2514 | 0.0630 |
+| Trainable state-MLP | 0.001252 | 0.9186 | 0.9993 | 0.8832 | 0.0439 |
+
+Interpretation:
+
+- This is the clearest HORN-vs-state-MLP advantage so far. With scarce data,
+  HORN has lower pixel-drift loss, higher classifier label accuracy, and much
+  higher diversity.
+- The nearest-real MSE still favors state-MLP, but that likely reflects more
+  conservative, exemplar-adjacent samples. The sample montage shows state-MLP
+  can produce readable digits, but one seed collapses into darker/blurry
+  repeated strokes, while HORN stays more stable across seeds.
+- This does not prove a universal ONN win, but it upgrades the HORN branch from
+  "nice oscillatory version of a trainable latent dynamics idea" to a plausible
+  **oscillatory inductive bias**: the second-order position/velocity dynamics
+  appear to regularize the generator under limited data.
+
+Updated research read after the low-data probe: HORN is the strongest current
+OscNet-native MNIST generator, not because it beats every ordinary neural
+model on every metric, but because it now has replicated dynamics attribution
+and a matched-control regime where the oscillatory transition is more stable
+and more diverse than a similarly sized learned state MLP.
+
 ## Maintenance Notes
 
 - Put numerical benchmark summaries in this file and/or `outputs/analysis`.
