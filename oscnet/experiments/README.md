@@ -56,7 +56,10 @@ pixel space for sample metrics and PNG artifacts. Set
 `--sample-readout-mode shape_gated` to multiply the decoded pixel channel by
 the decoded shape channel during sample metrics/artifact export. Set
 `--sample-schedule shape_guided` to let the shape channel update first and
-open pixel-channel updates later during Euler sampling.
+open pixel-channel updates later during Euler sampling. Set
+`--basin-t-values 0.1,0.25,0.5,0.75,0.9` to measure endpoint recovery from
+partially real chord states; the harness reports before/after paired error so
+you can see whether the dynamics actually improve the state.
 
 Use **MNIST masked representation** if you care about masked image recovery,
 block occlusion, or representation-prediction controls. This branch is useful

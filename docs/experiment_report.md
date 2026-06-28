@@ -3568,6 +3568,77 @@ Interpretation:
   fields have a wider basin than pixels, the two-stage shape-to-pixel direction
   remains the principled architecture move.
 
+Basin-of-attraction probe:
+
+The phase-flow experiment now supports `basin_t_values` /
+`--basin-t-values`, a diagnostic that starts from partially real chord states:
+`x_t = (1 - t) noise + t data`. It then integrates the trained model from that
+start time to the endpoint and computes the same sample quality/topology
+metrics plus paired MSE to the exact scaffold image. The diagnostic records
+both the starting paired MSE and the final paired MSE, so it measures whether
+the dynamics improved the state rather than merely benefiting from a start that
+was already close to the answer.
+
+Run:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_phase_flow.py \
+  --sweep-preset mnist_phase_flow_basin_probe
+```
+
+Matrix:
+
+- Start times: `0.1`, `0.25`, `0.5`, `0.75`, `0.9`.
+- Seeds: `31`, `32`.
+- Targets/models: centered pixel/shape coarse phase-flow,
+  centered pixel/shape recurrent-conv, signed-distance coarse phase-flow, and
+  signed-distance recurrent-conv.
+
+Result:
+
+```text
+outputs/analysis/modal_mnist_phase_flow_basin_probe.csv
+outputs/analysis/modal_mnist_phase_flow_samples/
+```
+
+Mean paired MSE over two seeds:
+
+| target/model | t=0.10 start -> final | t=0.50 start -> final | t=0.75 start -> final | t=0.90 start -> final |
+| --- | ---: | ---: | ---: | ---: |
+| centered pixel/shape, coarse phase-flow | 0.189232 -> 0.087345 | 0.055177 -> 0.052853 | 0.010366 -> 0.055798 | 0.002020 -> 0.065405 |
+| centered pixel/shape, recurrent-conv | 0.189232 -> 0.093316 | 0.055177 -> 0.070369 | 0.010366 -> 0.076299 | 0.002020 -> 0.082252 |
+| signed-distance, coarse phase-flow | 0.210624 -> 0.040894 | 0.120478 -> 0.019128 | 0.042395 -> 0.006195 | 0.008251 -> 0.002043 |
+| signed-distance, recurrent-conv | 0.210624 -> 0.056075 | 0.120478 -> 0.020963 | 0.042395 -> 0.006569 | 0.008251 -> 0.002155 |
+
+Mean paired-MSE improvement fraction:
+
+| target/model | t=0.10 | t=0.25 | t=0.50 | t=0.75 | t=0.90 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| centered pixel/shape, coarse phase-flow | 0.538 | 0.490 | 0.042 | -4.369 | -31.365 |
+| centered pixel/shape, recurrent-conv | 0.507 | 0.417 | -0.275 | -6.351 | -39.707 |
+| signed-distance, coarse phase-flow | 0.806 | 0.813 | 0.841 | 0.854 | 0.752 |
+| signed-distance, recurrent-conv | 0.734 | 0.765 | 0.826 | 0.845 | 0.739 |
+
+Interpretation:
+
+- Pixel-producing phase-flow does not have a stable pixel basin. It can improve
+  very noisy chord states, but once the state is already close to a real digit
+  (`t=0.75` or `t=0.90`), the learned dynamics push it away from the target.
+  That explains the free-sampling failure: the pixel readout is not a robust
+  attractor.
+- Signed-distance fields do show attractor-like relaxation. Both coarse
+  phase-flow and recurrent-conv improve every start time, including near-real
+  states. The coarse/global oscillator wins paired MSE at every basin point and
+  has lower supervised loss (`0.097794` vs `0.118944` mean best loss).
+- This is the cleanest representation-level result so far: oscillatory dynamics
+  are much better matched to smooth shape fields than raw pixels. But it is
+  still not a finished MNIST generator, because the successful object is a
+  signed-distance scaffold, not final pixel synthesis.
+- The principled next architecture is two-stage: generate/settle a
+  signed-distance or contour field first, then render/refine pixels conditioned
+  on that field. More sampler tweaks on raw pixel phase-flow are unlikely to
+  solve the binding problem by themselves.
+
 ## Maintenance Notes
 
 - Put numerical benchmark summaries in this file and/or `outputs/analysis`.

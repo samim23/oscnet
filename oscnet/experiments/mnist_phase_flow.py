@@ -69,6 +69,7 @@ class MNISTPhaseFlowExperimentConfig:
     sample_method: str = "euler"
     sample_schedule: str = "standard"
     sample_readout_mode: str = "primary"
+    basin_t_values: Tuple[float, ...] = ()
     target_representation: str = "pixels"
     data_source: str = "idx"
     train_limit: Optional[int] = 10_000
@@ -184,6 +185,7 @@ def _checkpoint_hyperparams(config: MNISTPhaseFlowExperimentConfig) -> Dict[str,
         "sample_method": config.sample_method,
         "sample_schedule": config.sample_schedule,
         "sample_readout_mode": config.sample_readout_mode,
+        "basin_t_values": [float(value) for value in config.basin_t_values],
         "target_representation": config.target_representation,
         "target_channels": phase_flow_target_channels(config.target_representation),
     }
@@ -763,6 +765,145 @@ def sample_phase_flow_images(
     return jnp.concatenate(samples, axis=0)
 
 
+def sample_phase_flow_from_chord(
+    model: PhaseFlowModel,
+    targets: Array,
+    *,
+    key: jax.random.PRNGKey,
+    start_t: float,
+    sample_steps: int,
+    sample_method: str,
+    labels: Optional[Array],
+    batch_size: int,
+    clip_samples: bool = True,
+) -> Array:
+    """Complete samples from ``(1 - t) noise + t target`` chord states."""
+
+    samples, _ = _sample_phase_flow_from_chord_with_initial(
+        model,
+        targets,
+        key=key,
+        start_t=start_t,
+        sample_steps=sample_steps,
+        sample_method=sample_method,
+        labels=labels,
+        batch_size=batch_size,
+        clip_samples=clip_samples,
+    )
+    return samples
+
+
+def _sample_phase_flow_from_chord_with_initial(
+    model: PhaseFlowModel,
+    targets: Array,
+    *,
+    key: jax.random.PRNGKey,
+    start_t: float,
+    sample_steps: int,
+    sample_method: str,
+    labels: Optional[Array],
+    batch_size: int,
+    clip_samples: bool = True,
+) -> Tuple[Array, Array]:
+    """Complete chord states and return the exact initial states used."""
+
+    if sample_method not in {"euler", "heun"}:
+        raise ValueError("sample_method must be 'euler' or 'heun'")
+    if sample_steps < 1:
+        raise ValueError("sample_steps must be positive")
+    start_t = float(start_t)
+    if start_t < 0.0 or start_t >= 1.0:
+        raise ValueError("start_t must satisfy 0 <= start_t < 1")
+
+    samples = []
+    initials = []
+    remaining = int(targets.shape[0])
+    start = 0
+    batch_index = 0
+    while remaining > 0:
+        current = min(int(batch_size), remaining)
+        batch_targets = targets[start : start + current]
+        current_labels = None
+        if labels is not None:
+            current_labels = labels[start : start + current].astype(jnp.int32)
+        batch_key = jax.random.fold_in(key, batch_index)
+        noise = jax.random.normal(batch_key, batch_targets.shape)
+        initial = (1.0 - start_t) * noise + start_t * batch_targets
+        batch_samples = _sample_phase_flow_from_state(
+            model,
+            initial,
+            labels=current_labels,
+            start_t=start_t,
+            sample_steps=sample_steps,
+            sample_method=sample_method,
+            clip=clip_samples,
+        )
+        samples.append(batch_samples)
+        initials.append(initial)
+        start += current
+        remaining -= current
+        batch_index += 1
+    return jnp.concatenate(samples, axis=0), jnp.concatenate(initials, axis=0)
+
+
+def _sample_phase_flow_from_state(
+    model: PhaseFlowModel,
+    initial: Array,
+    *,
+    labels: Optional[Array],
+    start_t: float,
+    sample_steps: int,
+    sample_method: str,
+    clip: bool,
+) -> Array:
+    """Integrate a phase-flow model from an arbitrary time/state pair."""
+
+    x = initial
+    sample_count = int(initial.shape[0])
+    remaining_time = 1.0 - float(start_t)
+    step_size = remaining_time / float(sample_steps)
+
+    if sample_method == "euler":
+
+        def scan_fn(current_x, step_index):
+            t_value = (
+                float(start_t)
+                + (step_index.astype(current_x.dtype) + 0.5) * step_size
+            )
+            t = jnp.full((sample_count,), t_value, dtype=current_x.dtype)
+            velocity = model(current_x, t, labels)
+            return current_x + step_size * velocity, None
+
+    elif sample_method == "heun":
+
+        def scan_fn(current_x, step_index):
+            t0_value = jnp.clip(
+                float(start_t) + step_index.astype(current_x.dtype) * step_size,
+                1e-3,
+                0.999,
+            )
+            t1_value = jnp.clip(
+                float(start_t) + (step_index.astype(current_x.dtype) + 1.0) * step_size,
+                1e-3,
+                0.999,
+            )
+            t0 = jnp.full((sample_count,), t0_value, dtype=current_x.dtype)
+            t1 = jnp.full((sample_count,), t1_value, dtype=current_x.dtype)
+            velocity0 = model(current_x, t0, labels)
+            predictor = current_x + step_size * velocity0
+            velocity1 = model(predictor, t1, labels)
+            return current_x + 0.5 * step_size * (velocity0 + velocity1), None
+
+    else:
+        raise ValueError("sample_method must be 'euler' or 'heun'")
+
+    steps = jnp.arange(int(sample_steps), dtype=jnp.float32)
+    x, _ = jax.lax.scan(scan_fn, x, steps)
+    if clip:
+        return jnp.clip(x, 0.0, 1.0)
+    return x
+
+
 def _sample_phase_flow_shape_guided_euler(
     model: PhaseFlowModel,
     key: jax.random.PRNGKey,
@@ -891,6 +1032,86 @@ def compute_phase_flow_quality_metrics(
         **{f"sample_{key}": value for key, value in gen_topology.items()},
         **{f"real_{key}": value for key, value in real_topology.items()},
     }
+
+
+def basin_t_key(start_t: float) -> str:
+    """Return a stable summary key for a basin start time."""
+
+    return f"t0_{int(round(float(start_t) * 1000.0)):03d}"
+
+
+def compute_phase_flow_basin_metrics(
+    model: PhaseFlowModel,
+    real_images: Array,
+    labels: Optional[Array],
+    *,
+    key: jax.random.PRNGKey,
+    t_values: Tuple[float, ...],
+    sample_steps: int,
+    sample_method: str,
+    batch_size: int,
+    target_representation: str,
+    sample_readout_mode: str,
+    artifact_dir: Optional[Path] = None,
+) -> Dict[str, Dict[str, float]]:
+    """Measure how far from real data the sampler can still recover structure."""
+
+    results: Dict[str, Dict[str, float]] = {}
+    clip_samples = phase_flow_sample_clip(target_representation)
+    real_primary = decode_phase_flow_primary_channel(
+        real_images,
+        value_channels=model.value_channels,
+        target_representation=target_representation,
+    )
+    for index, start_t in enumerate(t_values):
+        start_t = float(start_t)
+        samples, initial = _sample_phase_flow_from_chord_with_initial(
+            model,
+            real_images,
+            key=jax.random.fold_in(key, index),
+            start_t=start_t,
+            sample_steps=sample_steps,
+            sample_method=sample_method,
+            labels=labels,
+            batch_size=batch_size,
+            clip_samples=clip_samples,
+        )
+        initial_primary = decode_phase_flow_sample_readout(
+            initial,
+            value_channels=model.value_channels,
+            target_representation=target_representation,
+            sample_readout_mode=sample_readout_mode,
+        )
+        sample_primary = decode_phase_flow_sample_readout(
+            samples,
+            value_channels=model.value_channels,
+            target_representation=target_representation,
+            sample_readout_mode=sample_readout_mode,
+        )
+        metrics = compute_phase_flow_quality_metrics(
+            real_images,
+            samples,
+            value_channels=model.value_channels,
+            target_representation=target_representation,
+            sample_readout_mode=sample_readout_mode,
+        )
+        initial_mse = float(jnp.mean((initial_primary - real_primary) ** 2))
+        paired_mse = float(jnp.mean((sample_primary - real_primary) ** 2))
+        metrics["initial_paired_mse"] = initial_mse
+        metrics["paired_mse"] = paired_mse
+        metrics["paired_mse_delta"] = initial_mse - paired_mse
+        metrics["paired_mse_improvement_fraction"] = (
+            (initial_mse - paired_mse) / (initial_mse + 1e-8)
+        )
+        metrics["start_t"] = start_t
+        key_name = basin_t_key(start_t)
+        results[key_name] = metrics
+        if artifact_dir is not None:
+            _save_image_grid(
+                sample_primary[: min(sample_primary.shape[0], 64)],
+                artifact_dir / f"basin_{key_name}_samples.png",
+            )
+    return results
 
 
 def _image_topology_metrics(flat_images: np.ndarray) -> Dict[str, float]:
@@ -1287,6 +1508,22 @@ def run_mnist_phase_flow_experiment(
         target_representation=config.target_representation,
         sample_readout_mode=config.sample_readout_mode,
     )
+    basin_metrics: Dict[str, Dict[str, float]] = {}
+    if config.basin_t_values:
+        basin_labels = eval_labels[:count] if config.conditional else None
+        basin_metrics = compute_phase_flow_basin_metrics(
+            model,
+            eval_images[:count],
+            basin_labels,
+            key=jax.random.fold_in(key, 30_003),
+            t_values=config.basin_t_values,
+            sample_steps=config.sample_steps,
+            sample_method=config.sample_method,
+            batch_size=config.run.batch_size,
+            target_representation=config.target_representation,
+            sample_readout_mode=config.sample_readout_mode,
+            artifact_dir=paths.artifacts,
+        )
     trace_noise = jax.random.normal(
         jax.random.fold_in(key, 30_002),
         eval_images[: min(count, config.run.batch_size)].shape,
@@ -1343,6 +1580,8 @@ def run_mnist_phase_flow_experiment(
             "sample_method": config.sample_method,
             "sample_schedule": config.sample_schedule,
             "sample_readout_mode": config.sample_readout_mode,
+            "basin_t_values": [float(value) for value in config.basin_t_values],
+            "basin": basin_metrics,
             "coarse_grid_size": (
                 int(model.coarse_grid_size)
                 if hasattr(model, "coarse_grid_size")
@@ -1367,6 +1606,20 @@ def run_mnist_phase_flow_experiment(
         paths=paths,
         checkpoint_paths=checkpoint_paths,
     )
+
+
+def parse_basin_t_values(value: str) -> Tuple[float, ...]:
+    """Parse a comma-separated list of basin start times."""
+
+    if not value.strip():
+        return ()
+    parsed = tuple(float(part.strip()) for part in value.split(",") if part.strip())
+    for start_t in parsed:
+        if start_t < 0.0 or start_t >= 1.0:
+            raise argparse.ArgumentTypeError(
+                "basin t values must satisfy 0 <= t < 1"
+            )
+    return parsed
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -1427,6 +1680,15 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default="primary",
     )
     parser.add_argument(
+        "--basin-t-values",
+        type=parse_basin_t_values,
+        default=(),
+        help=(
+            "Comma-separated chord start times for basin diagnostics, "
+            "for example '0.1,0.25,0.5,0.75,0.9'."
+        ),
+    )
+    parser.add_argument(
         "--target-representation",
         choices=[
             "pixels",
@@ -1483,6 +1745,7 @@ def main() -> None:
         sample_method=args.sample_method,
         sample_schedule=args.sample_schedule,
         sample_readout_mode=args.sample_readout_mode,
+        basin_t_values=args.basin_t_values,
         target_representation=args.target_representation,
         data_source=args.data_source,
         train_limit=args.train_limit,

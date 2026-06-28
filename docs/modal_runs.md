@@ -874,6 +874,26 @@ outputs/analysis/modal_mnist_phase_flow_shape_gated_audit.csv
 outputs/analysis/modal_mnist_phase_flow_samples/
 ```
 
+Run the basin-of-attraction probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_phase_flow.py \
+  --sweep-preset mnist_phase_flow_basin_probe
+```
+
+This trains the same 20-epoch phase-flow setups, then evaluates endpoint
+recovery from chord states `x_t = (1 - t) noise + t data` at
+`t = 0.1, 0.25, 0.5, 0.75, 0.9`. It compares centered pixel/shape and
+signed-distance targets for coarse phase-flow and recurrent-conv controls over
+seeds `31` and `32`. The CSV includes both starting paired MSE and final paired
+MSE for each basin start time, so positive deltas indicate dynamics that really
+move the state closer to its scaffold target. It writes:
+
+```text
+outputs/analysis/modal_mnist_phase_flow_basin_probe.csv
+outputs/analysis/modal_mnist_phase_flow_samples/
+```
+
 To rerun the full four-way attribution matrix in one request:
 
 ```bash

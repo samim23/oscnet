@@ -301,7 +301,12 @@ and internally convert them to patch sequences.
   `sample_readout_mode="shape_gated"` to use the auxiliary shape channel as a
   smooth gate on the pixel channel when computing sample metrics and PNG
   artifacts. Set `sample_schedule="shape_guided"` to stage Euler sampling so
-  the shape channel settles first and pixel-channel updates open later.
+  the shape channel settles first and pixel-channel updates open later. Set
+  `basin_t_values` in the MNIST experiment to evaluate basin-of-attraction
+  recovery from partially real chord states `x_t = (1 - t) noise + t data`.
+  Basin metrics include the starting paired MSE and final paired MSE, so this
+  diagnostic can distinguish true endpoint improvement from simply starting
+  close to the target.
 
 `RecurrentConvFlowField`
 : A matched non-oscillatory recurrent-flow control for `PhaseRateFlowField`.

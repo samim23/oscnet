@@ -14,6 +14,7 @@ from oscnet.experiments.mnist_phase_flow import (
     prepare_phase_flow_targets,
     primary_phase_flow_channel,
     run_mnist_phase_flow_experiment,
+    sample_phase_flow_from_chord,
     sample_phase_flow_images,
     signed_distance_targets,
     sobel_edge_targets,
@@ -119,6 +120,32 @@ def test_shape_guided_sampler_runs_for_two_channel_phase_flow():
     )
 
     assert samples.shape == (4, 28 * 28 * 2)
+    assert jnp.any(samples < 0.0) or jnp.any(samples > 1.0)
+
+
+def test_basin_chord_sampler_runs_from_partial_real_state():
+    model = PhaseRateFlowField(
+        value_channels=2,
+        field_channels=2,
+        steps=1,
+        key=jax.random.PRNGKey(47),
+    )
+    targets = jnp.linspace(-1.0, 1.0, 4 * 28 * 28 * 2).reshape(4, 28 * 28 * 2)
+    labels = jnp.asarray([0, 1, 2, 3], dtype=jnp.int32)
+
+    samples = sample_phase_flow_from_chord(
+        model,
+        targets,
+        key=jax.random.PRNGKey(48),
+        start_t=0.5,
+        sample_steps=3,
+        sample_method="euler",
+        labels=labels,
+        batch_size=2,
+        clip_samples=False,
+    )
+
+    assert samples.shape == targets.shape
     assert jnp.any(samples < 0.0) or jnp.any(samples > 1.0)
 
 
@@ -459,6 +486,7 @@ def test_mnist_phase_flow_synthetic_training_smoke(tmp_path):
         target_representation="pixels_signed_distance",
         eval_sample_count=2,
         sample_steps=2,
+        basin_t_values=(0.5,),
         data_source="synthetic",
         train_limit=4,
         eval_limit=2,
@@ -476,6 +504,12 @@ def test_mnist_phase_flow_synthetic_training_smoke(tmp_path):
     assert summary["phase_flow"]["sample_method"] == "euler"
     assert summary["phase_flow"]["sample_schedule"] == "standard"
     assert summary["phase_flow"]["sample_readout_mode"] == "primary"
+    assert summary["phase_flow"]["basin_t_values"] == [0.5]
+    basin_metrics = summary["phase_flow"]["basin"]["t0_500"]
+    assert basin_metrics["initial_paired_mse"] >= 0.0
+    assert basin_metrics["paired_mse"] >= 0.0
+    assert "paired_mse_delta" in basin_metrics
+    assert "paired_mse_improvement_fraction" in basin_metrics
     assert summary["phase_flow"]["closure_loss_weight"] == 0.5
     assert summary["phase_flow"]["target_representation"] == "pixels_signed_distance"
     assert summary["phase_flow"]["target_channels"] == 2
