@@ -3688,6 +3688,64 @@ Decision rule:
   sampled signed-distance phase-flow scaffold into the renderer and measuring
   the full two-stage generator.
 
+Modal shape-to-pixel basin probe:
+
+Command:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_shape_pixel.py \
+  --sweep-preset mnist_shape_pixel_basin_probe
+```
+
+Artifacts:
+
+```text
+outputs/analysis/modal_mnist_shape_pixel_basin_probe.csv
+outputs/analysis/modal_mnist_shape_pixel_basin_probe.json
+outputs/analysis/modal_mnist_shape_pixel_samples/
+```
+
+Mean supervised losses over two seeds:
+
+| model | best loss | clean loss | pure-noise paired MSE | active fraction |
+| --- | ---: | ---: | ---: | ---: |
+| local phase-flow | 0.049844 | 0.005021 | 0.457195 | 0.538066 |
+| coarse phase-flow | 0.050666 | 0.005172 | 0.503771 | 0.907864 |
+| recurrent-conv control | 0.060220 | 0.006122 | 0.481988 | 0.500010 |
+| no-dynamics control | 0.194282 | 0.017971 | 0.714689 | 1.000000 |
+
+Mean basin paired MSE, reported as start -> final:
+
+| model | t=0.10 | t=0.25 | t=0.50 | t=0.75 | t=0.90 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| local phase-flow | 0.891417 -> 0.459848 | 0.617159 -> 0.463841 | 0.274293 -> 0.470375 | 0.068454 -> 0.477330 | 0.010920 -> 0.479855 |
+| coarse phase-flow | 0.891417 -> 0.523283 | 0.617159 -> 0.559835 | 0.274293 -> 0.661364 | 0.068454 -> 0.817691 | 0.010920 -> 0.867353 |
+| recurrent-conv control | 0.891417 -> 0.482062 | 0.617159 -> 0.482075 | 0.274293 -> 0.482075 | 0.068454 -> 0.482075 | 0.010920 -> 0.482075 |
+| no-dynamics control | 0.891417 -> 0.762628 | 0.617159 -> 0.818710 | 0.274293 -> 0.865646 | 0.068454 -> 0.867356 | 0.010920 -> 0.867356 |
+
+Interpretation:
+
+- Trainable phase-flow renderers are still better supervised pixel-velocity
+  learners than the matched recurrent-conv and no-dynamics controls.
+- The iterative pixel sampler is not a stable attractor. At near-real starts
+  (`t=0.75` and `t=0.90`), every model damages the already-good partial state.
+  This is the same failure pattern as raw pixel phase-flow: the vector field
+  has learned a useful denoising/readout map, but not a stable endpoint
+  relaxation.
+- One local phase-flow seed produced recognizable oracle-shape pixel samples
+  (`paired_sample_mse=0.0470`, `active_fraction=0.0761`), while the other
+  collapsed to all-white. The coarse oscillator had the same seed instability:
+  one seed rendered digits with noisy background, one seed collapsed.
+- Recurrent-conv can look deceptively good under paired MSE when it collapses
+  to near-blank images, because MNIST is sparse. The topology metrics are
+  essential here: seed 32 recurrent-conv had `active_fraction ~= 0.00002`.
+- The two-stage direction remains conceptually useful, but this specific
+  rectified-flow pixel renderer is not the missing piece. The durable positive
+  result is still the signed-distance/shape-field relaxation. Pixel synthesis
+  likely needs either an endpoint-stabilized renderer objective, a direct
+  shape-to-pixel decoder, or a task where the evaluated output is the field
+  itself rather than raw MNIST pixels.
+
 ## Maintenance Notes
 
 - Put numerical benchmark summaries in this file and/or `outputs/analysis`.

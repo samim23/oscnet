@@ -856,6 +856,49 @@ outputs/analysis/modal_mnist_phase_flow_shape_guided_sampler_probe.csv
 outputs/analysis/modal_mnist_phase_flow_samples/
 ```
 
+Run the shape-to-pixel renderer comparison:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_shape_pixel.py \
+  --sweep-preset mnist_shape_pixel_core
+```
+
+This tests the two-stage renderer branch where channel 0 is pixel state and
+channel 1 is a clamped signed-distance scaffold. The core sweep compares
+`coarse_phase_flow`, local `phase_flow`, `phase_flow_no_dynamics`, and
+`recurrent_conv_flow` for seeds `31` and `32`. It writes:
+
+```text
+outputs/analysis/modal_mnist_shape_pixel_core.csv
+outputs/analysis/modal_mnist_shape_pixel_samples/
+```
+
+Dry-run it first:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_shape_pixel.py \
+  --sweep-preset mnist_shape_pixel_core \
+  --print-only
+```
+
+Run the shape-to-pixel basin probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_shape_pixel.py \
+  --sweep-preset mnist_shape_pixel_basin_probe
+```
+
+This repeats the shape-to-pixel core sweep and adds
+`--basin-t-values 0.1,0.25,0.5,0.75,0.9`, measuring whether the renderer
+improves or damages partially real pixel states while the signed-distance shape
+channel is clamped. It writes:
+
+```text
+outputs/analysis/modal_mnist_shape_pixel_basin_probe.csv
+outputs/analysis/modal_mnist_shape_pixel_basin_probe.json
+outputs/analysis/modal_mnist_shape_pixel_samples/
+```
+
 Run the locked multi-seed shape-gated audit:
 
 ```bash

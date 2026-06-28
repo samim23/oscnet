@@ -7,8 +7,10 @@ from oscnet.experiments.harness import AutoencoderExperimentConfig
 from oscnet.experiments.mnist_shape_pixel import (
     MNISTShapePixelExperimentConfig,
     build_mnist_shape_pixel_model,
+    compute_shape_pixel_basin_metrics,
     make_shape_pixel_flow_batch,
     run_mnist_shape_pixel_experiment,
+    sample_shape_pixel_from_chord,
     sample_shape_pixel_images,
     shape_pixel_loss,
     split_pixel_shape_channels,
@@ -125,6 +127,51 @@ def test_shape_pixel_sampler_generates_pixels_from_shape_condition():
     assert jnp.all(samples <= 1.0)
 
 
+def test_shape_pixel_basin_probe_measures_chord_completion():
+    config = MNISTShapePixelExperimentConfig(
+        run=AutoencoderExperimentConfig(name="shape_pixel_basin_test"),
+        model_family="recurrent_conv_flow",
+        field_channels=2,
+        steps=1,
+    )
+    model = build_mnist_shape_pixel_model(config, jax.random.PRNGKey(8))
+    pixels = jnp.linspace(0.0, 1.0, 4 * 28 * 28).reshape(4, 28 * 28)
+    shapes = 1.0 - pixels
+    labels = jnp.asarray([0, 1, 2, 3], dtype=jnp.int32)
+
+    samples = sample_shape_pixel_from_chord(
+        model,
+        pixels,
+        shapes,
+        key=jax.random.PRNGKey(9),
+        start_t=0.5,
+        sample_steps=2,
+        sample_method="euler",
+        labels=labels,
+        batch_size=2,
+        clamp_shape=True,
+    )
+    metrics = compute_shape_pixel_basin_metrics(
+        model,
+        pixels,
+        shapes,
+        labels,
+        key=jax.random.PRNGKey(10),
+        t_values=(0.5,),
+        sample_steps=2,
+        sample_method="euler",
+        batch_size=2,
+        clamp_shape=True,
+    )
+
+    assert samples.shape == (4, 28 * 28)
+    assert jnp.all(samples >= 0.0)
+    assert jnp.all(samples <= 1.0)
+    assert "t0_500" in metrics
+    assert metrics["t0_500"]["initial_paired_mse"] >= 0.0
+    assert metrics["t0_500"]["paired_mse"] >= 0.0
+
+
 def test_mnist_shape_pixel_synthetic_training_smoke(tmp_path):
     run = AutoencoderExperimentConfig(
         name="mnist_shape_pixel_test",
@@ -143,6 +190,7 @@ def test_mnist_shape_pixel_synthetic_training_smoke(tmp_path):
         steps=1,
         eval_sample_count=2,
         sample_steps=2,
+        basin_t_values=(0.5,),
         data_source="synthetic",
         train_limit=4,
         eval_limit=2,
@@ -159,4 +207,5 @@ def test_mnist_shape_pixel_synthetic_training_smoke(tmp_path):
     assert summary["shape_pixel"]["value_channels"] == 2
     assert summary["shape_pixel"]["clamp_shape"] is True
     assert summary["shape_pixel"]["paired_sample_mse"] >= 0.0
+    assert "t0_500" in summary["shape_pixel"]["basin"]
     assert summary["final_eval_clean_loss"] >= 0.0
