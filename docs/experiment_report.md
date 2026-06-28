@@ -3689,6 +3689,64 @@ Interpretation:
   over endpoint distributions or a two-stage shape-first architecture with
   explicit constraints on foreground mass/topology.
 
+Mixed endpoint training probe:
+
+The next probe tested the most direct fix for the non-Gaussian failure: train
+the same scalar signed-distance phase-flow objective with
+`train_noise_mode="mixed"`, where each training example draws its
+rectified-flow noise endpoint from a mixture of Gaussian, uniform, salt-pepper,
+and zero endpoints. This is basin-aware training, not a new architecture. The
+initial probe used one seed to see whether the direction moves before scaling
+the sweep.
+
+Run:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_phase_flow.py \
+  --sweep-preset mnist_phase_flow_signed_distance_mixed_noise_basin_probe
+```
+
+Artifact:
+
+```text
+outputs/analysis/modal_mnist_phase_flow_signed_distance_mixed_noise_basin_probe.csv
+```
+
+Seed 31 paired MSE, mixed endpoint training:
+
+| noise/model | t=0.10 start -> final | t=0.50 start -> final | t=0.90 start -> final |
+| --- | ---: | ---: | ---: |
+| uniform, coarse phase-flow | 0.185246 -> 0.026226 | 0.057004 -> 0.005686 | 0.002276 -> 0.000653 |
+| salt-pepper, coarse phase-flow | 0.320678 -> 0.036608 | 0.099002 -> 0.010090 | 0.003955 -> 0.001166 |
+| zeros, coarse phase-flow | 0.073528 -> 0.025412 | 0.022694 -> 0.006490 | 0.000908 -> 0.000736 |
+| uniform, recurrent-conv | 0.185246 -> 0.051517 | 0.057004 -> 0.016125 | 0.002276 -> 0.000878 |
+| salt-pepper, recurrent-conv | 0.320678 -> 0.073670 | 0.099002 -> 0.024158 | 0.003955 -> 0.001237 |
+| zeros, recurrent-conv | 0.073528 -> 0.076980 | 0.022694 -> 0.045256 | 0.000908 -> 0.001084 |
+
+Interpretation:
+
+- This is a strong positive diagnostic for the coarse/global oscillator. Mixed
+  endpoint training largely fixes the uniform and salt-pepper basin failures
+  for seed 31. Under uniform starts at `t=0.50`, coarse phase-flow improves
+  from the Gaussian-trained failure `0.057004 -> 0.101803` to
+  `0.057004 -> 0.005686`.
+- The recurrent-conv control also improves on uniform and salt-pepper, so the
+  basic lesson is not oscillator-exclusive: the objective must train the basin
+  you want. But recurrent-conv breaks badly on zero starts after mixed
+  training, while the coarse/global oscillator keeps a usable zero-start basin.
+- Coarse phase-flow is the more robust mixed-noise learner in this one-seed
+  probe, with much lower supervised loss (`0.06456` best loss for coarse
+  versus about `0.098` for recurrent-conv) and better harsh-start basin MSE.
+- The asterisk: free samples are still not solved. Mixed-trained coarse
+  phase-flow has worse nearest-real sample MSE and fragmented topology than
+  the Gaussian-trained model, so this is evidence for basin widening, not yet
+  evidence for a high-quality standalone MNIST generator.
+- Current read: basin-aware signed-distance training is now the most promising
+  phase-flow result. The next clean scaling test is a two-seed mixed endpoint
+  sweep for coarse phase-flow, plus a more efficient evaluator that can test
+  several basin modes from one trained checkpoint instead of retraining the
+  same model for every diagnostic mode.
+
 Signed-distance flow-field probe:
 
 The next field-native test added `target_representation="signed_distance_flow"`:

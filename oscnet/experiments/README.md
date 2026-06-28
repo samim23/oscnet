@@ -61,6 +61,8 @@ pixel space for sample metrics and PNG artifacts. Set
 the decoded shape channel during sample metrics/artifact export. Set
 `--sample-schedule shape_guided` to let the shape channel update first and
 open pixel-channel updates later during Euler sampling. Set
+`--train-noise-mode mixed` to train rectified-flow chords from a per-example
+mixture of Gaussian, uniform, salt-pepper, and zero endpoints. Set
 `--basin-t-values 0.1,0.25,0.5,0.75,0.9` to measure endpoint recovery from
 partially real chord states; the harness reports before/after paired error so
 you can see whether the dynamics actually improve the state. Use

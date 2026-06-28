@@ -84,6 +84,9 @@ SWEEP_CSVS = {
     "mnist_phase_flow_signed_distance_noise_basin_probe": Path(
         "outputs/analysis/modal_mnist_phase_flow_signed_distance_noise_basin_probe.csv"
     ),
+    "mnist_phase_flow_signed_distance_mixed_noise_basin_probe": Path(
+        "outputs/analysis/modal_mnist_phase_flow_signed_distance_mixed_noise_basin_probe.csv"
+    ),
 }
 
 REMOTE_PACKAGES = [
@@ -742,6 +745,71 @@ def _mnist_phase_flow_signed_distance_noise_basin_probe_sweep() -> list[tuple[li
     return entries
 
 
+def _mnist_phase_flow_signed_distance_mixed_noise_basin_probe_sweep() -> list[
+    tuple[list[str], str]
+]:
+    common = [
+        "--data-source idx",
+        "--epochs 20",
+        "--train-limit 10000",
+        "--eval-limit 1000",
+        "--eval-sample-count 64",
+        "--batch-size 128",
+        "--field-channels 8",
+        "--steps 8",
+        "--kernel-size 3",
+        "--dt 0.15",
+        "--coupling-strength 1.0",
+        "--rate-update 0.5",
+        "--input-drive-strength 0.5",
+        "--global-coupling-strength 0.5",
+        "--coarse-grid-size 4",
+        "--omega-scale 0.2",
+        "--kernel-init-scale 0.05",
+        "--no-position-features",
+        "--conditional",
+        "--clean-loss-weight 0.25",
+        "--closure-loss-weight 0.0",
+        "--train-noise-mode mixed",
+        "--target-representation signed_distance",
+        "--sample-readout-mode primary",
+        "--sample-schedule standard",
+        "--sample-steps 16",
+        "--sample-method euler",
+        "--basin-t-values 0.1,0.25,0.5,0.75,0.9",
+        "--learning-rate 0.001",
+        "--weight-decay 0.0001",
+        "--checkpoint-every 20",
+        "--artifact-every 20",
+    ]
+    variants = [
+        ("coarse_phase_flow", ["--model-family coarse_phase_flow"]),
+        ("recurrent_conv_flow", ["--model-family recurrent_conv_flow"]),
+    ]
+    entries = []
+    for seed in (31,):
+        for noise_mode in ("uniform", "salt_pepper", "zeros"):
+            for suffix, variant_args in variants:
+                run_name = (
+                    "mnist_phase_flow_basin_signed_distance_mixed_train_"
+                    f"{noise_mode}_{suffix}_seed{seed}_20e"
+                )
+                args = shlex.split(
+                    " ".join(
+                        [
+                            f"--seed {seed}",
+                            *common,
+                            f"--basin-noise-mode {noise_mode}",
+                            *variant_args,
+                        ]
+                    )
+                )
+                output_dir = VOLUME_MOUNT / "mnist_phase_flow" / run_name
+                args = _with_default_arg(args, "--output-dir", output_dir)
+                entries.append((args, run_name))
+    return entries
+
+
 def _sweep_entries(preset: str) -> list[tuple[list[str], str]]:
     if preset == "mnist_phase_flow_core":
         return _mnist_phase_flow_core_sweep()
@@ -779,6 +847,8 @@ def _sweep_entries(preset: str) -> list[tuple[list[str], str]]:
         return _mnist_phase_flow_signed_distance_flow_basin_probe_sweep()
     if preset == "mnist_phase_flow_signed_distance_noise_basin_probe":
         return _mnist_phase_flow_signed_distance_noise_basin_probe_sweep()
+    if preset == "mnist_phase_flow_signed_distance_mixed_noise_basin_probe":
+        return _mnist_phase_flow_signed_distance_mixed_noise_basin_probe_sweep()
     raise ValueError("unknown sweep preset")
 
 
@@ -799,6 +869,7 @@ def _write_sweep_csv(results: list[dict[str, Any]], path: Path) -> None:
         "phase_flow.position_features",
         "phase_flow.clean_loss_weight",
         "phase_flow.closure_loss_weight",
+        "phase_flow.train_noise_mode",
         "phase_flow.target_representation",
         "phase_flow.target_channels",
         "phase_flow.sample_steps",
@@ -933,6 +1004,7 @@ def run_mnist_phase_flow_remote(
         closure_loss_weight=args.closure_loss_weight,
         t_min=args.t_min,
         t_max=args.t_max,
+        train_noise_mode=args.train_noise_mode,
         eval_sample_count=args.eval_sample_count,
         sample_steps=args.sample_steps,
         sample_method=args.sample_method,

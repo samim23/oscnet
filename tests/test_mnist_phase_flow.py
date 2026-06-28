@@ -10,6 +10,7 @@ from oscnet.experiments.mnist_phase_flow import (
     decode_phase_flow_primary_channel,
     decode_phase_flow_sample_readout,
     phase_flow_basin_noise,
+    phase_flow_noise_endpoint,
     phase_flow_target_channels,
     phase_flow_loss,
     prepare_phase_flow_targets,
@@ -160,15 +161,18 @@ def test_phase_flow_basin_noise_modes_have_expected_ranges():
     uniform = phase_flow_basin_noise(key, targets, "uniform")
     salt_pepper = phase_flow_basin_noise(key, targets, "salt_pepper")
     zeros = phase_flow_basin_noise(key, targets, "zeros")
+    mixed = phase_flow_noise_endpoint(key, targets, "mixed")
 
     assert gaussian.shape == targets.shape
     assert uniform.shape == targets.shape
     assert salt_pepper.shape == targets.shape
     assert zeros.shape == targets.shape
+    assert mixed.shape == targets.shape
     assert jnp.all(uniform >= 0.0)
     assert jnp.all(uniform <= 1.0)
     assert jnp.all((salt_pepper == 0.0) | (salt_pepper == 1.0))
     assert jnp.all(zeros == 0.0)
+    assert jnp.all(jnp.isfinite(mixed))
 
 
 def test_phase_flow_loss_backprops_to_model():
@@ -188,6 +192,7 @@ def test_phase_flow_loss_backprops_to_model():
         clean_loss_weight=0.25,
         t_min=1e-3,
         t_max=0.999,
+        noise_mode="mixed",
     )
     grads = jax.grad(
         lambda current_model: phase_flow_loss(
@@ -198,6 +203,7 @@ def test_phase_flow_loss_backprops_to_model():
             clean_loss_weight=0.25,
             t_min=1e-3,
             t_max=0.999,
+            noise_mode="mixed",
         )[0]
     )(model)
 
@@ -537,6 +543,7 @@ def test_mnist_phase_flow_synthetic_training_smoke(tmp_path):
         field_channels=2,
         steps=1,
         closure_loss_weight=0.5,
+        train_noise_mode="mixed",
         target_representation="pixels_signed_distance",
         eval_sample_count=2,
         sample_steps=2,
@@ -558,6 +565,7 @@ def test_mnist_phase_flow_synthetic_training_smoke(tmp_path):
     assert summary["phase_flow"]["sample_method"] == "euler"
     assert summary["phase_flow"]["sample_schedule"] == "standard"
     assert summary["phase_flow"]["sample_readout_mode"] == "primary"
+    assert summary["phase_flow"]["train_noise_mode"] == "mixed"
     assert summary["phase_flow"]["basin_t_values"] == [0.5]
     basin_metrics = summary["phase_flow"]["basin"]["t0_500"]
     assert basin_metrics["initial_paired_mse"] >= 0.0

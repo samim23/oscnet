@@ -306,6 +306,10 @@ and internally convert them to patch sequences.
   smooth gate on the pixel channel when computing sample metrics and PNG
   artifacts. Set `sample_schedule="shape_guided"` to stage Euler sampling so
   the shape channel settles first and pixel-channel updates open later. Set
+  `train_noise_mode` to `"gaussian"`, `"uniform"`, `"salt_pepper"`, `"zeros"`,
+  or `"mixed"` to change the endpoint distribution used for rectified-flow
+  training chords; `"mixed"` samples a per-example mixture of those endpoints.
+  Set
   `basin_t_values` in the MNIST experiment to evaluate basin-of-attraction
   recovery from partially real chord states `x_t = (1 - t) noise + t data`.
   Basin metrics include the starting paired MSE and final paired MSE, so this

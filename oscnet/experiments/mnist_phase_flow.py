@@ -64,6 +64,7 @@ class MNISTPhaseFlowExperimentConfig:
     closure_loss_weight: float = 0.0
     t_min: float = 1e-3
     t_max: float = 0.999
+    train_noise_mode: str = "gaussian"
     eval_sample_count: int = 64
     sample_steps: int = 16
     sample_method: str = "euler"
@@ -182,6 +183,7 @@ def _checkpoint_hyperparams(config: MNISTPhaseFlowExperimentConfig) -> Dict[str,
         "conditional": config.conditional,
         "clean_loss_weight": config.clean_loss_weight,
         "closure_loss_weight": config.closure_loss_weight,
+        "train_noise_mode": config.train_noise_mode,
         "sample_steps": config.sample_steps,
         "sample_method": config.sample_method,
         "sample_schedule": config.sample_schedule,
@@ -548,12 +550,13 @@ def make_rectified_flow_batch(
     *,
     t_min: float,
     t_max: float,
+    noise_mode: str = "gaussian",
 ) -> Tuple[Array, Array, Array, Array]:
     """Corrupt clean images along a rectified-flow noise-data chord."""
 
     noise_key, time_key = jax.random.split(key)
     batch_size = images.shape[0]
-    noise = jax.random.normal(noise_key, images.shape)
+    noise = phase_flow_noise_endpoint(noise_key, images, noise_mode)
     t = jax.random.uniform(
         time_key,
         (batch_size,),
@@ -576,6 +579,7 @@ def phase_flow_loss(
     target_representation: str = "pixels",
     t_min: float,
     t_max: float,
+    noise_mode: str = "gaussian",
 ) -> Tuple[Array, Dict[str, Array]]:
     """Return rectified-flow loss and diagnostics."""
 
@@ -584,6 +588,7 @@ def phase_flow_loss(
         key,
         t_min=t_min,
         t_max=t_max,
+        noise_mode=noise_mode,
     )
     velocity = model(noisy, t, labels)
     velocity_loss = jnp.mean((velocity - target_velocity) ** 2)
@@ -634,6 +639,7 @@ def _train_step(
     target_representation: str,
     t_min: float,
     t_max: float,
+    noise_mode: str,
 ):
     def loss_fn(current_model):
         return phase_flow_loss(
@@ -646,6 +652,7 @@ def _train_step(
             target_representation=target_representation,
             t_min=t_min,
             t_max=t_max,
+            noise_mode=noise_mode,
         )
 
     (loss_value, parts), grads = eqx.filter_value_and_grad(
@@ -671,6 +678,7 @@ def _eval_step(
     target_representation: str,
     t_min: float,
     t_max: float,
+    noise_mode: str,
 ):
     return phase_flow_loss(
         model,
@@ -682,6 +690,7 @@ def _eval_step(
         target_representation=target_representation,
         t_min=t_min,
         t_max=t_max,
+        noise_mode=noise_mode,
     )
 
 
@@ -697,6 +706,7 @@ def evaluate_phase_flow(
     target_representation: str,
     t_min: float,
     t_max: float,
+    noise_mode: str = "gaussian",
 ) -> Tuple[float, Dict[str, float]]:
     """Evaluate rectified-flow loss over a dataset."""
 
@@ -723,6 +733,7 @@ def evaluate_phase_flow(
             target_representation,
             t_min,
             t_max,
+            noise_mode,
         )
         losses.append(float(loss))
         velocity_losses.append(float(parts["velocity_loss"]))
@@ -1085,12 +1096,12 @@ def basin_t_key(start_t: float) -> str:
     return f"t0_{int(round(float(start_t) * 1000.0)):03d}"
 
 
-def phase_flow_basin_noise(
+def phase_flow_noise_endpoint(
     key: jax.random.PRNGKey,
     targets: Array,
     mode: str,
 ) -> Array:
-    """Return the noise endpoint for basin/chord diagnostics."""
+    """Return a noise endpoint for rectified-flow chords."""
 
     mode = str(mode)
     if mode == "gaussian":
@@ -1103,9 +1114,49 @@ def phase_flow_basin_noise(
         )
     if mode == "zeros":
         return jnp.zeros_like(targets)
+    if mode == "mixed":
+        gaussian_key, uniform_key, salt_key, choice_key = jax.random.split(key, 4)
+        gaussian = jax.random.normal(
+            gaussian_key,
+            targets.shape,
+            dtype=targets.dtype,
+        )
+        uniform = jax.random.uniform(
+            uniform_key,
+            targets.shape,
+            dtype=targets.dtype,
+        )
+        salt_pepper = jax.random.bernoulli(
+            salt_key,
+            p=0.5,
+            shape=targets.shape,
+        ).astype(targets.dtype)
+        zeros = jnp.zeros_like(targets)
+        choice_shape = (targets.shape[0],) + (1,) * (targets.ndim - 1)
+        choices = jax.random.randint(choice_key, choice_shape, 0, 4)
+        return jnp.where(
+            choices == 0,
+            gaussian,
+            jnp.where(
+                choices == 1,
+                uniform,
+                jnp.where(choices == 2, salt_pepper, zeros),
+            ),
+        )
     raise ValueError(
-        "noise_mode must be 'gaussian', 'uniform', 'salt_pepper', or 'zeros'"
+        "noise_mode must be 'gaussian', 'uniform', 'salt_pepper', 'zeros', "
+        "or 'mixed'"
     )
+
+
+def phase_flow_basin_noise(
+    key: jax.random.PRNGKey,
+    targets: Array,
+    mode: str,
+) -> Array:
+    """Return the noise endpoint for basin/chord diagnostics."""
+
+    return phase_flow_noise_endpoint(key, targets, mode)
 
 
 def compute_phase_flow_basin_metrics(
@@ -1454,6 +1505,7 @@ def run_mnist_phase_flow_experiment(
                 config.target_representation,
                 config.t_min,
                 config.t_max,
+                config.train_noise_mode,
             )
             losses.append(float(loss))
             velocity_losses.append(float(parts["velocity_loss"]))
@@ -1472,6 +1524,7 @@ def run_mnist_phase_flow_experiment(
             target_representation=config.target_representation,
             t_min=config.t_min,
             t_max=config.t_max,
+            noise_mode=config.train_noise_mode,
         )
         if eval_loss < best_loss:
             best_loss = eval_loss
@@ -1646,6 +1699,7 @@ def run_mnist_phase_flow_experiment(
             "position_features": bool(config.position_features),
             "clean_loss_weight": float(config.clean_loss_weight),
             "closure_loss_weight": float(config.closure_loss_weight),
+            "train_noise_mode": config.train_noise_mode,
             "target_representation": config.target_representation,
             "sample_steps": int(config.sample_steps),
             "sample_method": config.sample_method,
@@ -1738,6 +1792,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--closure-loss-weight", type=float, default=0.0)
     parser.add_argument("--t-min", type=float, default=1e-3)
     parser.add_argument("--t-max", type=float, default=0.999)
+    parser.add_argument(
+        "--train-noise-mode",
+        choices=["gaussian", "uniform", "salt_pepper", "zeros", "mixed"],
+        default="gaussian",
+        help="Noise endpoint used for rectified-flow training chords.",
+    )
     parser.add_argument("--eval-sample-count", type=int, default=64)
     parser.add_argument("--sample-steps", type=int, default=16)
     parser.add_argument("--sample-method", choices=["euler", "heun"], default="euler")
@@ -1819,6 +1879,7 @@ def main() -> None:
         closure_loss_weight=args.closure_loss_weight,
         t_min=args.t_min,
         t_max=args.t_max,
+        train_noise_mode=args.train_noise_mode,
         eval_sample_count=args.eval_sample_count,
         sample_steps=args.sample_steps,
         sample_method=args.sample_method,

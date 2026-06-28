@@ -989,6 +989,24 @@ outputs/analysis/modal_mnist_phase_flow_signed_distance_noise_basin_probe.csv
 outputs/analysis/modal_mnist_phase_flow_samples/
 ```
 
+Run the signed-distance mixed-training basin probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_phase_flow.py \
+  --sweep-preset mnist_phase_flow_signed_distance_mixed_noise_basin_probe
+```
+
+This trains the scalar signed-distance target with `--train-noise-mode mixed`,
+then evaluates the same `uniform`, `salt_pepper`, and `zeros` basin endpoints
+for coarse/global phase-flow and recurrent-conv. It is a one-seed diagnostic:
+use it to decide whether mixed endpoint training widens the basin before
+scaling to a full two-seed sweep. It writes:
+
+```text
+outputs/analysis/modal_mnist_phase_flow_signed_distance_mixed_noise_basin_probe.csv
+outputs/analysis/modal_mnist_phase_flow_samples/
+```
+
 To rerun the full four-way attribution matrix in one request:
 
 ```bash
