@@ -138,6 +138,22 @@ SWEEP_CSVS = {
         "outputs/analysis/"
         "modal_mnist_generator_sparse_horn_class_coupling_strength_probe.csv"
     ),
+    "mnist_generator_sparse_horn_state_mlp_diversity_probe": Path(
+        "outputs/analysis/"
+        "modal_mnist_generator_sparse_horn_state_mlp_diversity_probe.csv"
+    ),
+    "mnist_generator_sparse_horn_distributional_probe": Path(
+        "outputs/analysis/"
+        "modal_mnist_generator_sparse_horn_distributional_probe.csv"
+    ),
+    "mnist_generator_sparse_horn_quality_classifier_audit": Path(
+        "outputs/analysis/"
+        "modal_mnist_generator_sparse_horn_quality_classifier_audit.csv"
+    ),
+    "mnist_generator_sparse_horn_dynamics_quality_probe": Path(
+        "outputs/analysis/"
+        "modal_mnist_generator_sparse_horn_dynamics_quality_probe.csv"
+    ),
 }
 
 REMOTE_PACKAGES = [
@@ -2127,6 +2143,137 @@ def _mnist_generator_sparse_horn_class_coupling_strength_probe_sweep() -> list[
     return entries
 
 
+def _mnist_generator_sparse_horn_state_mlp_diversity_probe_sweep() -> list[
+    tuple[list[str], str]
+]:
+    """Test whether distributional pressure gives StateMLP HORN-like diversity."""
+
+    entries = []
+    variants = [
+        ("horn_strength8", "sparse_horn_mnist_class_coupling_strength8"),
+        ("state_mlp", "sparse_horn_mnist_state_mlp_class_coupling_strong"),
+        (
+            "state_mlp_dist005",
+            "sparse_horn_mnist_state_mlp_class_coupling_strong_dist005",
+        ),
+        (
+            "state_mlp_dist01",
+            "sparse_horn_mnist_state_mlp_class_coupling_strong_dist01",
+        ),
+        (
+            "state_mlp_dist01_class",
+            "sparse_horn_mnist_state_mlp_class_coupling_strong_dist01_class",
+        ),
+    ]
+    for seed in (11, 12, 13):
+        for variant_suffix, local_preset in variants:
+            run_name = (
+                "mnist_generator_sparse_horn_state_mlp_diversity_"
+                f"{variant_suffix}_n196_resizeconv_train500_seed{seed}_20e"
+            )
+            args = shlex.split(f"--seed {seed} --preset {local_preset}")
+            output_dir = VOLUME_MOUNT / "mnist_generator" / run_name
+            args = _with_default_arg(args, "--output-dir", output_dir)
+            entries.append((args, run_name))
+    return entries
+
+
+def _mnist_generator_sparse_horn_distributional_probe_sweep() -> list[
+    tuple[list[str], str]
+]:
+    """Test whether small distributional pressure improves strict HORN quality."""
+
+    entries = []
+    variants = [
+        ("strength8", "sparse_horn_mnist_class_coupling_strength8"),
+        ("strength8_dist001", "sparse_horn_mnist_class_coupling_strength8_dist001"),
+        ("strength8_dist0025", "sparse_horn_mnist_class_coupling_strength8_dist0025"),
+        ("strength8_dist005", "sparse_horn_mnist_class_coupling_strength8_dist005"),
+    ]
+    for seed in (11, 12, 13):
+        for variant_suffix, local_preset in variants:
+            run_name = (
+                "mnist_generator_sparse_horn_distributional_"
+                f"{variant_suffix}_n196_resizeconv_train500_seed{seed}_20e"
+            )
+            args = shlex.split(f"--seed {seed} --preset {local_preset}")
+            output_dir = VOLUME_MOUNT / "mnist_generator" / run_name
+            args = _with_default_arg(args, "--output-dir", output_dir)
+            entries.append((args, run_name))
+    return entries
+
+
+def _mnist_generator_sparse_horn_quality_classifier_audit_sweep() -> list[
+    tuple[list[str], str]
+]:
+    """Re-score leading strict generators with a stronger MNIST quality classifier."""
+
+    entries = []
+    variants = [
+        ("horn_strength8", "sparse_horn_mnist_class_coupling_strength8"),
+        ("horn_strength8_dist0025", "sparse_horn_mnist_class_coupling_strength8_dist0025"),
+        ("state_mlp", "sparse_horn_mnist_state_mlp_class_coupling_strong"),
+    ]
+    classifier_args = (
+        "--quality-classifier-train-limit 5000 "
+        "--quality-classifier-eval-limit 2000 "
+        "--quality-classifier-epochs 10 "
+        "--quality-classifier-dim 256 "
+        "--quality-classifier-depth 3"
+    )
+    for seed in (11, 12, 13):
+        for variant_suffix, local_preset in variants:
+            run_name = (
+                "mnist_generator_sparse_horn_quality_classifier_audit_"
+                f"{variant_suffix}_n196_resizeconv_train500_seed{seed}_20e"
+            )
+            args = shlex.split(
+                f"--seed {seed} --preset {local_preset} {classifier_args}"
+            )
+            output_dir = VOLUME_MOUNT / "mnist_generator" / run_name
+            args = _with_default_arg(args, "--output-dir", output_dir)
+            entries.append((args, run_name))
+    return entries
+
+
+def _mnist_generator_sparse_horn_dynamics_quality_probe_sweep() -> list[
+    tuple[list[str], str]
+]:
+    """Probe HORN frequency/damping quality knobs with the stronger evaluator."""
+
+    entries = []
+    variants = [
+        ("strength8", "sparse_horn_mnist_class_coupling_strength8"),
+        ("strength8_dist0025", "sparse_horn_mnist_class_coupling_strength8_dist0025"),
+        ("strength8_freq13", "sparse_horn_mnist_class_coupling_strength8_freq13"),
+        ("strength8_damp030", "sparse_horn_mnist_class_coupling_strength8_damp030"),
+        (
+            "strength8_freq13_dist0025",
+            "sparse_horn_mnist_class_coupling_strength8_freq13_dist0025",
+        ),
+    ]
+    classifier_args = (
+        "--quality-classifier-train-limit 5000 "
+        "--quality-classifier-eval-limit 2000 "
+        "--quality-classifier-epochs 10 "
+        "--quality-classifier-dim 256 "
+        "--quality-classifier-depth 3"
+    )
+    for seed in (11, 12, 13):
+        for variant_suffix, local_preset in variants:
+            run_name = (
+                "mnist_generator_sparse_horn_dynamics_quality_"
+                f"{variant_suffix}_n196_resizeconv_train500_seed{seed}_20e"
+            )
+            args = shlex.split(
+                f"--seed {seed} --preset {local_preset} {classifier_args}"
+            )
+            output_dir = VOLUME_MOUNT / "mnist_generator" / run_name
+            args = _with_default_arg(args, "--output-dir", output_dir)
+            entries.append((args, run_name))
+    return entries
+
+
 def _sweep_entries(preset: str) -> list[tuple[list[str], str]]:
     if preset == "mnist_generator_core":
         return _mnist_generator_core_sweep()
@@ -2192,6 +2339,14 @@ def _sweep_entries(preset: str) -> list[tuple[list[str], str]]:
         )
     if preset == "mnist_generator_sparse_horn_class_coupling_strength_probe":
         return _mnist_generator_sparse_horn_class_coupling_strength_probe_sweep()
+    if preset == "mnist_generator_sparse_horn_state_mlp_diversity_probe":
+        return _mnist_generator_sparse_horn_state_mlp_diversity_probe_sweep()
+    if preset == "mnist_generator_sparse_horn_distributional_probe":
+        return _mnist_generator_sparse_horn_distributional_probe_sweep()
+    if preset == "mnist_generator_sparse_horn_quality_classifier_audit":
+        return _mnist_generator_sparse_horn_quality_classifier_audit_sweep()
+    if preset == "mnist_generator_sparse_horn_dynamics_quality_probe":
+        return _mnist_generator_sparse_horn_dynamics_quality_probe_sweep()
     raise ValueError("unknown sweep preset")
 
 
@@ -2245,6 +2400,8 @@ def _write_sweep_csv(results: list[dict[str, Any]], path: Path) -> None:
         "generator.quality_classifier_epochs",
         "generator.quality_classifier_dim",
         "generator.quality_classifier_depth",
+        "generator.quality_classifier_train_limit",
+        "generator.quality_classifier_eval_limit",
         "generator.classifier_label_accuracy",
         "generator.classifier_label_confidence",
         "generator.classifier_max_confidence",
@@ -2252,6 +2409,11 @@ def _write_sweep_csv(results: list[dict[str, Any]], path: Path) -> None:
         "generator.drift_queue_size",
         "generator.drift_queue_num_pos",
         "generator.distributional_weight",
+        "generator.class_moment_weight",
+        "generator.prototype_weight",
+        "generator.moment_weight",
+        "generator.pixel_marginal_weight",
+        "generator.num_projections",
         "generator.drift_gamma",
         "generator.train_settling_steps",
         "generator.resize_conv_seed_size",
@@ -2300,9 +2462,18 @@ def _write_sweep_csv(results: list[dict[str, Any]], path: Path) -> None:
         "generator.settling.by_step.step_008.classifier_label_accuracy",
         "generator.settling.by_step.step_016.classifier_label_accuracy",
         "generator.settling.by_step.step_032.classifier_label_accuracy",
+        "generator.settling.by_step.step_048.classifier_label_accuracy",
+        "generator.settling.by_step.step_064.classifier_label_accuracy",
         "generator.settling.by_step.step_000.diversity_ratio",
         "generator.settling.by_step.step_016.diversity_ratio",
         "generator.settling.by_step.step_032.diversity_ratio",
+        "generator.settling.by_step.step_048.diversity_ratio",
+        "generator.settling.by_step.step_064.diversity_ratio",
+        "generator.settling.by_step.step_000.nearest_real_mse",
+        "generator.settling.by_step.step_016.nearest_real_mse",
+        "generator.settling.by_step.step_032.nearest_real_mse",
+        "generator.settling.by_step.step_048.nearest_real_mse",
+        "generator.settling.by_step.step_064.nearest_real_mse",
         "generator.generated_mean",
         "generator.generated_std",
         "final_train_pixel_drift_loss",

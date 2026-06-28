@@ -26,22 +26,28 @@ python examples/image_mnist_phase_flow.py --help
 
 Runs write checkpoints, plots, metrics, traces, and samples under `outputs/`.
 
-## Current Leading Experiment
+## Recommended Generator
 
-The leading experimental branch is the sparse local HORN MNIST generator. It
-starts from random oscillator state, settles a coupled position/velocity field,
-and decodes the final oscillator features into an image.
+The default image-generation example is the sparse local HORN MNIST generator.
+It starts from random oscillator state, settles a coupled position/velocity
+field, and decodes the final oscillator features into an image.
 
-Run the current research recipe on real MNIST:
+Run the recommended recipe on real MNIST:
 
 ```bash
-python examples/image_mnist_generator.py --preset sparse_horn_mnist
+python examples/image_mnist_generator.py
 ```
 
-For a short local probe, override the preset:
+This is equivalent to:
 
 ```bash
-python examples/image_mnist_generator.py --preset sparse_horn_mnist \
+python examples/image_mnist_generator.py --preset sparse_horn_mnist_recommended
+```
+
+For a short local probe, keep the recommended preset and lower the budget:
+
+```bash
+python examples/image_mnist_generator.py \
   --epochs 1 \
   --train-limit 32 \
   --eval-limit 32
@@ -70,14 +76,33 @@ python examples/image_mnist_generator.py --preset sparse_horn_mnist_state_mlp
 python examples/image_mnist_generator.py --preset sparse_horn_mnist_step1
 ```
 
-Important caveat: the leading preset can exploit a direct label-initialization
-route. To probe the stricter route where class information has to enter through
-dynamics instead:
+Useful HORN generator aliases:
+
+- `sparse_horn_mnist_recommended`: default example preset; strict dynamic
+  class coupling with higher HORN damping.
+- `sparse_horn_mnist_strict`: strict dynamic class coupling, no direct
+  label-initialization route, strongest semantic/diversity reference.
+- `sparse_horn_mnist_quality`: strict route with a small distributional
+  quality/proximity regularizer.
+- `sparse_horn_mnist_dynamics_quality`: strict route with higher HORN damping;
+  currently the same settings as the recommended preset.
+- `sparse_horn_mnist`: older polished recipe with a direct label
+  initialization route, kept for comparison and backward-compatible commands.
+
+To probe the stricter route and its controls explicitly:
 
 ```bash
-python examples/image_mnist_generator.py --preset sparse_horn_mnist_class_coupling_strength8
+python examples/image_mnist_generator.py --preset sparse_horn_mnist_strict
+python examples/image_mnist_generator.py --preset sparse_horn_mnist_quality
+python examples/image_mnist_generator.py --preset sparse_horn_mnist_dynamics_quality
 python examples/image_mnist_generator.py --preset sparse_horn_mnist_state_mlp_class_coupling_strong
+python examples/image_mnist_generator.py --preset sparse_horn_mnist_state_mlp_class_coupling_strong_dist005
 ```
+
+The strict HORN route starts near chance before settling and reaches readable,
+varied digits after recurrent dynamics. The StateMLP presets are
+non-oscillatory controls; their `dist*` variants test whether a conventional
+transition can recover the same diversity with extra distributional pressure.
 
 ## Example Menu
 

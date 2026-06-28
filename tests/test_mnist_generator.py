@@ -8,6 +8,7 @@ from oscnet.experiments.mnist_generator import (
     MNISTDriftQueue,
     MNISTFeatureClassifier,
     MNISTGeneratorExperimentConfig,
+    RECOMMENDED_GENERATOR_PRESET,
     build_arg_parser,
     build_mnist_generator_model,
     conditional_feature_drift_loss,
@@ -63,6 +64,33 @@ def test_sparse_horn_mnist_preset_sets_current_recipe():
     assert parsed.train_limit == 8
 
 
+def test_generator_recommended_preset_is_opt_in_default():
+    generic = config_from_args(parse_args([]))
+
+    assert generic.model_family == "kuramoto"
+    assert generic.run.epochs == 10
+
+    explicit_none = config_from_args(
+        parse_args(["--preset", "none"], default_preset=RECOMMENDED_GENERATOR_PRESET)
+    )
+    assert explicit_none.model_family == "kuramoto"
+
+    recommended = config_from_args(
+        parse_args([], default_preset=RECOMMENDED_GENERATOR_PRESET)
+    )
+    assert recommended.model_family == "horn"
+    assert recommended.conditioning_mode == "class_coupling"
+    assert recommended.conditioning_strength == 8.0
+    assert recommended.horn_damping == 0.30
+    assert recommended.distributional_weight == 0.0
+    assert recommended.train_settling_steps == (16, 32, 48)
+    assert recommended.settling_steps == (0, 1, 8, 16, 32, 48, 64)
+
+    model = build_mnist_generator_model(recommended, jax.random.PRNGKey(0))
+    assert model.label_phase_shift is None
+    assert model.label_condition_coupling is not None
+
+
 def test_config_from_args_rejects_unapplied_preset_defaults():
     parser = build_arg_parser()
     args = parser.parse_args(["--preset", "sparse_horn_mnist"])
@@ -93,9 +121,22 @@ def test_sparse_horn_mnist_control_presets_share_recipe():
         "sparse_horn_mnist_class_coupling_strong": "horn",
         "sparse_horn_mnist_class_coupling_strength4": "horn",
         "sparse_horn_mnist_class_coupling_strength8": "horn",
+        "sparse_horn_mnist_class_coupling_strength8_dist001": "horn",
+        "sparse_horn_mnist_class_coupling_strength8_dist0025": "horn",
+        "sparse_horn_mnist_class_coupling_strength8_dist005": "horn",
+        "sparse_horn_mnist_class_coupling_strength8_freq13": "horn",
+        "sparse_horn_mnist_class_coupling_strength8_damp030": "horn",
+        "sparse_horn_mnist_class_coupling_strength8_freq13_dist0025": "horn",
+        "sparse_horn_mnist_recommended": "horn",
+        "sparse_horn_mnist_strict": "horn",
+        "sparse_horn_mnist_quality": "horn",
+        "sparse_horn_mnist_dynamics_quality": "horn",
         "sparse_horn_mnist_class_coupling_strong_frozen": "frozen_horn",
         "sparse_horn_mnist_class_coupling_strong_decoder_only": "horn_decoder_only",
         "sparse_horn_mnist_state_mlp_class_coupling_strong": "state_mlp",
+        "sparse_horn_mnist_state_mlp_class_coupling_strong_dist005": "state_mlp",
+        "sparse_horn_mnist_state_mlp_class_coupling_strong_dist01": "state_mlp",
+        "sparse_horn_mnist_state_mlp_class_coupling_strong_dist01_class": "state_mlp",
         "sparse_horn_mnist_state_mlp_class_coupling_strong_frozen": "frozen_state_mlp",
         "sparse_horn_mnist_class_coupling_anchor": "horn",
     }
@@ -125,6 +166,72 @@ def test_sparse_horn_mnist_control_presets_share_recipe():
     )
     assert strength8.conditioning_mode == "class_coupling"
     assert strength8.conditioning_strength == 8.0
+
+    strict = config_from_args(parse_args(["--preset", "sparse_horn_mnist_strict"]))
+    assert strict.conditioning_mode == "class_coupling"
+    assert strict.conditioning_strength == 8.0
+    assert strict.horn_damping == 0.15
+    assert strict.distributional_weight == 0.0
+
+    strength8_dist = config_from_args(
+        parse_args(
+            ["--preset", "sparse_horn_mnist_class_coupling_strength8_dist0025"]
+        )
+    )
+    assert strength8_dist.conditioning_mode == "class_coupling"
+    assert strength8_dist.conditioning_strength == 8.0
+    assert strength8_dist.distributional_weight == 0.025
+    assert strength8_dist.train_settling_steps == (16, 32, 48)
+
+    quality = config_from_args(parse_args(["--preset", "sparse_horn_mnist_quality"]))
+    assert quality.conditioning_mode == "class_coupling"
+    assert quality.conditioning_strength == 8.0
+    assert quality.horn_damping == 0.15
+    assert quality.distributional_weight == 0.025
+
+    strength8_freq = config_from_args(
+        parse_args(["--preset", "sparse_horn_mnist_class_coupling_strength8_freq13"])
+    )
+    assert strength8_freq.horn_frequency == 1.3
+    assert strength8_freq.horn_damping == 0.15
+    assert strength8_freq.distributional_weight == 0.0
+
+    strength8_freq_dist = config_from_args(
+        parse_args(
+            [
+                "--preset",
+                "sparse_horn_mnist_class_coupling_strength8_freq13_dist0025",
+            ]
+        )
+    )
+    assert strength8_freq_dist.horn_frequency == 1.3
+    assert strength8_freq_dist.distributional_weight == 0.025
+
+    dynamics_quality = config_from_args(
+        parse_args(["--preset", "sparse_horn_mnist_dynamics_quality"])
+    )
+    recommended = config_from_args(
+        parse_args(["--preset", RECOMMENDED_GENERATOR_PRESET])
+    )
+    for parsed in (dynamics_quality, recommended):
+        assert parsed.conditioning_mode == "class_coupling"
+        assert parsed.conditioning_strength == 8.0
+        assert parsed.horn_damping == 0.30
+        assert parsed.distributional_weight == 0.0
+
+    state_mlp_dist = config_from_args(
+        parse_args(
+            [
+                "--preset",
+                "sparse_horn_mnist_state_mlp_class_coupling_strong_dist01_class",
+            ]
+        )
+    )
+    assert state_mlp_dist.model_family == "state_mlp"
+    assert state_mlp_dist.conditioning_mode == "class_coupling"
+    assert state_mlp_dist.conditioning_strength == 2.0
+    assert state_mlp_dist.distributional_weight == 0.1
+    assert state_mlp_dist.class_moment_weight == 1.0
 
     anchor = config_from_args(
         parse_args(["--preset", "sparse_horn_mnist_class_coupling_anchor"])
@@ -213,6 +320,30 @@ def test_state_mlp_class_coupling_strong_uses_label_drive():
     assert model.label_condition_phase is not None
     assert model.label_condition_coupling is not None
     assert float(jnp.max(jnp.abs(next_zero[1] - next_one[1]))) > 0.0
+
+
+def test_quality_classifier_limits_parse_without_changing_generator_limits():
+    parsed = config_from_args(
+        parse_args(
+            [
+                "--preset",
+                "sparse_horn_mnist_class_coupling_strength8",
+                "--train-limit",
+                "32",
+                "--eval-limit",
+                "16",
+                "--quality-classifier-train-limit",
+                "5000",
+                "--quality-classifier-eval-limit",
+                "2000",
+            ]
+        )
+    )
+
+    assert parsed.train_limit == 32
+    assert parsed.eval_limit == 16
+    assert parsed.quality_classifier_train_limit == 5000
+    assert parsed.quality_classifier_eval_limit == 2000
 
 
 def test_conditional_generator_loss_uses_class_terms():

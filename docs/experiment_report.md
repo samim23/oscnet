@@ -87,8 +87,13 @@ branch; Winfree/rate-phase remains the best direct masked-completion branch.
 Neither should be presented as a universal ONN victory, but the HORN generator
 is the cleanest positive dynamics-attribution result in the repo right now.
 The current local entrypoint for that branch is
-`python examples/image_mnist_generator.py --preset sparse_horn_mnist`.
-Matched local controls now live as sibling presets:
+`python examples/image_mnist_generator.py`, which defaults to
+`sparse_horn_mnist_recommended`. Friendly aliases keep the current HORN lessons
+from getting rediscovered by accident:
+`sparse_horn_mnist_strict` for the no-direct-label semantic/diversity lead,
+`sparse_horn_mnist_quality` for small distributional quality pressure, and
+`sparse_horn_mnist_dynamics_quality` for the higher-damping dynamics-side
+quality variant. Matched local controls now live as sibling presets:
 `sparse_horn_mnist_frozen`, `sparse_horn_mnist_decoder_only`,
 `sparse_horn_mnist_state_mlp`, `sparse_horn_mnist_state_mlp_frozen`,
 `sparse_horn_mnist_state_mlp_decoder_only`, and `sparse_horn_mnist_step1`.
@@ -4964,6 +4969,201 @@ Interpretation:
   comparison is no longer "can HORN generate digits?" It can. The next question
   is whether HORN's higher-diversity settling can beat a diversity-regularized
   StateMLP or improve nearest-real quality without collapsing to prototypes.
+
+Sparse local HORN vs diversity-regularized StateMLP control:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_sparse_horn_state_mlp_diversity_probe
+```
+
+The probe wrote:
+
+```text
+outputs/analysis/modal_mnist_generator_sparse_horn_state_mlp_diversity_probe.csv
+outputs/analysis/modal_mnist_generator_sparse_horn_state_mlp_diversity_probe.json
+outputs/analysis/state_mlp_diversity_samples/state_mlp_diversity_seed11_comparison.png
+```
+
+This is the follow-up control requested by the strength probe. The matched
+StateMLP was given the same class-coupling route plus distributional pressure
+(`distributional_weight`) and, in one variant, class-conditional moment
+pressure (`class_moment_weight`). The point was to test whether HORN's diversity
+advantage was only because the non-oscillatory control was under-regularized.
+
+Three-seed compact probe, seeds 11/12/13:
+
+| Variant | Dist weight | Class moment | Final acc | Best acc | Step 0 | Diversity | Best diversity | Nearest-real MSE | Visual read |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| HORN strength8 | 0.00 | 0.0 | 0.994 | 0.993 | 0.103 | 1.140 | 1.137 | 0.0543 | Crisp, varied digits |
+| StateMLP | 0.00 | 0.0 | 0.975 | 0.999 | 0.111 | 0.614 | 0.640 | 0.0374 | Blurry/prototype-like digits |
+| StateMLP dist .05 | 0.05 | 0.0 | 0.972 | 0.977 | 0.108 | 0.663 | 0.679 | 0.0378 | Slightly more varied, still soft |
+| StateMLP dist .10 | 0.10 | 0.0 | 0.906 | 0.906 | 0.106 | 0.709 | 0.739 | 0.0406 | More varied, weaker labels |
+| StateMLP dist .10 + class | 0.10 | 1.0 | 0.957 | 0.966 | 0.106 | 0.644 | 0.658 | 0.0371 | Label recovery improves, diversity drops |
+
+Interpretation:
+
+- HORN's higher-diversity result survives the stronger StateMLP control. The
+  best regularized StateMLP variants lift diversity only from roughly `0.61` to
+  `0.66-0.71`, still far below HORN's `1.14`.
+- The regularized StateMLP quality/diversity tradeoff is steep. At
+  `distributional_weight=0.10`, diversity improves but classifier accuracy
+  falls to `0.906`; adding class-moment pressure recovers some class accuracy
+  but loses diversity again.
+- Nearest-real MSE still favors StateMLP, but the sample grids explain why this
+  metric is incomplete here: the StateMLP digits are smooth class prototypes,
+  while HORN produces sharper and more varied samples. Keep nearest-real MSE as
+  a sharpness/proximity proxy, not as the sole generative-quality judge.
+- Updated research read: the strict HORN route is now a real lead, not just an
+  under-controlled artifact. The next HORN-specific target is to keep the
+  strength-8 diversity/settling behavior while reducing nearest-real MSE and
+  improving contrast without collapsing into StateMLP-style prototypes.
+
+Sparse local HORN distributional quality probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_sparse_horn_distributional_probe
+```
+
+The probe wrote:
+
+```text
+outputs/analysis/modal_mnist_generator_sparse_horn_distributional_probe.csv
+outputs/analysis/modal_mnist_generator_sparse_horn_distributional_probe.json
+outputs/analysis/horn_distributional_samples/horn_distributional_seed11_comparison.png
+```
+
+This probe keeps the strict no-direct-label HORN route fixed at
+`conditioning_strength=8.0` and adds small distributional loss weights. The goal
+was to improve pixel distribution/proximity while preserving the HORN
+quality/diversity behavior established above.
+
+Three-seed compact probe, seeds 11/12/13:
+
+| Variant | Dist weight | Final acc | Best acc | Step 0 | Step 16 | Step 32 | Diversity | Best diversity | Nearest-real MSE | Mean MSE | Std MSE | Gen mean | Gen std |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| HORN strength8 | 0.000 | 0.994 | 0.993 | 0.103 | 0.973 | 0.993 | 1.140 | 1.137 | 0.0543 | 0.0124 | 0.0067 | 0.175 | 0.354 |
+| HORN dist .01 | 0.010 | 0.995 | 0.994 | 0.109 | 0.981 | 0.994 | 1.139 | 1.224 | 0.0546 | 0.0104 | 0.0063 | 0.165 | 0.355 |
+| HORN dist .025 | 0.025 | 0.992 | 0.993 | 0.113 | 0.976 | 0.993 | 1.126 | 1.259 | 0.0539 | 0.0092 | 0.0058 | 0.161 | 0.353 |
+| HORN dist .05 | 0.050 | 0.976 | 0.972 | 0.111 | 0.952 | 0.972 | 1.105 | 1.261 | 0.0524 | 0.0074 | 0.0049 | 0.154 | 0.346 |
+
+Interpretation:
+
+- Small distributional pressure is useful but not transformational. It improves
+  generated mean/std statistics and slightly improves nearest-real MSE while
+  keeping step 0 near chance and preserving the settling story.
+- `distributional_weight=0.025` is the best balanced quality variant so far:
+  nearly the same best classifier accuracy as baseline (`0.993`), modestly
+  lower nearest-real MSE (`0.0539` vs `0.0543`), better mean/std errors, and
+  still high diversity (`1.126`).
+- `distributional_weight=0.05` pushes proximity metrics farther in the right
+  direction, but the cost in class accuracy and diversity is already visible.
+  That makes it a useful upper bound, not the current recommended setting.
+- Updated research read: keep `sparse_horn_mnist_class_coupling_strength8` as
+  the strict semantic/dynamic lead. Use
+  `sparse_horn_mnist_class_coupling_strength8_dist0025` as the balanced
+  quality/proximity variant. The next likely gains are not from simply raising
+  distributional weight; they should come from HORN-side dynamics/readout
+  refinements that reduce prototype distance without suppressing diversity.
+
+Sparse local HORN stronger-evaluator audit:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_sparse_horn_quality_classifier_audit
+```
+
+The probe wrote:
+
+```text
+outputs/analysis/modal_mnist_generator_sparse_horn_quality_classifier_audit.csv
+outputs/analysis/modal_mnist_generator_sparse_horn_quality_classifier_audit.json
+```
+
+Earlier generator sweeps used a lightweight quality classifier trained on the
+same 500-example training limit as the generator. That evaluator reached only
+about `0.716-0.717` real-MNIST eval accuracy, so the high generated-label
+accuracy numbers needed a stronger audit. This sweep keeps the generator
+training budget at 500 examples, but trains the quality classifier on 5000
+MNIST examples for 10 epochs (`feature_dim=256`, `depth=3`). The resulting
+judge reaches about `0.934` real-MNIST eval accuracy.
+
+Three-seed compact probe, seeds 11/12/13:
+
+| Variant | Judge real-MNIST acc | Dist weight | Generated acc | Best acc | Step 0 | Step 16 | Step 32 | Label confidence | Entropy | Diversity | Best diversity | Nearest-real MSE |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| HORN strength8 | 0.934 | 0.000 | 1.000 | 1.000 | 0.093 | 0.998 | 1.000 | 0.902 | 0.528 | 1.140 | 1.137 | 0.0543 |
+| HORN dist .025 | 0.934 | 0.025 | 0.998 | 0.999 | 0.106 | 0.982 | 0.999 | 0.899 | 0.534 | 1.126 | 1.259 | 0.0539 |
+| StateMLP | 0.934 | 0.000 | 0.955 | 0.955 | 0.088 | 0.932 | 0.955 | 0.858 | 0.610 | 0.621 | 0.648 | 0.0383 |
+
+Interpretation:
+
+- The strict HORN lead survives a much stronger generated-label evaluator.
+  Under the better judge, HORN strength8 reaches `1.000` generated-label
+  accuracy across seeds while still starting near chance at step 0.
+- The StateMLP control now looks weaker on semantics than it did under the
+  weaker evaluator: `0.955` generated-label accuracy and much lower diversity
+  (`0.621`) despite better nearest-real MSE.
+- The HORN `dist0025` variant remains the balanced quality/proximity option:
+  almost identical generated-label accuracy (`0.998`), slightly better
+  nearest-real MSE, and still much higher diversity than StateMLP.
+- Updated research read: HORN strength8 is no longer just visually promising;
+  it is robust under a stronger semantic evaluator. The remaining weakness is
+  still proximity/sharpness metrics, not class routing or diversity.
+
+Sparse local HORN dynamics-quality probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_sparse_horn_dynamics_quality_probe
+```
+
+The probe wrote:
+
+```text
+outputs/analysis/modal_mnist_generator_sparse_horn_dynamics_quality_probe.csv
+outputs/analysis/modal_mnist_generator_sparse_horn_dynamics_quality_probe.json
+outputs/analysis/horn_dynamics_quality_samples/horn_dynamics_quality_seed11_comparison.png
+```
+
+This probe asks whether HORN-side dynamics knobs can improve proximity/sharpness
+without collapsing the diversity advantage. It keeps the stronger generated
+label evaluator from the previous audit and compares baseline strength8,
+balanced distributional pressure, higher frequency, higher damping, and higher
+frequency plus distributional pressure.
+
+Three-seed compact probe, seeds 11/12/13:
+
+| Variant | Frequency | Damping | Dist weight | Generated acc | Best acc | Step 0 | Step 16 | Step 32 | Label confidence | Diversity | Best diversity | Nearest-real MSE | Mean MSE | Std MSE | Gen mean | State energy |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| HORN strength8 | 1.00 | 0.15 | 0.000 | 1.000 | 1.000 | 0.093 | 0.998 | 1.000 | 0.902 | 1.140 | 1.137 | 0.0543 | 0.0124 | 0.0067 | 0.175 | 0.0291 |
+| HORN dist .025 | 1.00 | 0.15 | 0.025 | 0.998 | 0.999 | 0.106 | 0.982 | 0.999 | 0.899 | 1.126 | 1.259 | 0.0539 | 0.0092 | 0.0058 | 0.161 | 0.0243 |
+| HORN freq 1.3 | 1.30 | 0.15 | 0.000 | 0.971 | 0.969 | 0.091 | 0.950 | 0.969 | 0.857 | 1.128 | 1.183 | 0.0578 | 0.0131 | 0.0069 | 0.184 | 0.0176 |
+| HORN damp .30 | 1.00 | 0.30 | 0.000 | 1.000 | 1.000 | 0.094 | 0.997 | 1.000 | 0.903 | 1.108 | 1.105 | 0.0523 | 0.0126 | 0.0062 | 0.176 | 0.0197 |
+| HORN freq 1.3 + dist .025 | 1.30 | 0.15 | 0.025 | 0.997 | 0.998 | 0.108 | 0.977 | 0.998 | 0.895 | 1.159 | 1.568 | 0.0546 | 0.0083 | 0.0053 | 0.164 | 0.0158 |
+
+Interpretation:
+
+- Increasing HORN damping is the cleanest dynamics-side improvement so far. It
+  preserves perfect generated-label accuracy under the stronger evaluator,
+  improves nearest-real MSE (`0.0523` vs `0.0543`), lowers state energy, and
+  keeps samples visually crisp. The cost is a modest diversity drop
+  (`1.108` vs `1.140`), not prototype collapse.
+- Increasing HORN frequency to `1.3` alone is not useful. It lowers state
+  energy, but hurts classifier confidence, accuracy, and nearest-real MSE. This
+  suggests the current class-drive/readout has learned around the original
+  frequency scale.
+- Frequency plus distributional pressure improves pixel mean/std metrics, but
+  does not beat simple damping on nearest-real MSE and does not clearly improve
+  sample grids.
+- Updated research read: `sparse_horn_mnist_strict` remains the strict
+  semantic/diversity lead. `sparse_horn_mnist_quality` is the balanced
+  distributional quality variant. `sparse_horn_mnist_dynamics_quality` is the
+  best current dynamics-side quality variant and is now the recommended example
+  default via `sparse_horn_mnist_recommended`. The next probe should combine
+  damping `.30` with small distributional pressure and/or explore a narrower
+  damping curve, rather than changing frequency.
 
 ## Maintenance Notes
 

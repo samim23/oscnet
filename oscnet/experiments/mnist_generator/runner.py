@@ -371,17 +371,50 @@ def run_mnist_generator_experiment(
         quality_classifier_model = feature_model
         quality_classifier_metrics = feature_classifier_metrics
     if config.quality_classifier_epochs > 0 and quality_classifier_model is None:
+        quality_train_images = train_images
+        quality_train_labels = train_labels
+        quality_eval_images = eval_images
+        quality_eval_labels = eval_labels
+        if (
+            config.quality_classifier_train_limit is not None
+            or config.quality_classifier_eval_limit is not None
+        ):
+            quality_train_limit = (
+                config.quality_classifier_train_limit
+                if config.quality_classifier_train_limit is not None
+                else config.train_limit
+            )
+            quality_eval_limit = (
+                config.quality_classifier_eval_limit
+                if config.quality_classifier_eval_limit is not None
+                else config.eval_limit
+            )
+            (
+                quality_train_images,
+                quality_train_labels,
+                quality_eval_images,
+                quality_eval_labels,
+            ) = load_mnist_data(
+                source=config.data_source,
+                train_limit=quality_train_limit,
+                eval_limit=quality_eval_limit,
+                seed=config.run.seed,
+            )
+            quality_train_labels = quality_train_labels.astype(jnp.int32)
+            quality_eval_labels = quality_eval_labels.astype(jnp.int32)
         logger.info(
-            "training quality classifier epochs=%s feature_dim=%s",
+            "training quality classifier epochs=%s feature_dim=%s train_n=%s eval_n=%s",
             config.quality_classifier_epochs,
             config.quality_classifier_dim,
+            int(quality_train_images.shape[0]),
+            int(quality_eval_images.shape[0]),
         )
         quality_classifier_model, quality_classifier_metrics = (
             train_mnist_feature_classifier(
-                train_images,
-                train_labels,
-                eval_images,
-                eval_labels,
+                quality_train_images,
+                quality_train_labels,
+                quality_eval_images,
+                quality_eval_labels,
                 key=feature_key,
                 num_classes=config.num_classes,
                 feature_dim=config.quality_classifier_dim,
@@ -771,6 +804,8 @@ def run_mnist_generator_experiment(
             "quality_classifier_epochs": config.quality_classifier_epochs,
             "quality_classifier_dim": config.quality_classifier_dim,
             "quality_classifier_depth": config.quality_classifier_depth,
+            "quality_classifier_train_limit": config.quality_classifier_train_limit,
+            "quality_classifier_eval_limit": config.quality_classifier_eval_limit,
             "drift_queue_size": config.drift_queue_size,
             "drift_queue_num_pos": config.drift_queue_num_pos,
             "drift_queue_final_counts": (
@@ -779,6 +814,11 @@ def run_mnist_generator_experiment(
                 else [int(value) for value in drift_queue.counts.tolist()]
             ),
             "distributional_weight": config.distributional_weight,
+            "class_moment_weight": config.class_moment_weight,
+            "prototype_weight": config.prototype_weight,
+            "moment_weight": config.moment_weight,
+            "pixel_marginal_weight": config.pixel_marginal_weight,
+            "num_projections": config.num_projections,
             "drift_gamma": config.drift_gamma,
             "drift_temperatures": list(config.drift_temperatures),
             "train_settling_steps": list(config.train_settling_steps),
@@ -820,4 +860,3 @@ def run_mnist_generator_experiment(
         paths=paths,
         checkpoint_paths=checkpoint_paths,
     )
-

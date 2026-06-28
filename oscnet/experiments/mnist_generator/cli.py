@@ -12,7 +12,7 @@ from oscnet.experiments.harness import (
 )
 
 from .config import MNISTGeneratorExperimentConfig
-from .presets import GENERATOR_PRESETS, preset_defaults
+from .presets import GENERATOR_PRESETS, RECOMMENDED_GENERATOR_PRESET, preset_defaults
 from .runner import run_mnist_generator_experiment
 
 PRESET_CHOICES = ("none", *tuple(sorted(GENERATOR_PRESETS)))
@@ -38,12 +38,16 @@ def _parse_int_tuple(value: str | Sequence[int]) -> Tuple[int, ...]:
     return values
 
 
-def _selected_preset(argv: Optional[list[str]]) -> str:
+def _selected_preset(
+    argv: Optional[list[str]],
+    *,
+    default: str = "none",
+) -> str:
     preset_parser = argparse.ArgumentParser(add_help=False)
     preset_parser.add_argument(
         "--preset",
         choices=PRESET_CHOICES,
-        default="none",
+        default=default,
     )
     args, _ = preset_parser.parse_known_args(argv)
     return args.preset
@@ -58,8 +62,9 @@ def build_arg_parser(preset: str = "none") -> argparse.ArgumentParser:
         choices=PRESET_CHOICES,
         default=preset,
         help=(
-            "Named local recipe. Use 'sparse_horn_mnist' for the current "
-            "strong sparse local HORN generator setup."
+            "Named local recipe. The examples default to "
+            f"'{RECOMMENDED_GENERATOR_PRESET}', a sparse local HORN setup with "
+            "dynamic class coupling."
         ),
     )
     parser.add_argument(
@@ -186,6 +191,8 @@ def build_arg_parser(preset: str = "none") -> argparse.ArgumentParser:
     parser.add_argument("--quality-classifier-depth", type=int, default=2)
     parser.add_argument("--quality-classifier-learning-rate", type=float, default=1e-3)
     parser.add_argument("--quality-classifier-weight-decay", type=float, default=1e-4)
+    parser.add_argument("--quality-classifier-train-limit", type=int, default=None)
+    parser.add_argument("--quality-classifier-eval-limit", type=int, default=None)
     parser.add_argument("--drift-queue-size", type=int, default=0)
     parser.add_argument("--drift-queue-num-pos", type=int, default=0)
     parser.add_argument("--distributional-weight", type=float, default=0.0)
@@ -312,6 +319,8 @@ def config_from_args(args: argparse.Namespace) -> MNISTGeneratorExperimentConfig
         quality_classifier_depth=args.quality_classifier_depth,
         quality_classifier_learning_rate=args.quality_classifier_learning_rate,
         quality_classifier_weight_decay=args.quality_classifier_weight_decay,
+        quality_classifier_train_limit=args.quality_classifier_train_limit,
+        quality_classifier_eval_limit=args.quality_classifier_eval_limit,
         drift_queue_size=args.drift_queue_size,
         drift_queue_num_pos=args.drift_queue_num_pos,
         distributional_weight=args.distributional_weight,
@@ -326,14 +335,25 @@ def config_from_args(args: argparse.Namespace) -> MNISTGeneratorExperimentConfig
     )
 
 
-def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
+def parse_args(
+    argv: Optional[list[str]] = None,
+    *,
+    default_preset: str = "none",
+) -> argparse.Namespace:
     """Parse CLI arguments with preset defaults applied before user overrides."""
 
-    return build_arg_parser(_selected_preset(argv)).parse_args(argv)
+    preset = _selected_preset(argv, default=default_preset)
+    return build_arg_parser(preset).parse_args(argv)
 
 
-def main(argv: Optional[list[str]] = None) -> AutoencoderExperimentResult:
-    return run_mnist_generator_experiment(config_from_args(parse_args(argv)))
+def main(
+    argv: Optional[list[str]] = None,
+    *,
+    default_preset: str = "none",
+) -> AutoencoderExperimentResult:
+    return run_mnist_generator_experiment(
+        config_from_args(parse_args(argv, default_preset=default_preset))
+    )
 
 
 if __name__ == "__main__":

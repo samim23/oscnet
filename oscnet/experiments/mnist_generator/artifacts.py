@@ -136,6 +136,8 @@ def _checkpoint_hyperparams(config: MNISTGeneratorExperimentConfig) -> Dict[str,
         "quality_classifier_depth": config.quality_classifier_depth,
         "quality_classifier_learning_rate": config.quality_classifier_learning_rate,
         "quality_classifier_weight_decay": config.quality_classifier_weight_decay,
+        "quality_classifier_train_limit": config.quality_classifier_train_limit,
+        "quality_classifier_eval_limit": config.quality_classifier_eval_limit,
         "drift_queue_size": config.drift_queue_size,
         "drift_queue_num_pos": config.drift_queue_num_pos,
         "distributional_weight": config.distributional_weight,
@@ -144,4 +146,3 @@ def _checkpoint_hyperparams(config: MNISTGeneratorExperimentConfig) -> Dict[str,
         "train_settling_steps": config.train_settling_steps,
         "settling_steps": config.settling_steps,
     }
-

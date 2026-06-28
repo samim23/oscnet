@@ -1403,6 +1403,75 @@ outputs/analysis/modal_mnist_phase_flow_signed_distance_mixed_noise_basin_compac
 outputs/analysis/modal_mnist_phase_flow_samples/
 ```
 
+Run the sparse HORN generator strict-control diversity probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_sparse_horn_state_mlp_diversity_probe
+```
+
+This compares the strict no-direct-label HORN generator
+`sparse_horn_mnist_class_coupling_strength8` against matched StateMLP
+class-coupling controls, including distributional regularization variants. It
+is the current recommended audit before claiming a HORN-specific
+quality/diversity advantage. It writes:
+
+```text
+outputs/analysis/modal_mnist_generator_sparse_horn_state_mlp_diversity_probe.csv
+outputs/analysis/modal_mnist_generator_sparse_horn_state_mlp_diversity_probe.json
+```
+
+Run the sparse HORN generator distributional quality probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_sparse_horn_distributional_probe
+```
+
+This keeps the strict no-direct-label HORN generator at
+`conditioning_strength=8.0` and tests small distributional weights for better
+pixel statistics/proximity without giving up the settling route. It writes:
+
+```text
+outputs/analysis/modal_mnist_generator_sparse_horn_distributional_probe.csv
+outputs/analysis/modal_mnist_generator_sparse_horn_distributional_probe.json
+```
+
+Run the sparse HORN generator stronger-evaluator audit:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_sparse_horn_quality_classifier_audit
+```
+
+This reruns the leading strict HORN variants and the matched StateMLP control
+with a stronger generated-label evaluator. The generator still trains on 500
+examples, but the quality classifier trains on 5000 examples for 10 epochs. Use
+this audit when the generated-label classifier metric matters. It writes:
+
+```text
+outputs/analysis/modal_mnist_generator_sparse_horn_quality_classifier_audit.csv
+outputs/analysis/modal_mnist_generator_sparse_horn_quality_classifier_audit.json
+```
+
+Run the sparse HORN generator dynamics-quality probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_sparse_horn_dynamics_quality_probe
+```
+
+This keeps the stronger generated-label evaluator and compares strict HORN
+strength8 against small distributional pressure, higher frequency, higher
+damping, and a frequency-plus-distributional variant. Use it when testing
+whether quality/proximity gains come from oscillator dynamics rather than only
+from the loss. It writes:
+
+```text
+outputs/analysis/modal_mnist_generator_sparse_horn_dynamics_quality_probe.csv
+outputs/analysis/modal_mnist_generator_sparse_horn_dynamics_quality_probe.json
+```
+
 To rerun the full four-way attribution matrix in one request:
 
 ```bash

@@ -263,17 +263,19 @@ and internally convert them to patch sequences.
   `[position, velocity]` features. Use it through
   `examples/image_mnist_generator.py --model-family horn` when testing
   HORN generator claims against Kuramoto, `frozen_horn`, and
-  `horn_decoder_only` controls. The strongest current MNIST generator recipe
-  uses `decoder_mode="resize_conv"`, `readout_mode="mean_relative"`,
-  variable-depth training with `train_settling_steps=(8, 16, 32)`, and sparse
-  local coupling via `coupling_profile="local_radius"` with a small radius.
-  The CLI preset is `python examples/image_mnist_generator.py --preset
-  sparse_horn_mnist`.
+  `horn_decoder_only` controls. The recommended MNIST generator recipe uses
+  `decoder_mode="resize_conv"`, `readout_mode="mean_relative"`, strict dynamic
+  class coupling, variable-depth training with
+  `train_settling_steps=(16, 32, 48)`, sparse local coupling via
+  `coupling_profile="local_radius"` with a small radius, and slightly higher
+  HORN damping. The example entrypoint is
+  `python examples/image_mnist_generator.py`, which defaults to
+  `sparse_horn_mnist_recommended`.
   This makes HORN the best current OscNet generator branch while keeping the
   claim precise: it is a conditional MNIST generator with useful learned
   oscillator dynamics, not yet a general image-generation win over all
-  conventional models. Use `sparse_horn_mnist_class_coupling_strength8` to probe
-  the stricter route where class information cannot enter as a direct initial
+  conventional models. Use `sparse_horn_mnist_strict` to probe the stricter
+  route where class information cannot enter as a direct initial
   label shift; this route currently starts near chance and becomes readable
   through oscillator settling.
 

@@ -25,7 +25,7 @@ from .metrics import (
     compute_generator_success_diagnostics,
     sample_generator_images,
 )
-from .presets import GENERATOR_PRESETS, preset_defaults
+from .presets import GENERATOR_PRESETS, RECOMMENDED_GENERATOR_PRESET, preset_defaults
 from .queue import MNISTDriftQueue
 from .runner import evaluate_generator_loss, run_mnist_generator_experiment
 
@@ -34,6 +34,7 @@ __all__ = [
     "MNISTDriftQueue",
     "MNISTFeatureClassifier",
     "MNISTGeneratorExperimentConfig",
+    "RECOMMENDED_GENERATOR_PRESET",
     "build_arg_parser",
     "build_mnist_generator_model",
     "compute_class_prototypes",

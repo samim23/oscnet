@@ -30,8 +30,11 @@ The strongest end-to-end image-generation workflow is the **sparse local HORN
 MNIST generator**:
 
 ```bash
-python examples/image_mnist_generator.py --preset sparse_horn_mnist
+python examples/image_mnist_generator.py
 ```
+
+The example defaults to `sparse_horn_mnist_recommended`, a strict
+class-coupled HORN recipe with sparse local coupling and higher HORN damping.
 
 Why it is first in the queue:
 
@@ -42,15 +45,32 @@ Why it is first in the queue:
 
 What to keep honest:
 
-- `sparse_horn_mnist_step1` is nearly as strong, so the standard preset can
-  exploit a direct label-initialization route.
-- `sparse_horn_mnist_class_coupling_strength8` is the stricter anti-shortcut lead:
+- `sparse_horn_mnist` is the older polished recipe with a direct
+  label-initialization route. It remains useful for comparison, but it is no
+  longer the default entrypoint.
+- `sparse_horn_mnist_strict` is the semantic/diversity reference:
   class information enters through a dynamic coupling route, starts near
   chance, and improves through settling without the direct initial-state label
   shift.
+- `sparse_horn_mnist_quality` is the balanced
+  quality/proximity variant of that strict HORN route. It adds a small
+  distributional pressure while preserving the same dynamic class-coupling
+  path.
+- `sparse_horn_mnist_dynamics_quality` is the current dynamics-side quality
+  variant. It increases HORN damping, keeps the strict route, and improves
+  nearest-real proximity without using extra distributional loss. The
+  recommended preset currently points at these settings.
+- `sparse_horn_mnist_step1` is a useful shortcut control for the older route.
 - `sparse_horn_mnist_state_mlp_class_coupling_strong` is the matched
-  non-oscillatory control for that stricter route. Use it before claiming a
-  HORN-specific advantage.
+  non-oscillatory control for that stricter route.
+- `sparse_horn_mnist_state_mlp_class_coupling_strong_dist005`,
+  `sparse_horn_mnist_state_mlp_class_coupling_strong_dist01`, and
+  `sparse_horn_mnist_state_mlp_class_coupling_strong_dist01_class` are
+  diversity-regularized controls. Use them before claiming that HORN's higher
+  diversity comes specifically from oscillator dynamics.
+- For generated-label metrics, prefer sweeps that set
+  `--quality-classifier-train-limit` above the generator `--train-limit`; the
+  strict HORN audit uses 500 generator examples but trains the judge on 5000.
 - Detailed results and caveats live in `docs/experiment_report.md`.
 
 ## Harness Menu
@@ -75,15 +95,22 @@ Use **MNIST phase VAE** if you want a simple generative model that should train
 without much drama.
 
 Use **Oscillator MNIST generator** if you want the current strongest
-oscillatory generator result. The leading recipe is `sparse_horn_mnist`: a
-sparse local `HORNImageGenerator` with resize-conv readout and variable-depth
-settling. Keep the matched controls nearby when turning it into a claim:
+oscillatory generator result. The example defaults to
+`sparse_horn_mnist_recommended`: a sparse local `HORNImageGenerator` with
+resize-conv readout, strict dynamic class coupling, higher HORN damping, and
+variable-depth settling. Keep the matched controls nearby when turning it into
+a claim:
 `sparse_horn_mnist_frozen`, `sparse_horn_mnist_decoder_only`,
 `sparse_horn_mnist_state_mlp`, `sparse_horn_mnist_state_mlp_frozen`,
 `sparse_horn_mnist_state_mlp_decoder_only`, and `sparse_horn_mnist_step1`.
-Use `sparse_horn_mnist_class_coupling_strength8` when probing the stricter
-no-direct-label route, and compare against
-`sparse_horn_mnist_state_mlp_class_coupling_strong`.
+Use `sparse_horn_mnist_strict` when probing the semantic/diversity reference
+without extra damping. Use `sparse_horn_mnist_quality` when you want the same
+route with a small quality/proximity regularizer. Use
+`sparse_horn_mnist_dynamics_quality` when testing whether the improvement can
+come from oscillator dynamics rather than the loss. Compare against
+`sparse_horn_mnist_state_mlp_class_coupling_strong` plus the
+`state_mlp_class_coupling_strong_dist*` presets when testing whether the
+diversity/quality frontier is HORN-specific.
 
 Use **MNIST phase-flow** if you want the most direct "oscillators as the
 generative medium" experiment. Set `--target-representation sobel_edges` for

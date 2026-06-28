@@ -68,6 +68,8 @@ class MNISTGeneratorExperimentConfig:
     quality_classifier_depth: int = 2
     quality_classifier_learning_rate: float = 1e-3
     quality_classifier_weight_decay: float = 1e-4
+    quality_classifier_train_limit: Optional[int] = None
+    quality_classifier_eval_limit: Optional[int] = None
     drift_queue_size: int = 0
     drift_queue_num_pos: int = 0
     distributional_weight: float = 0.0
@@ -79,4 +81,3 @@ class MNISTGeneratorExperimentConfig:
     data_source: str = "idx"
     train_limit: Optional[int] = 10_000
     eval_limit: Optional[int] = 1_000
-

@@ -96,13 +96,13 @@ presets.
 For an end-to-end image-generation workflow, start with the sparse local HORN
 MNIST generator. It is the most complete generator example in the repo: a
 coupled oscillator field trained as an implicit image generator, not as an
-autoencoder.
+autoencoder. The example defaults to the recommended HORN preset.
 
 ```bash
-python examples/image_mnist_generator.py --preset sparse_horn_mnist
+python examples/image_mnist_generator.py
 ```
 
-For matched controls and stricter attribution presets, see
+For explicit presets, matched controls, and attribution notes, see
 `examples/README.md` and `docs/experiment_report.md`.
 
 Tiny smoke run:
