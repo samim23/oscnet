@@ -4340,6 +4340,61 @@ same resize-conv readout and parameter budget. If HORN beats that under
 label-zero conditioning, the result becomes an ONN-native architectural win,
 not only a recurrence-vs-no-recurrence win inside the HORN family.
 
+Matched non-oscillatory control:
+
+Implemented `StateMLPImageGenerator`, a residual MLP transition over the same
+position/velocity latent state and the same resize-conv readout. With
+`state_mlp_hidden_dim=48`, the transition has about the same recurrent
+parameter and operation budget as HORN's dense coupling for 196 oscillators.
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_state_mlp_label0_control_probe
+```
+
+The control wrote:
+
+```text
+outputs/analysis/modal_mnist_generator_state_mlp_label0_control_probe.csv
+outputs/analysis/modal_mnist_generator_state_mlp_label0_control_probe.json
+outputs/analysis/modal_mnist_generator_state_mlp_label0_control_samples/
+```
+
+Three-seed comparison at `label_phase_scale=0.0`:
+
+| Variant | Mean final eval | Mean classifier label acc | Mean prototype acc | Mean diversity | Mean nearest-real MSE |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Trainable HORN | 0.000936 | 1.0000 | 1.0000 | 1.3079 | 0.0586 |
+| Frozen HORN | 0.001282 | 0.0898 | 0.0983 | 0.4868 | 0.0541 |
+| HORN decoder-only | 0.001254 | 0.0944 | 0.1100 | 0.5348 | 0.0533 |
+| Trainable state-MLP | 0.001256 | 1.0000 | 1.0000 | 0.9174 | 0.0334 |
+| Frozen state-MLP | 0.001289 | 0.0768 | 0.0898 | 0.4281 | 0.0448 |
+| State-MLP decoder-only | 0.000987 | 0.0944 | 0.0951 | 0.8134 | 0.0640 |
+
+Interpretation:
+
+- The HORN result remains real: its trainable recurrent field is far better
+  than frozen HORN or HORN decoder-only.
+- The stronger claim, "HORN is uniquely responsible," does not hold under this
+  control. A matched trainable non-oscillatory state transition also reaches
+  perfect classifier/prototype alignment under the same class-conditioned
+  pixel-drift task.
+- HORN still has useful advantages in this setup: better mean pixel objective
+  than trainable state-MLP and substantially higher diversity. State-MLP has
+  lower nearest-real MSE, which may indicate more conservative,
+  exemplar-adjacent samples rather than a better generative field.
+- Pixel objective alone is again misleading: state-MLP decoder-only has a good
+  mean final eval loss but chance-level semantic accuracy.
+
+Updated research read: the current "breakthrough" is not yet
+oscillator-specific image generation. It is a robust finding that **trainable
+latent dynamics over a position/velocity field are essential for label-zero
+class-structured generation**, and HORN is the best oscillatory version of that
+idea so far. The next ONN-specific test should target where HORN's physics
+ought to matter beyond semantic class alignment: diversity, interpolation
+smoothness, settling/refinement, robustness to fewer training samples, or
+out-of-distribution/noisy latent initial states.
+
 ## Maintenance Notes
 
 - Put numerical benchmark summaries in this file and/or `outputs/analysis`.
