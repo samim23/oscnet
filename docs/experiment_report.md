@@ -4596,6 +4596,56 @@ now **variable-depth HORN with spatially biased coupling**. It preserves the
 positive generator metrics while moving away from the least plausible dense
 all-to-all assumption.
 
+Sparse local-coupling probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_horn_sparse_coupling_probe
+```
+
+The probe wrote:
+
+```text
+outputs/analysis/modal_mnist_generator_horn_sparse_coupling_probe.csv
+outputs/analysis/modal_mnist_generator_horn_sparse_coupling_probe.json
+outputs/analysis/modal_mnist_generator_horn_sparse_coupling_samples/
+```
+
+This adds `coupling_profile="local_radius"` to the reusable generator models.
+Unlike distance decay, this profile is a true sparse binary mask: oscillator
+pairs outside the local radius have exactly zero recurrent coupling.
+
+Seed 11 comparison:
+
+| HORN coupling | Coupling density | Final eval | Final classifier acc | Step-16 acc | Step-32 acc | Step-16 diversity | Step-32 diversity |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Dense | 1.0000 | 0.001141 | 0.9902 | 0.9883 | 0.8965 | 1.3237 | 1.5943 |
+| Distance decay, length 0.35, floor 0.02 | 1.0000 soft / mean 0.1394 | 0.001142 | 0.9922 | 0.9863 | 0.8848 | 1.3186 | 1.6228 |
+| Local radius 0.24 | 0.0367 | 0.001142 | 0.9922 | 0.9863 | 0.8887 | 1.3184 | 1.6248 |
+| Local radius 0.35 | 0.0870 | 0.001142 | 0.9922 | 0.9863 | 0.8848 | 1.3189 | 1.6241 |
+
+Interpretation:
+
+- The variable-depth HORN result survives true sparse coupling. The tight
+  radius-0.24 mask keeps only about 3.7% of possible directed oscillator edges
+  while preserving readable samples and the same step-16/step-32 semantic
+  performance.
+- The sparse profiles behave almost identically to soft distance decay on this
+  seed, which suggests the current task does not need learned dense global
+  communication once the resize-conv readout and finite settling window are in
+  place.
+- This is the strongest physical-plausibility result so far. It does not prove
+  hardware efficiency on GPU, but it moves the architecture from dense
+  all-to-all dynamics to a local recurrent oscillator field without losing the
+  current MNIST generator win.
+
+Updated research read after sparse coupling: the leading recipe is now
+**variable-depth HORN with sparse local coupling**. The next test should move
+from one-seed architecture probing to replication: verify the sparse local HORN
+advantage over the matched state-MLP and decoder/frozen controls across seeds,
+then test whether the same recipe scales to a less toy dataset or a harder
+generation metric.
+
 ## Maintenance Notes
 
 - Put numerical benchmark summaries in this file and/or `outputs/analysis`.

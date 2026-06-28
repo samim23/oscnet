@@ -941,6 +941,29 @@ def test_generator_success_diagnostics_report_coupling_profile():
     assert diagnostics["coupling_profile_max"] > 0.05
 
 
+def test_generator_success_diagnostics_report_sparse_local_coupling_profile():
+    from oscnet.models import KuramotoImageGenerator
+
+    model = KuramotoImageGenerator(
+        num_oscillators=16,
+        image_shape=(8, 8),
+        decoder_mode="local_basis",
+        local_patch_size=3,
+        decoder_depth=0,
+        steps=2,
+        coupling_profile="local_radius",
+        coupling_length_scale=0.7,
+        key=jax.random.PRNGKey(17),
+    )
+
+    diagnostics = compute_generator_success_diagnostics(model)
+
+    assert diagnostics["coupling_profile"] == "local_radius"
+    assert diagnostics["coupling_density"] < 1.0
+    assert diagnostics["coupling_profile_min"] == 0.0
+    assert diagnostics["coupling_profile_max"] == 1.0
+
+
 def test_generator_success_diagnostics_report_split_trainability():
     from oscnet.models import KuramotoImageGenerator
 

@@ -92,7 +92,9 @@ oscillator generator branch. Start with `--model-family kuramoto` or
 `--settling-steps 0,1,2,4,8,16,32` to score a trained generator at multiple
 test-time dynamics depths without retraining. Use `--train-settling-steps
 8,16,32` to train against several finite settling depths instead of only the
-single `--steps` value.
+single `--steps` value. Use `--coupling-profile local_radius` when you want a
+sparse spatial coupling mask instead of dense or softly decayed all-to-all
+coupling.
 
 ## Python Usage
 

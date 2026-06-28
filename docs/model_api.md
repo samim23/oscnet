@@ -220,7 +220,10 @@ and internally convert them to patch sequences.
   convolutions, mirroring the Un-0 reference decoder more closely.
   The recurrent oscillator pool can use the default dense coupling profile or
   `coupling_profile="distance_decay"`, which applies a fixed spatial decay
-  profile and optional weak attractive bias to learned pairwise couplings.
+  profile and optional weak attractive bias to learned pairwise couplings. Use
+  `coupling_profile="local_radius"` for a sparse binary spatial mask; in that
+  mode `coupling_length_scale` is the local interaction radius on the
+  normalized oscillator grid.
   Generator experiments support distributional pixel matching, Un-0-style
   conditional pixel drift, fixed structural feature drift, and learned MNIST
   feature drift via a frozen `MNISTFeatureClassifier`. Conditional drift can

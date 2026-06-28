@@ -2488,7 +2488,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--coupling-init-scale", type=float, default=0.05)
     parser.add_argument(
         "--coupling-profile",
-        choices=["dense", "distance_decay"],
+        choices=["dense", "distance_decay", "local_radius"],
         default="dense",
     )
     parser.add_argument("--coupling-length-scale", type=float, default=0.0)

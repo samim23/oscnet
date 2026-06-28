@@ -147,6 +147,26 @@ def _distance_decay_coupling_profile(
     return profile * (1.0 - jnp.eye(num_oscillators, dtype=jnp.float32))
 
 
+def _local_radius_coupling_profile(
+    *,
+    num_oscillators: int,
+    radius: float,
+) -> Array:
+    """Build a sparse local spatial coupling profile."""
+
+    coords = _oscillator_grid_coordinates(num_oscillators)
+    grid_extent = max(2, int(math.ceil(math.sqrt(num_oscillators))))
+    if radius <= 0.0:
+        radius = 2.5 / float(grid_extent)
+    radius = max(float(radius), 1e-6)
+    squared_distance = jnp.sum(
+        (coords[:, None, :] - coords[None, :, :]) ** 2,
+        axis=-1,
+    )
+    profile = (squared_distance <= radius**2).astype(jnp.float32)
+    return profile * (1.0 - jnp.eye(num_oscillators, dtype=jnp.float32))
+
+
 def _softplus_inverse(value: float) -> float:
     value = max(float(value), 1e-6)
     return math.log(math.expm1(value))
@@ -546,9 +566,10 @@ class KuramotoImageGenerator(eqx.Module):
             raise ValueError("resize_conv_upsamples must be non-negative")
         if resize_conv_min_channels < 1:
             raise ValueError("resize_conv_min_channels must be positive")
-        if coupling_profile not in ("dense", "distance_decay"):
+        if coupling_profile not in ("dense", "distance_decay", "local_radius"):
             raise ValueError(
-                "coupling_profile must be 'dense' or 'distance_decay'"
+                "coupling_profile must be 'dense', 'distance_decay', or "
+                "'local_radius'"
             )
         if coupling_floor < 0.0 or coupling_floor > 1.0:
             raise ValueError("coupling_floor must be in [0, 1]")
@@ -854,6 +875,11 @@ class KuramotoImageGenerator(eqx.Module):
 
         if self.coupling_profile == "dense":
             return 1.0 - jnp.eye(self.num_oscillators, dtype=jnp.float32)
+        if self.coupling_profile == "local_radius":
+            return _local_radius_coupling_profile(
+                num_oscillators=self.num_oscillators,
+                radius=self.coupling_length_scale,
+            )
         return _distance_decay_coupling_profile(
             num_oscillators=self.num_oscillators,
             length_scale=self.coupling_length_scale,
