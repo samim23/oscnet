@@ -4237,6 +4237,65 @@ answer whether the readable digits are mostly label conditioning/readout
 geometry, or whether learned HORN recurrence contributes once conditioning is
 weakened.
 
+Probe result:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_horn_conditioning_attribution_probe
+```
+
+The probe wrote:
+
+```text
+outputs/analysis/modal_mnist_generator_horn_conditioning_attribution_probe.csv
+outputs/analysis/modal_mnist_generator_horn_conditioning_attribution_probe.json
+outputs/analysis/modal_mnist_generator_horn_conditioning_attribution_samples/
+```
+
+Seed-11 attribution metrics:
+
+| Label phase scale | Variant | Final eval | Classifier label acc | Label confidence | Prototype acc | Nearest-real MSE | Diversity |
+| ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 0.0 | Trainable HORN | 0.000913 | 1.0000 | 0.5539 | 1.0000 | 0.0581 | 1.3177 |
+| 0.0 | Frozen HORN | 0.001231 | 0.0977 | 0.0989 | 0.0977 | 0.0520 | 0.5566 |
+| 0.0 | HORN decoder-only | 0.001184 | 0.1016 | 0.1014 | 0.1250 | 0.0462 | 0.5786 |
+| 0.1 | Trainable HORN | 0.000954 | 1.0000 | 0.5531 | 1.0000 | 0.0584 | 1.3051 |
+| 0.1 | Frozen HORN | 0.000888 | 0.7461 | 0.4030 | 0.9004 | 0.0859 | 1.2198 |
+| 0.1 | HORN decoder-only | 0.000866 | 0.7500 | 0.4060 | 0.8984 | 0.0863 | 1.2409 |
+| 0.5 | Trainable HORN | 0.001059 | 0.9980 | 0.5536 | 1.0000 | 0.0514 | 1.1968 |
+| 0.5 | Frozen HORN | 0.001146 | 0.9941 | 0.5458 | 1.0000 | 0.0590 | 1.1753 |
+| 0.5 | HORN decoder-only | 0.001231 | 1.0000 | 0.5574 | 1.0000 | 0.0394 | 0.9178 |
+
+Visual inspection agrees with the classifier metrics. With
+`label_phase_scale=0.0`, trainable HORN produces clean digit grids while both
+frozen HORN and HORN decoder-only collapse into blurry, weakly class-aligned
+shapes. That is the strongest positive attribution result so far for learned
+oscillatory recurrence in the generator branch.
+
+Important caveat: label scale zero removes explicit phase-shift injection at
+sampling time, but the training objective is still class-aware because
+pixel-drift positives are sampled from the same class. The result therefore
+does not prove unconditional generation. It shows that the trainable HORN
+field can internalize class-structured generation from the class-conditioned
+objective, whereas the matched decoder-only and frozen controls cannot.
+
+At stronger explicit label phase scales, the decoder/frozen controls recover
+much of the semantic score. This suggests a useful division:
+
+- Weak/no explicit label signal: learned HORN recurrence is crucial.
+- Strong explicit label signal: the HORN latent geometry plus resize-conv
+  readout can carry the task even when recurrent dynamics are frozen or
+  removed.
+- The old pixel objective remains imperfect: the best objective row at
+  label scale `0.1` is not the most semantically reliable row.
+
+Current research read: HORN is now the strongest MNIST generator branch in
+OscNet, and unlike the earlier Kuramoto generator it has a regime where
+trainable oscillatory recurrence visibly matters. The next replication should
+repeat the label-scale attribution probe across at least two more seeds and
+compare against a matched non-oscillatory latent-state generator before making
+larger claims.
+
 ## Maintenance Notes
 
 - Put numerical benchmark summaries in this file and/or `outputs/analysis`.
