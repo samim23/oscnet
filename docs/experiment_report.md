@@ -3639,6 +3639,56 @@ Interpretation:
   on that field. More sampler tweaks on raw pixel phase-flow are unlikely to
   solve the binding problem by themselves.
 
+Signed-distance non-Gaussian basin probe:
+
+The Gaussian basin result was strong enough to ask whether the scalar
+signed-distance field is a broad attractor or merely a good Gaussian denoiser.
+The experiment now supports `basin_noise_mode` /
+`--basin-noise-mode`, and the Modal wrapper passes that setting through to the
+remote config. This probe keeps the same trained task and tests three
+non-Gaussian endpoints: `uniform`, `salt_pepper`, and `zeros`.
+
+Run:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_phase_flow.py \
+  --sweep-preset mnist_phase_flow_signed_distance_noise_basin_probe
+```
+
+Artifact:
+
+```text
+outputs/analysis/modal_mnist_phase_flow_signed_distance_noise_basin_probe.csv
+```
+
+Mean paired MSE over two seeds:
+
+| noise/model | t=0.10 start -> final | t=0.50 start -> final | t=0.90 start -> final |
+| --- | ---: | ---: | ---: |
+| uniform, coarse phase-flow | 0.185307 -> 0.211683 | 0.057231 -> 0.125097 | 0.002275 -> 0.002605 |
+| uniform, recurrent-conv | 0.185307 -> 0.391009 | 0.057231 -> 0.167911 | 0.002275 -> 0.002676 |
+| salt-pepper, coarse phase-flow | 0.320311 -> 0.205634 | 0.098679 -> 0.124079 | 0.003959 -> 0.002978 |
+| salt-pepper, recurrent-conv | 0.320311 -> 0.374129 | 0.098679 -> 0.164216 | 0.003959 -> 0.003071 |
+| zeros, coarse phase-flow | 0.073528 -> 0.028669 | 0.022694 -> 0.008115 | 0.000908 -> 0.000493 |
+| zeros, recurrent-conv | 0.073528 -> 0.027765 | 0.022694 -> 0.006002 | 0.000908 -> 0.000531 |
+
+Interpretation:
+
+- The signed-distance field is not a universal attractor. The Gaussian result
+  is real, but uniform and salt-pepper starts expose a failure mode where the
+  sampler over-activates the field and damages mid-chord states.
+- The basin is asymmetric. Blank/zero starts improve at every start time for
+  both models, which suggests the field can grow shape from a low-energy
+  scaffold. High-entropy starts require suppression as well as growth, and the
+  current objective does not teach that strongly enough.
+- The coarse/global oscillator remains meaningfully better than recurrent-conv
+  on harsh starts. It has lower supervised loss and is less catastrophic under
+  uniform/salt-pepper, but this is not a finished generative attractor.
+- Current read: signed-distance is still the best OscNet-native representation
+  we have found, but a real generator likely needs either basin-aware training
+  over endpoint distributions or a two-stage shape-first architecture with
+  explicit constraints on foreground mass/topology.
+
 Signed-distance flow-field probe:
 
 The next field-native test added `target_representation="signed_distance_flow"`:

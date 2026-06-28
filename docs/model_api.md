@@ -310,7 +310,9 @@ and internally convert them to patch sequences.
   recovery from partially real chord states `x_t = (1 - t) noise + t data`.
   Basin metrics include the starting paired MSE and final paired MSE, so this
   diagnostic can distinguish true endpoint improvement from simply starting
-  close to the target.
+  close to the target. Set `basin_noise_mode` to `"gaussian"`, `"uniform"`,
+  `"salt_pepper"`, or `"zeros"` to probe robustness to different basin
+  endpoints without retraining the model.
   `oscnet.experiments.mnist_shape_pixel` reuses the same model family for the
   next two-stage test: channel 0 is a noisy/generated pixel image, channel 1 is
   a clamped signed-distance shape condition, and only the pixel channel is

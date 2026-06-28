@@ -63,7 +63,9 @@ the decoded shape channel during sample metrics/artifact export. Set
 open pixel-channel updates later during Euler sampling. Set
 `--basin-t-values 0.1,0.25,0.5,0.75,0.9` to measure endpoint recovery from
 partially real chord states; the harness reports before/after paired error so
-you can see whether the dynamics actually improve the state.
+you can see whether the dynamics actually improve the state. Use
+`--basin-noise-mode uniform`, `salt_pepper`, or `zeros` to test non-Gaussian
+basin endpoints.
 
 Use **MNIST shape-to-pixel** if you want the next two-stage experiment after
 the basin probe: the signed-distance field is treated as a fixed scaffold, and

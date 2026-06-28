@@ -9,6 +9,7 @@ from oscnet.experiments.mnist_phase_flow import (
     closure_loss,
     decode_phase_flow_primary_channel,
     decode_phase_flow_sample_readout,
+    phase_flow_basin_noise,
     phase_flow_target_channels,
     phase_flow_loss,
     prepare_phase_flow_targets,
@@ -144,10 +145,30 @@ def test_basin_chord_sampler_runs_from_partial_real_state():
         labels=labels,
         batch_size=2,
         clip_samples=False,
+        noise_mode="salt_pepper",
     )
 
     assert samples.shape == targets.shape
     assert jnp.any(samples < 0.0) or jnp.any(samples > 1.0)
+
+
+def test_phase_flow_basin_noise_modes_have_expected_ranges():
+    targets = jnp.full((3, 5), 0.25)
+    key = jax.random.PRNGKey(49)
+
+    gaussian = phase_flow_basin_noise(key, targets, "gaussian")
+    uniform = phase_flow_basin_noise(key, targets, "uniform")
+    salt_pepper = phase_flow_basin_noise(key, targets, "salt_pepper")
+    zeros = phase_flow_basin_noise(key, targets, "zeros")
+
+    assert gaussian.shape == targets.shape
+    assert uniform.shape == targets.shape
+    assert salt_pepper.shape == targets.shape
+    assert zeros.shape == targets.shape
+    assert jnp.all(uniform >= 0.0)
+    assert jnp.all(uniform <= 1.0)
+    assert jnp.all((salt_pepper == 0.0) | (salt_pepper == 1.0))
+    assert jnp.all(zeros == 0.0)
 
 
 def test_phase_flow_loss_backprops_to_model():

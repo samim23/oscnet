@@ -70,6 +70,7 @@ class MNISTPhaseFlowExperimentConfig:
     sample_schedule: str = "standard"
     sample_readout_mode: str = "primary"
     basin_t_values: Tuple[float, ...] = ()
+    basin_noise_mode: str = "gaussian"
     target_representation: str = "pixels"
     data_source: str = "idx"
     train_limit: Optional[int] = 10_000
@@ -186,6 +187,7 @@ def _checkpoint_hyperparams(config: MNISTPhaseFlowExperimentConfig) -> Dict[str,
         "sample_schedule": config.sample_schedule,
         "sample_readout_mode": config.sample_readout_mode,
         "basin_t_values": [float(value) for value in config.basin_t_values],
+        "basin_noise_mode": config.basin_noise_mode,
         "target_representation": config.target_representation,
         "target_channels": phase_flow_target_channels(config.target_representation),
     }
@@ -816,6 +818,7 @@ def sample_phase_flow_from_chord(
     labels: Optional[Array],
     batch_size: int,
     clip_samples: bool = True,
+    noise_mode: str = "gaussian",
 ) -> Array:
     """Complete samples from ``(1 - t) noise + t target`` chord states."""
 
@@ -829,6 +832,7 @@ def sample_phase_flow_from_chord(
         labels=labels,
         batch_size=batch_size,
         clip_samples=clip_samples,
+        noise_mode=noise_mode,
     )
     return samples
 
@@ -844,6 +848,7 @@ def _sample_phase_flow_from_chord_with_initial(
     labels: Optional[Array],
     batch_size: int,
     clip_samples: bool = True,
+    noise_mode: str = "gaussian",
 ) -> Tuple[Array, Array]:
     """Complete chord states and return the exact initial states used."""
 
@@ -867,7 +872,7 @@ def _sample_phase_flow_from_chord_with_initial(
         if labels is not None:
             current_labels = labels[start : start + current].astype(jnp.int32)
         batch_key = jax.random.fold_in(key, batch_index)
-        noise = jax.random.normal(batch_key, batch_targets.shape)
+        noise = phase_flow_basin_noise(batch_key, batch_targets, noise_mode)
         initial = (1.0 - start_t) * noise + start_t * batch_targets
         batch_samples = _sample_phase_flow_from_state(
             model,
@@ -1080,6 +1085,29 @@ def basin_t_key(start_t: float) -> str:
     return f"t0_{int(round(float(start_t) * 1000.0)):03d}"
 
 
+def phase_flow_basin_noise(
+    key: jax.random.PRNGKey,
+    targets: Array,
+    mode: str,
+) -> Array:
+    """Return the noise endpoint for basin/chord diagnostics."""
+
+    mode = str(mode)
+    if mode == "gaussian":
+        return jax.random.normal(key, targets.shape, dtype=targets.dtype)
+    if mode == "uniform":
+        return jax.random.uniform(key, targets.shape, dtype=targets.dtype)
+    if mode == "salt_pepper":
+        return jax.random.bernoulli(key, p=0.5, shape=targets.shape).astype(
+            targets.dtype
+        )
+    if mode == "zeros":
+        return jnp.zeros_like(targets)
+    raise ValueError(
+        "noise_mode must be 'gaussian', 'uniform', 'salt_pepper', or 'zeros'"
+    )
+
+
 def compute_phase_flow_basin_metrics(
     model: PhaseFlowModel,
     real_images: Array,
@@ -1092,6 +1120,7 @@ def compute_phase_flow_basin_metrics(
     batch_size: int,
     target_representation: str,
     sample_readout_mode: str,
+    noise_mode: str = "gaussian",
     artifact_dir: Optional[Path] = None,
 ) -> Dict[str, Dict[str, float]]:
     """Measure how far from real data the sampler can still recover structure."""
@@ -1115,6 +1144,7 @@ def compute_phase_flow_basin_metrics(
             labels=labels,
             batch_size=batch_size,
             clip_samples=clip_samples,
+            noise_mode=noise_mode,
         )
         initial_primary = decode_phase_flow_sample_readout(
             initial,
@@ -1562,6 +1592,7 @@ def run_mnist_phase_flow_experiment(
             batch_size=config.run.batch_size,
             target_representation=config.target_representation,
             sample_readout_mode=config.sample_readout_mode,
+            noise_mode=config.basin_noise_mode,
             artifact_dir=paths.artifacts,
         )
     trace_noise = jax.random.normal(
@@ -1621,6 +1652,7 @@ def run_mnist_phase_flow_experiment(
             "sample_schedule": config.sample_schedule,
             "sample_readout_mode": config.sample_readout_mode,
             "basin_t_values": [float(value) for value in config.basin_t_values],
+            "basin_noise_mode": config.basin_noise_mode,
             "basin": basin_metrics,
             "coarse_grid_size": (
                 int(model.coarse_grid_size)
@@ -1729,6 +1761,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--basin-noise-mode",
+        choices=["gaussian", "uniform", "salt_pepper", "zeros"],
+        default="gaussian",
+        help="Noise endpoint used for basin chord diagnostics.",
+    )
+    parser.add_argument(
         "--target-representation",
         choices=[
             "pixels",
@@ -1787,6 +1825,7 @@ def main() -> None:
         sample_schedule=args.sample_schedule,
         sample_readout_mode=args.sample_readout_mode,
         basin_t_values=args.basin_t_values,
+        basin_noise_mode=args.basin_noise_mode,
         target_representation=args.target_representation,
         data_source=args.data_source,
         train_limit=args.train_limit,
