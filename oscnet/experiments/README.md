@@ -90,7 +90,9 @@ Use **Oscillator MNIST generator** if you want the more speculative coupled
 oscillator generator branch. Start with `--model-family kuramoto` or
 `--model-family horn`, and keep the frozen/decoder-only controls nearby. Use
 `--settling-steps 0,1,2,4,8,16,32` to score a trained generator at multiple
-test-time dynamics depths without retraining.
+test-time dynamics depths without retraining. Use `--train-settling-steps
+8,16,32` to train against several finite settling depths instead of only the
+single `--steps` value.
 
 ## Python Usage
 

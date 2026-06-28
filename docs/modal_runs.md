@@ -606,6 +606,28 @@ OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_generator.py \
   --print-only
 ```
 
+Run the HORN finite-time stability training probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_horn_settling_train_probe
+```
+
+This compares the low-data HORN baseline against the same model trained with
+`--train-settling-steps 8,16,32`. Both runs are evaluated at
+`0,1,2,4,8,16,32`, so the question is whether variable-depth training keeps the
+step-16 generator quality while reducing the step-32 over-settling collapse.
+Results write to
+`outputs/analysis/modal_mnist_generator_horn_settling_train_probe.csv`.
+
+Dry-run it first:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_horn_settling_train_probe \
+  --print-only
+```
+
 Run the resize-conv generator with Un-0-style dynamic conditioning oscillators:
 
 ```bash

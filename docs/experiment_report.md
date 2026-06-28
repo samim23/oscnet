@@ -4493,6 +4493,62 @@ Interpretation:
   losses, or test whether structured/sparser HORN coupling preserves the
   step-16 gain without dense all-to-all coupling.
 
+Finite-time stability training probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_horn_settling_train_probe
+```
+
+The probe wrote:
+
+```text
+outputs/analysis/modal_mnist_generator_horn_settling_train_probe.csv
+outputs/analysis/modal_mnist_generator_horn_settling_train_probe.json
+outputs/analysis/modal_mnist_generator_horn_settling_train_samples/
+```
+
+This compares the low-data HORN baseline against the same model trained with
+`--train-settling-steps 8,16,32`, while evaluating both across
+`0,1,2,4,8,16,32`.
+
+Seed 11 classifier label accuracy by test-time depth:
+
+| HORN training | Step 0 | Step 1 | Step 2 | Step 4 | Step 8 | Step 16 | Step 32 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Baseline, train at 16 | 0.0449 | 0.1367 | 0.2773 | 0.6387 | 0.8848 | 0.9609 | 0.0371 |
+| Train at 8/16/32 | 0.0039 | 0.0215 | 0.0547 | 0.3477 | 0.8926 | 0.9883 | 0.8965 |
+
+Selected metrics:
+
+| HORN training | Final eval | Final classifier acc | Step-16 diversity | Step-32 diversity | Step-16 nearest-real MSE | Samples/train second |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Baseline, train at 16 | 0.001093 | 0.9844 | 1.3039 | 1.3944 | 0.0676 | 530.3 |
+| Train at 8/16/32 | 0.001141 | 0.9902 | 1.3237 | 1.5943 | 0.0682 | 256.8 |
+
+Interpretation:
+
+- Variable-depth training largely fixes the over-settling failure: step-32
+  classifier accuracy jumps from 0.0371 to 0.8965.
+- It preserves, and slightly improves, the trained-depth semantic result:
+  step-16 classifier accuracy rises from 0.9609 to 0.9883.
+- The cost is real: training throughput roughly halves, early-step samples are
+  more chaotic, and nearest-real MSE/diversity suggest the stabilized model is
+  more energetic and less conservative.
+- This is one of the strongest architecture-level lessons so far. HORN should
+  not be trained as a single exact-depth recurrent decoder; it behaves more
+  like a finite-time dynamical system that needs a settling window. Training
+  over that window turns the brittle step-16 attractor into a broader usable
+  trajectory.
+
+Updated research read after variable-depth training: the current HORN branch
+now has three positive properties at once: dynamics attribution, low-data
+advantage over a matched state-MLP on diversity/objective, and improved
+test-time stability when trained over a finite settling window. The next
+serious controls should test whether this survives multiple seeds and whether
+structured/local/low-rank HORN coupling can keep the same stability without
+full dense all-to-all coupling.
+
 ## Maintenance Notes
 
 - Put numerical benchmark summaries in this file and/or `outputs/analysis`.

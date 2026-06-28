@@ -708,6 +708,7 @@ def test_mnist_generator_horn_synthetic_training_smoke(tmp_path):
         quality_classifier_dim=8,
         quality_classifier_depth=1,
         eval_sample_count=2,
+        train_settling_steps=(0, 1),
         settling_steps=(0, 1),
         data_source="synthetic",
         train_limit=4,
@@ -720,6 +721,7 @@ def test_mnist_generator_horn_synthetic_training_smoke(tmp_path):
         summary = json.load(f)
     diagnostics = summary["generator"]["success_diagnostics"]
     assert summary["generator"]["dynamics_family"] == "horn"
+    assert summary["generator"]["train_settling_steps"] == [0, 1]
     assert summary["generator"]["quality_classifier"]["epochs"] == 1
     assert "classifier_label_accuracy" in summary["generator"]
     assert summary["generator"]["settling"]["steps"] == [0, 1]

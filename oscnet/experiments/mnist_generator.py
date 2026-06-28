@@ -171,6 +171,7 @@ class MNISTGeneratorExperimentConfig:
     drift_gamma: float = 0.2
     drift_temperatures: Tuple[float, ...] = (0.02, 0.05, 0.2)
     eval_sample_count: int = 128
+    train_settling_steps: Tuple[int, ...] = ()
     settling_steps: Tuple[int, ...] = ()
     data_source: str = "idx"
     train_limit: Optional[int] = 10_000
@@ -1122,34 +1123,56 @@ def _train_step(
     distributional_weight: float,
     drift_gamma: float,
     drift_temperatures: Tuple[float, ...],
+    train_settling_steps: Tuple[int, ...],
     num_classes: int,
 ):
     def loss_fn(current_model):
-        generated = current_model(sample_key, real_batch.shape[0], label_batch)
-        return generator_loss(
-            real_batch,
-            generated,
-            projections,
-            labels=label_batch,
-            positive_batch=positive_batch,
-            positive_labels=positive_label_batch,
-            gamma_batch=real_batch,
-            gamma_labels=label_batch,
-            prototypes=prototypes,
-            feature_model=feature_model,
-            num_classes=num_classes,
-            moment_weight=moment_weight,
-            pixel_marginal_weight=pixel_marginal_weight,
-            class_moment_weight=class_moment_weight,
-            prototype_weight=prototype_weight,
-            loss_mode=loss_mode,
-            pixel_drift_weight=pixel_drift_weight,
-            feature_drift_weight=feature_drift_weight,
-            feature_drift_mode=feature_drift_mode,
-            distributional_weight=distributional_weight,
-            drift_gamma=drift_gamma,
-            drift_temperatures=drift_temperatures,
+        step_depths = (
+            train_settling_steps
+            if train_settling_steps
+            else (int(current_model.steps),)
         )
+        losses = []
+        parts_by_name: Dict[str, list[Array]] = {}
+        for step_index, step_depth in enumerate(step_depths):
+            step_model = _model_with_steps(current_model, int(step_depth))
+            generated = step_model(
+                jax.random.fold_in(sample_key, step_index),
+                real_batch.shape[0],
+                label_batch,
+            )
+            loss, parts = generator_loss(
+                real_batch,
+                generated,
+                projections,
+                labels=label_batch,
+                positive_batch=positive_batch,
+                positive_labels=positive_label_batch,
+                gamma_batch=real_batch,
+                gamma_labels=label_batch,
+                prototypes=prototypes,
+                feature_model=feature_model,
+                num_classes=num_classes,
+                moment_weight=moment_weight,
+                pixel_marginal_weight=pixel_marginal_weight,
+                class_moment_weight=class_moment_weight,
+                prototype_weight=prototype_weight,
+                loss_mode=loss_mode,
+                pixel_drift_weight=pixel_drift_weight,
+                feature_drift_weight=feature_drift_weight,
+                feature_drift_mode=feature_drift_mode,
+                distributional_weight=distributional_weight,
+                drift_gamma=drift_gamma,
+                drift_temperatures=drift_temperatures,
+            )
+            losses.append(loss)
+            for name, value in parts.items():
+                parts_by_name.setdefault(name, []).append(value)
+        mean_parts = {
+            name: jnp.mean(jnp.stack(values))
+            for name, values in parts_by_name.items()
+        }
+        return jnp.mean(jnp.stack(losses)), mean_parts
 
     (loss_value, loss_parts), grads = eqx.filter_value_and_grad(
         loss_fn,
@@ -1859,6 +1882,7 @@ def _checkpoint_hyperparams(config: MNISTGeneratorExperimentConfig) -> Dict[str,
         "distributional_weight": config.distributional_weight,
         "drift_gamma": config.drift_gamma,
         "drift_temperatures": config.drift_temperatures,
+        "train_settling_steps": config.train_settling_steps,
         "settling_steps": config.settling_steps,
     }
 
@@ -1870,6 +1894,10 @@ def run_mnist_generator_experiment(
 
     if config.run.mode != "train":
         raise ValueError("mnist_generator currently supports train mode only")
+    if any(step < 0 for step in config.train_settling_steps):
+        raise ValueError("train_settling_steps must be non-negative")
+    if any(step < 0 for step in config.settling_steps):
+        raise ValueError("settling_steps must be non-negative")
     uses_feature_drift = config.loss_mode in ("feature_drift", "pixel_feature_drift")
     uses_drift_loss = config.loss_mode in (
         "pixel_drift",
@@ -2099,6 +2127,7 @@ def run_mnist_generator_experiment(
                 config.distributional_weight,
                 config.drift_gamma,
                 config.drift_temperatures,
+                config.train_settling_steps,
                 config.num_classes if config.conditional else 0,
             )
             losses.append(float(loss))
@@ -2356,6 +2385,7 @@ def run_mnist_generator_experiment(
             "distributional_weight": config.distributional_weight,
             "drift_gamma": config.drift_gamma,
             "drift_temperatures": list(config.drift_temperatures),
+            "train_settling_steps": list(config.train_settling_steps),
             "distributional_not_paired_reconstruction": True,
             "conditional": config.conditional,
             "label_phase_scale": config.label_phase_scale,
@@ -2555,6 +2585,15 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output-bias-init", type=float, default=-2.0)
     parser.add_argument("--eval-sample-count", type=int, default=128)
     parser.add_argument(
+        "--train-settling-steps",
+        type=_parse_int_tuple,
+        default=(),
+        help=(
+            "Comma-separated settling depths to average during training, "
+            "for example '4,8,16'. Empty means train only at --steps."
+        ),
+    )
+    parser.add_argument(
         "--settling-steps",
         type=_parse_int_tuple,
         default=(),
@@ -2650,6 +2689,7 @@ def config_from_args(args: argparse.Namespace) -> MNISTGeneratorExperimentConfig
         drift_gamma=args.drift_gamma,
         drift_temperatures=args.drift_temperatures,
         eval_sample_count=args.eval_sample_count,
+        train_settling_steps=args.train_settling_steps,
         settling_steps=args.settling_steps,
         data_source=args.data_source,
         train_limit=args.train_limit,
