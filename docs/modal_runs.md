@@ -691,6 +691,48 @@ OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_generator.py \
   --print-only
 ```
 
+Run the sparse-HORN attribution/control probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_sparse_horn_attribution_probe
+```
+
+This uses the local `sparse_horn_mnist*` preset family and repeats seeds `11`,
+`12`, and `13` for sparse HORN, frozen HORN, HORN decoder-only, one-step HORN,
+state-MLP, frozen state-MLP, and state-MLP decoder-only. It is the next
+cleaner attribution sweep for the current best generator recipe. Results write
+to `outputs/analysis/modal_mnist_generator_sparse_horn_attribution_probe.csv`.
+
+Dry-run it first:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_sparse_horn_attribution_probe \
+  --print-only
+```
+
+Run the sparse-HORN conditioning-route probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_sparse_horn_conditioning_route_probe
+```
+
+This compact anti-shortcut probe compares the current `phase_shift` HORN recipe
+against `class_oscillator` and `class_coupling` variants. The important
+question is whether classifier accuracy still rises through settling when
+step 0 has no direct class label shift. Results write to
+`outputs/analysis/modal_mnist_generator_sparse_horn_conditioning_route_probe.csv`.
+
+Dry-run it first:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_sparse_horn_conditioning_route_probe \
+  --print-only
+```
+
 Run the resize-conv generator with Un-0-style dynamic conditioning oscillators:
 
 ```bash

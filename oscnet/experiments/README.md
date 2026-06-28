@@ -24,6 +24,30 @@ outputs/               generated local run artifacts
 
 For runnable commands, start with `examples/README.md`.
 
+## Current Leading Branch
+
+The leading experimental branch is the **sparse local HORN MNIST generator**:
+
+```bash
+python examples/image_mnist_generator.py --preset sparse_horn_mnist
+```
+
+Why it is first in the queue:
+
+- It is the strongest current OscNet-native generator result.
+- It uses a sparse local second-order HORN field, not a dense all-to-all toy.
+- It beats matched frozen, decoder-only, and state-MLP controls on semantic
+  sample quality and diversity.
+
+What to keep honest:
+
+- `sparse_horn_mnist_step1` is nearly as strong, so the standard preset can
+  exploit a direct label-initialization route.
+- `sparse_horn_mnist_class_coupling` is the stricter anti-shortcut lead: class
+  information enters through a dynamic coupling route, starts near chance, and
+  improves through settling, but it is not yet as good visually.
+- Detailed results and caveats live in `docs/experiment_report.md`.
+
 ## Harness Menu
 
 | Harness | One-line idea | Usual entrypoint |
@@ -31,7 +55,7 @@ For runnable commands, start with `examples/README.md`.
 | MNIST autoencoder | Reconstruct MNIST patches with reusable OscNet autoencoders and matched baselines. | `python examples/image_mnist_oscillatory_autoencoder.py --help` |
 | Audio wavelet autoencoder | Encode and reconstruct audio wavelet feature sequences with oscillatory dynamics. | `python examples/audio_wavelet_oscillatory_autoencoder.py --help` |
 | MNIST masked representation | Exploratory JEPA-lite benchmark for predicting hidden patch features with Winfree and recurrent controls. | `python examples/image_mnist_jepa.py --help` |
-| Oscillator MNIST generator | Explore coupled-oscillator image generation with Kuramoto and HORN dynamics. Sparse local HORN is the strongest current generator branch. | `python examples/image_mnist_kuramoto_generator.py --help` |
+| Oscillator MNIST generator | Explore coupled-oscillator image generation with Kuramoto and HORN dynamics. Sparse local HORN is the strongest current generator branch. | `python examples/image_mnist_generator.py --help` |
 | MNIST phase VAE | A conventional paired VAE where the latent code passes through oscillator phase dynamics. | `python examples/image_mnist_phase_vae.py --help` |
 | MNIST phase-flow sampler | Treat the noisy image itself as a phase-rate oscillator field trained with rectified flow. | `python examples/image_mnist_phase_flow.py --help` |
 | MNIST shape-to-pixel renderer | Render pixels from a clamped signed-distance shape scaffold with phase-flow dynamics and recurrent controls. | `python examples/image_mnist_shape_pixel.py --help` |
@@ -46,14 +70,14 @@ Use **MNIST phase VAE** if you want a simple generative model that should train
 without much drama.
 
 Use **Oscillator MNIST generator** if you want the current strongest
-oscillatory generator result. The leading recipe is a sparse local
-`HORNImageGenerator`: `--model-family horn`,
-`--decoder-mode resize_conv`, `--readout-mode mean_relative`,
-`--train-settling-steps 8,16,32`, and
-`--coupling-profile local_radius --coupling-length-scale 0.24`. It is an
-implicit generator from random oscillator state, not an autoencoder. Keep the
-state-MLP, frozen, decoder-only, no-coupling, and shuffled-conditioning
-controls nearby when turning it into a claim.
+oscillatory generator result. The leading recipe is `sparse_horn_mnist`: a
+sparse local `HORNImageGenerator` with resize-conv readout and variable-depth
+settling. Keep the matched controls nearby when turning it into a claim:
+`sparse_horn_mnist_frozen`, `sparse_horn_mnist_decoder_only`,
+`sparse_horn_mnist_state_mlp`, `sparse_horn_mnist_state_mlp_frozen`,
+`sparse_horn_mnist_state_mlp_decoder_only`, and `sparse_horn_mnist_step1`.
+Use `sparse_horn_mnist_class_coupling` when probing the stricter no-direct-label
+route.
 
 Use **MNIST phase-flow** if you want the most direct "oscillators as the
 generative medium" experiment. Set `--target-representation sobel_edges` for

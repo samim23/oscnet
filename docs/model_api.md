@@ -205,7 +205,7 @@ and internally convert them to patch sequences.
   final phase features into a flat image. It is intentionally not an
   autoencoder: there is no image input and no paired reconstruction target.
   The generator supports four conditioning modes: no conditioning, direct
-  label phase shifts, the older static `class_coupling` phase-anchor drive, and
+  label phase shifts, `class_coupling` class-specific dynamic drive, and
   source-faithful `class_oscillator` conditioning. In `class_oscillator`, a
   separate conditioning oscillator pool evolves under its own Kuramoto dynamics
   and drives the main oscillator pool through class-specific unidirectional
@@ -235,7 +235,7 @@ and internally convert them to patch sequences.
   For attribution controls, `train_recurrent_dynamics` and
   `train_conditioning_dynamics` can be set independently; by default they
   inherit `train_dynamics`.
-  Use it through `examples/image_mnist_kuramoto_generator.py` or the
+  Use it through `examples/image_mnist_generator.py` or the
   `oscnet.experiments.mnist_generator` API when testing oscillators as a
   generative latent dynamical prior. The MNIST generator experiment supports
   the original distributional SWD/moment objective and an Un-0-inspired
@@ -259,16 +259,21 @@ and internally convert them to patch sequences.
   position/velocity state is sampled as generative noise, recurrent coupling
   supplies spring-like interaction, and the decoder reads bounded
   `[position, velocity]` features. Use it through
-  `examples/image_mnist_kuramoto_generator.py --model-family horn` when testing
-  colleague-style HORN generator claims against Kuramoto, `frozen_horn`, and
+  `examples/image_mnist_generator.py --model-family horn` when testing
+  HORN generator claims against Kuramoto, `frozen_horn`, and
   `horn_decoder_only` controls. The strongest current MNIST generator recipe
   uses `decoder_mode="resize_conv"`, `readout_mode="mean_relative"`,
   variable-depth training with `train_settling_steps=(8, 16, 32)`, and sparse
   local coupling via `coupling_profile="local_radius"` with a small radius.
+  The CLI preset is `python examples/image_mnist_generator.py --preset
+  sparse_horn_mnist`.
   This makes HORN the best current OscNet generator branch while keeping the
   claim precise: it is a conditional MNIST generator with useful learned
   oscillator dynamics, not yet a general image-generation win over all
-  conventional models.
+  conventional models. Use `sparse_horn_mnist_class_coupling` to probe the
+  stricter route where class information cannot enter as a direct initial
+  label shift; this route currently improves through settling but is not yet as
+  visually strong.
 
 `StateMLPImageGenerator`
 : A non-oscillatory latent-state control for the HORN generator. It keeps the

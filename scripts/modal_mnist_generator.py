@@ -119,6 +119,13 @@ SWEEP_CSVS = {
         "outputs/analysis/"
         "modal_mnist_generator_sparse_horn_state_mlp_replication_probe.csv"
     ),
+    "mnist_generator_sparse_horn_attribution_probe": Path(
+        "outputs/analysis/modal_mnist_generator_sparse_horn_attribution_probe.csv"
+    ),
+    "mnist_generator_sparse_horn_conditioning_route_probe": Path(
+        "outputs/analysis/"
+        "modal_mnist_generator_sparse_horn_conditioning_route_probe.csv"
+    ),
 }
 
 REMOTE_PACKAGES = [
@@ -1976,6 +1983,60 @@ def _mnist_generator_sparse_horn_state_mlp_replication_probe_sweep() -> list[
     return entries
 
 
+def _mnist_generator_sparse_horn_attribution_probe_sweep() -> list[
+    tuple[list[str], str]
+]:
+    entries = []
+    variants = [
+        ("horn", "sparse_horn_mnist"),
+        ("frozen_horn", "sparse_horn_mnist_frozen"),
+        ("horn_decoder", "sparse_horn_mnist_decoder_only"),
+        ("horn_step1", "sparse_horn_mnist_step1"),
+        ("state_mlp", "sparse_horn_mnist_state_mlp"),
+        ("frozen_state_mlp", "sparse_horn_mnist_state_mlp_frozen"),
+        ("state_mlp_decoder", "sparse_horn_mnist_state_mlp_decoder_only"),
+    ]
+    for seed in (11, 12, 13):
+        for variant_suffix, local_preset in variants:
+            run_name = (
+                "mnist_generator_sparse_horn_attribution_"
+                f"{variant_suffix}_n196_resizeconv_train500_seed{seed}_20e"
+            )
+            args = shlex.split(f"--seed {seed} --preset {local_preset}")
+            output_dir = VOLUME_MOUNT / "mnist_generator" / run_name
+            args = _with_default_arg(args, "--output-dir", output_dir)
+            entries.append((args, run_name))
+    return entries
+
+
+def _mnist_generator_sparse_horn_conditioning_route_probe_sweep() -> list[
+    tuple[list[str], str]
+]:
+    """Probe whether HORN still works when labels enter only through dynamics."""
+
+    entries = []
+    variants = [
+        ("phase_shift_full", "sparse_horn_mnist"),
+        ("phase_shift_step1", "sparse_horn_mnist_step1"),
+        ("class_osc_full", "sparse_horn_mnist_class_oscillator"),
+        ("class_osc_step1", "sparse_horn_mnist_class_oscillator_step1"),
+        ("class_osc_frozen", "sparse_horn_mnist_class_oscillator_frozen"),
+        ("class_coupling_full", "sparse_horn_mnist_class_coupling"),
+        ("class_coupling_step1", "sparse_horn_mnist_class_coupling_step1"),
+    ]
+    for seed in (11,):
+        for variant_suffix, local_preset in variants:
+            run_name = (
+                "mnist_generator_sparse_horn_conditioning_route_"
+                f"{variant_suffix}_n196_resizeconv_train500_seed{seed}_20e"
+            )
+            args = shlex.split(f"--seed {seed} --preset {local_preset}")
+            output_dir = VOLUME_MOUNT / "mnist_generator" / run_name
+            args = _with_default_arg(args, "--output-dir", output_dir)
+            entries.append((args, run_name))
+    return entries
+
+
 def _sweep_entries(preset: str) -> list[tuple[list[str], str]]:
     if preset == "mnist_generator_core":
         return _mnist_generator_core_sweep()
@@ -2029,6 +2090,10 @@ def _sweep_entries(preset: str) -> list[tuple[list[str], str]]:
         return _mnist_generator_horn_sparse_coupling_probe_sweep()
     if preset == "mnist_generator_sparse_horn_state_mlp_replication_probe":
         return _mnist_generator_sparse_horn_state_mlp_replication_probe_sweep()
+    if preset == "mnist_generator_sparse_horn_attribution_probe":
+        return _mnist_generator_sparse_horn_attribution_probe_sweep()
+    if preset == "mnist_generator_sparse_horn_conditioning_route_probe":
+        return _mnist_generator_sparse_horn_conditioning_route_probe_sweep()
     raise ValueError("unknown sweep preset")
 
 
@@ -2199,14 +2264,13 @@ def run_mnist_generator_remote(
     import jax
 
     from oscnet.experiments.mnist_generator import (
-        build_arg_parser,
         config_from_args,
+        parse_args,
         run_mnist_generator_experiment,
     )
 
     args = _with_default_arg(list(experiment_args), "--output-dir", output_dir)
-    parser = build_arg_parser()
-    parsed = parser.parse_args(args)
+    parsed = parse_args(args)
     result = run_mnist_generator_experiment(config_from_args(parsed))
 
     summary_path = result.paths.metrics / "summary.json"

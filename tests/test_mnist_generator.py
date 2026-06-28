@@ -8,8 +8,11 @@ from oscnet.experiments.mnist_generator import (
     MNISTDriftQueue,
     MNISTFeatureClassifier,
     MNISTGeneratorExperimentConfig,
+    build_arg_parser,
+    build_mnist_generator_model,
     conditional_feature_drift_loss,
     conditional_pixel_drift_loss,
+    config_from_args,
     compute_class_prototypes,
     compute_generator_settling_metrics,
     compute_generator_success_diagnostics,
@@ -18,6 +21,7 @@ from oscnet.experiments.mnist_generator import (
     generator_loss,
     make_projection_matrix,
     mnist_structural_features,
+    parse_args,
     run_mnist_generator_experiment,
     sliced_wasserstein_loss,
     train_mnist_feature_classifier,
@@ -35,6 +39,94 @@ def test_sliced_wasserstein_loss_is_zero_for_identical_batches():
     loss = sliced_wasserstein_loss(images, images, projections)
 
     assert loss < 1e-7
+
+
+def test_sparse_horn_mnist_preset_sets_current_recipe():
+    args = parse_args(
+        [
+            "--preset",
+            "sparse_horn_mnist",
+            "--epochs",
+            "1",
+            "--train-limit",
+            "8",
+        ]
+    )
+    parsed = config_from_args(args)
+
+    assert parsed.model_family == "horn"
+    assert parsed.decoder_mode == "resize_conv"
+    assert parsed.coupling_profile == "local_radius"
+    assert parsed.coupling_length_scale == 0.24
+    assert parsed.train_settling_steps == (8, 16, 32)
+    assert parsed.run.epochs == 1
+    assert parsed.train_limit == 8
+
+
+def test_config_from_args_rejects_unapplied_preset_defaults():
+    parser = build_arg_parser()
+    args = parser.parse_args(["--preset", "sparse_horn_mnist"])
+
+    try:
+        config_from_args(args)
+    except ValueError as exc:
+        assert "preset defaults were not applied" in str(exc)
+    else:
+        raise AssertionError("config_from_args should reject unapplied presets")
+
+
+def test_sparse_horn_mnist_control_presets_share_recipe():
+    expected = {
+        "sparse_horn_mnist": "horn",
+        "sparse_horn_mnist_frozen": "frozen_horn",
+        "sparse_horn_mnist_decoder_only": "horn_decoder_only",
+        "sparse_horn_mnist_state_mlp": "state_mlp",
+        "sparse_horn_mnist_state_mlp_frozen": "frozen_state_mlp",
+        "sparse_horn_mnist_state_mlp_decoder_only": "state_mlp_decoder_only",
+        "sparse_horn_mnist_step1": "horn",
+        "sparse_horn_mnist_class_oscillator": "horn",
+        "sparse_horn_mnist_class_oscillator_step1": "horn",
+        "sparse_horn_mnist_class_oscillator_frozen": "frozen_horn",
+        "sparse_horn_mnist_class_coupling": "horn",
+        "sparse_horn_mnist_class_coupling_step1": "horn",
+    }
+
+    for preset, model_family in expected.items():
+        parsed = config_from_args(parse_args(["--preset", preset]))
+        assert parsed.model_family == model_family
+        assert parsed.decoder_mode == "resize_conv"
+        assert parsed.readout_mode == "mean_relative"
+        assert parsed.loss_mode == "pixel_drift"
+        assert parsed.train_limit == 500
+
+    step1 = config_from_args(parse_args(["--preset", "sparse_horn_mnist_step1"]))
+    assert step1.steps == 1
+    assert step1.train_settling_steps == (1,)
+
+
+def test_class_oscillator_preset_removes_initial_label_shift():
+    parsed = config_from_args(
+        parse_args(
+            [
+                "--preset",
+                "sparse_horn_mnist_class_oscillator",
+                "--epochs",
+                "1",
+                "--train-limit",
+                "8",
+            ]
+        )
+    )
+
+    assert parsed.conditioning_mode == "class_oscillator"
+    assert parsed.num_condition_oscillators == 32
+
+    model = build_mnist_generator_model(parsed, jax.random.PRNGKey(0))
+
+    assert model.label_phase_shift is None
+    assert model.label_condition_coupling is not None
+    assert model.condition_omega is not None
+    assert model.condition_coupling is not None
 
 
 def test_conditional_generator_loss_uses_class_terms():

@@ -9,13 +9,24 @@ oscillatory dynamics: coupled oscillator networks, continuous-time neural
 networks, and general dynamical systems. Built on JAX and Equinox for
 differentiable, high-performance computation.
 
-## Features
+## What Is Included
 
-- **Oscillator models**: Harmonic, Van der Pol, Stuart-Landau, Kuramoto, FitzHugh-Nagumo
-- **Coupling topologies**: Hierarchical fractal, power-law, log-periodic
-- **Analysis tools**: Edge-of-chaos, Floquet analysis, bifurcation, stability
-- **Training utilities**: Criticality initialization, stochastic forcing, schedulers
-- **Visualization**: Phase space, network dynamics, oscillator analysis
+- **Core oscillator primitives**: harmonic and nonlinear harmonic oscillators,
+  Van der Pol, Stuart-Landau, Kuramoto, FitzHugh-Nagumo, and HORN-style
+  second-order dynamics.
+- **Coupling layers and fields**: hierarchical/fractal coupling, Winfree
+  phase-field layers, dense coupling, distance-decay coupling, sparse local
+  radius masks, and convolutional/adaptive neighborhood coupling.
+- **Reusable model families**: oscillatory sequence autoencoders,
+  patch-image and wavelet/audio autoencoders, Winfree spatial denoisers,
+  Kuramoto/HORN image generators, phase-flow fields, and matched
+  non-oscillatory controls.
+- **Experiment harnesses**: MNIST reconstruction, masked completion, image
+  generation, phase-flow probes, signed-distance shape experiments, and audio
+  wavelet reconstruction.
+- **Analysis and utilities**: phase synchrony, reconstruction diagnostics,
+  edge-of-chaos, Floquet, bifurcation, stability tools, checkpointing, result
+  comparison, and plotting helpers.
 
 ## Installation
 
@@ -37,13 +48,13 @@ from oscnet.core import (
 key = jax.random.PRNGKey(0)
 keys = jax.random.split(key, 2)
 
-# Create oscillator bank
+# Create oscillator bank.
 oscillator = NonlinearHarmonicOscillator(dim=64, key=keys[0])
 
-# Create hierarchical fractal coupling (improves memory tasks)
+# Optional coupling layer for learned oscillator interactions.
 coupling = HierarchicalCouplingLayer(hidden_dim=64, depth=1, key=keys[1])
 
-# Step dynamics
+# Step dynamics.
 x, v = jax.numpy.zeros(64), jax.numpy.zeros(64)
 inputs = jax.numpy.ones(64) * 0.1
 x_new, v_new = oscillator.step(x, v, inputs)
@@ -51,9 +62,8 @@ x_new, v_new = oscillator.step(x, v, inputs)
 
 ## Model API
 
-OscNet's reusable model spine lives in `oscnet.models`. It turns the core
-oscillator primitives into sequence layers, encoders, decoders, and complete
-autoencoders, so examples can stay focused on data and experiments.
+Reusable model classes live in `oscnet.models`. The examples use these classes
+instead of defining architectures inline.
 
 ```python
 import jax
@@ -73,28 +83,27 @@ sequence = jnp.ones((49, 8, 16))  # time, batch, features
 reconstruction = model(sequence)
 ```
 
-For image-style patch workflows, use `PatchOscillatoryAutoencoder`. For
-patch reconstruction, `decoder_mode="positional"` gives the decoder an explicit
-patch-position signal. For sequence generation, set
-`decoder_mode="autoregressive"`. For audio/wavelet feature sequences, use
-`WaveletOscillatoryAutoencoder`.
-
-See `docs/model_api.md` for the full model spine, tensor conventions, and
+See `docs/model_api.md` for model families, tensor conventions, controls, and
 extension points.
 
 ## Examples and Experiments
 
 Runnable scripts live in `examples/`; see `examples/README.md` for the command
 menu. Importable training/evaluation harnesses live in `oscnet.experiments`;
-see `oscnet/experiments/README.md` if you want to compare runs or understand
-the MNIST/audio research tasks.
+see `oscnet/experiments/README.md` for the harness map and current experiment
+presets.
 
-The strongest current generative branch is the sparse local HORN MNIST
-generator: a coupled oscillator field trained as an implicit image generator,
-not as an autoencoder. Start with
-`examples/image_mnist_kuramoto_generator.py --model-family horn`, then see
-`examples/README.md` for the fuller sparse-HORN recipe and
-`docs/experiment_report.md` for the benchmark interpretation.
+For an end-to-end image-generation workflow, start with the sparse local HORN
+MNIST generator. It is the most complete generator example in the repo: a
+coupled oscillator field trained as an implicit image generator, not as an
+autoencoder.
+
+```bash
+python examples/image_mnist_generator.py --preset sparse_horn_mnist
+```
+
+For matched controls and stricter attribution presets, see
+`examples/README.md` and `docs/experiment_report.md`.
 
 Tiny smoke run:
 

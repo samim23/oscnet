@@ -1,0 +1,82 @@
+"""Configuration for MNIST oscillator generator experiments."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Optional, Tuple
+
+from oscnet.experiments.harness import AutoencoderExperimentConfig
+
+@dataclass(frozen=True)
+class MNISTGeneratorExperimentConfig:
+    """Task-specific controls for Un-0-style MNIST generation."""
+
+    run: AutoencoderExperimentConfig
+    model_family: str = "kuramoto"
+    num_oscillators: int = 64
+    decoder_hidden_dim: int = 128
+    decoder_depth: int = 2
+    steps: int = 8
+    dt: float = 0.1
+    coupling_strength: float = 1.0
+    omega_scale: float = 0.2
+    coupling_init_scale: float = 0.05
+    coupling_profile: str = "dense"
+    coupling_length_scale: float = 0.0
+    coupling_floor: float = 0.0
+    coupling_bias_strength: float = 0.0
+    horn_frequency: float = 1.0
+    horn_damping: float = 0.15
+    horn_nonlinearity: float = 0.05
+    horn_state_bound: float = 3.0
+    state_mlp_hidden_dim: int = 48
+    state_mlp_depth: int = 1
+    state_mlp_residual_scale: float = 0.1
+    train_recurrent_dynamics: Optional[bool] = None
+    train_conditioning_dynamics: Optional[bool] = None
+    conditional: bool = False
+    num_classes: int = 10
+    label_phase_scale: float = 0.5
+    num_condition_oscillators: int = 0
+    conditioning_mode: str = "phase_shift"
+    readout_mode: str = "absolute"
+    decoder_mode: str = "mlp"
+    spatial_basis_sigma: float = 0.0
+    local_patch_size: int = 5
+    resize_conv_seed_size: int = 7
+    resize_conv_upsamples: int = 2
+    resize_conv_min_channels: int = 8
+    output_activation: str = "sigmoid"
+    output_bias_init: Optional[float] = -2.0
+    num_projections: int = 64
+    moment_weight: float = 0.1
+    pixel_marginal_weight: float = 1.0
+    class_moment_weight: float = 0.0
+    prototype_weight: float = 0.0
+    loss_mode: str = "distributional"
+    pixel_drift_weight: float = 1.0
+    feature_drift_weight: float = 1.0
+    feature_drift_mode: str = "structural"
+    learned_feature_epochs: int = 0
+    learned_feature_dim: int = 128
+    learned_feature_depth: int = 2
+    learned_feature_learning_rate: float = 1e-3
+    learned_feature_weight_decay: float = 1e-4
+    quality_classifier_epochs: int = 0
+    quality_classifier_dim: int = 128
+    quality_classifier_depth: int = 2
+    quality_classifier_learning_rate: float = 1e-3
+    quality_classifier_weight_decay: float = 1e-4
+    drift_queue_size: int = 0
+    drift_queue_num_pos: int = 0
+    distributional_weight: float = 0.0
+    drift_gamma: float = 0.2
+    drift_temperatures: Tuple[float, ...] = (0.02, 0.05, 0.2)
+    eval_sample_count: int = 128
+    train_settling_steps: Tuple[int, ...] = ()
+    settling_steps: Tuple[int, ...] = ()
+    data_source: str = "idx"
+    train_limit: Optional[int] = 10_000
+    eval_limit: Optional[int] = 1_000
+
+

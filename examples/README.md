@@ -26,13 +26,31 @@ python examples/image_mnist_phase_flow.py --help
 
 Runs write checkpoints, plots, metrics, traces, and samples under `outputs/`.
 
-The strongest current generator branch is the sparse local HORN MNIST
-generator. It starts from random oscillator state, settles a coupled
-position/velocity field, and decodes the final oscillator features into an
-image. A small synthetic smoke test is:
+## Current Leading Experiment
+
+The leading experimental branch is the sparse local HORN MNIST generator. It
+starts from random oscillator state, settles a coupled position/velocity field,
+and decodes the final oscillator features into an image.
+
+Run the current research recipe on real MNIST:
 
 ```bash
-python examples/image_mnist_kuramoto_generator.py \
+python examples/image_mnist_generator.py --preset sparse_horn_mnist
+```
+
+For a short local probe, override the preset:
+
+```bash
+python examples/image_mnist_generator.py --preset sparse_horn_mnist \
+  --epochs 1 \
+  --train-limit 32 \
+  --eval-limit 32
+```
+
+For a tiny synthetic smoke test:
+
+```bash
+python examples/image_mnist_generator.py \
   --data-source synthetic \
   --model-family horn \
   --decoder-mode resize_conv \
@@ -43,36 +61,21 @@ python examples/image_mnist_kuramoto_generator.py \
   --eval-limit 4
 ```
 
-For the current research recipe on real MNIST, use sparse local HORN coupling
-and score several settling depths:
+Matched controls use the same data/objective/readout recipe:
 
 ```bash
-python examples/image_mnist_kuramoto_generator.py \
-  --data-source idx \
-  --conditional \
-  --model-family horn \
-  --label-phase-scale 0.0 \
-  --conditioning-mode phase_shift \
-  --readout-mode mean_relative \
-  --decoder-mode resize_conv \
-  --resize-conv-seed-size 7 \
-  --resize-conv-upsamples 2 \
-  --resize-conv-min-channels 8 \
-  --num-oscillators 196 \
-  --decoder-hidden-dim 256 \
-  --decoder-depth 0 \
-  --steps 16 \
-  --train-settling-steps 8,16,32 \
-  --settling-steps 0,1,2,4,8,16,32 \
-  --coupling-profile local_radius \
-  --coupling-length-scale 0.24 \
-  --loss-mode pixel_drift \
-  --drift-queue-size 512 \
-  --drift-queue-num-pos 32 \
-  --quality-classifier-epochs 5 \
-  --epochs 20 \
-  --train-limit 500 \
-  --eval-limit 1000
+python examples/image_mnist_generator.py --preset sparse_horn_mnist_frozen
+python examples/image_mnist_generator.py --preset sparse_horn_mnist_decoder_only
+python examples/image_mnist_generator.py --preset sparse_horn_mnist_state_mlp
+python examples/image_mnist_generator.py --preset sparse_horn_mnist_step1
+```
+
+Important caveat: the leading preset can exploit a direct label-initialization
+route. To probe the stricter route where class information has to enter through
+dynamics instead:
+
+```bash
+python examples/image_mnist_generator.py --preset sparse_horn_mnist_class_coupling
 ```
 
 ## Example Menu
@@ -82,7 +85,8 @@ python examples/image_mnist_kuramoto_generator.py \
 | `image_mnist_oscillatory_autoencoder.py` | MNIST patch autoencoder reference benchmark. |
 | `audio_wavelet_oscillatory_autoencoder.py` | Audio wavelet sequence autoencoder benchmark. |
 | `image_mnist_jepa.py` | MNIST masked-representation prediction. |
-| `image_mnist_kuramoto_generator.py` | Coupled-oscillator MNIST generator branch with Kuramoto and HORN dynamics. |
+| `image_mnist_generator.py` | Coupled-oscillator MNIST generator branch with Kuramoto, HORN, and controls. |
+| `image_mnist_kuramoto_generator.py` | Legacy alias for older Kuramoto-generator commands. |
 | `image_mnist_phase_vae.py` | MNIST phase VAE generative baseline. |
 | `image_mnist_phase_flow.py` | MNIST phase-rate rectified-flow sampler. |
 | `image_mnist_shape_pixel.py` | Two-stage signed-distance shape-to-pixel renderer. |
@@ -236,7 +240,7 @@ python examples/image_mnist_phase_vae.py \
 Small HORN generator run:
 
 ```bash
-python examples/image_mnist_kuramoto_generator.py \
+python examples/image_mnist_generator.py \
   --data-source synthetic \
   --model-family horn \
   --decoder-mode resize_conv \

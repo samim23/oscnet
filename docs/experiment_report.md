@@ -86,6 +86,12 @@ Current repo-wide research read: HORN is the best OscNet-native generator
 branch; Winfree/rate-phase remains the best direct masked-completion branch.
 Neither should be presented as a universal ONN victory, but the HORN generator
 is the cleanest positive dynamics-attribution result in the repo right now.
+The current local entrypoint for that branch is
+`python examples/image_mnist_generator.py --preset sparse_horn_mnist`.
+Matched local controls now live as sibling presets:
+`sparse_horn_mnist_frozen`, `sparse_horn_mnist_decoder_only`,
+`sparse_horn_mnist_state_mlp`, `sparse_horn_mnist_state_mlp_frozen`,
+`sparse_horn_mnist_state_mlp_decoder_only`, and `sparse_horn_mnist_step1`.
 
 ## Repo Pattern Established
 
@@ -4705,6 +4711,105 @@ Interpretation:
   OscNet-native MNIST generator and the cleanest positive learned-dynamics
   result so far. It is not yet a proof that ONNs beat strong conventional
   generative models in general.
+
+Sparse local HORN attribution/control audit:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_sparse_horn_attribution_probe
+```
+
+The probe wrote:
+
+```text
+outputs/analysis/modal_mnist_generator_sparse_horn_attribution_probe.csv
+outputs/analysis/modal_mnist_generator_sparse_horn_attribution_probe.json
+outputs/analysis/modal_mnist_generator_sparse_horn_attribution_samples/montage.png
+```
+
+Three-seed comparison with the same sparse local HORN recipe and matched
+controls:
+
+| Variant | Final classifier acc | Diversity | Step-0 acc | Best acc | Best step | Recurrent op fraction | Note |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| Sparse HORN | 0.9792 | 1.3341 | 0.0033 | 0.9727 | 16 | 0.3415 | Best full variable-depth run |
+| HORN 1-step | 0.9635 | 1.2759 | 0.9674 | 0.9681 | 0/1 | 0.0314 | Nearly same quality; exposes shallow shortcut |
+| State-MLP | 0.6315 | 0.4776 | 0.4850 | 0.6458 | ~7 | 0.3368 | Unstable; one seed collapses |
+| Frozen HORN | 0.1035 | 0.2779 | 0.1022 | 0.1120 | mixed | 0.3415 | Chance-like |
+| HORN decoder-only | 0.1042 | 0.3195 | 0.1061 | 0.1133 | mixed | 0.0000 | Chance-like |
+| Frozen state-MLP | 0.0898 | 0.3755 | 0.1100 | 0.1172 | mixed | 0.3368 | Label-uncontrolled |
+| State-MLP decoder-only | 0.1035 | 0.3534 | 0.1029 | 0.1074 | mixed | 0.0000 | Chance-like |
+
+Interpretation:
+
+- The positive result survives the stricter controls: learned sparse HORN
+  crushes frozen HORN, decoder-only HORN, frozen state-MLP, state-MLP
+  decoder-only, and the trainable state-MLP on semantic class accuracy and
+  diversity.
+- The one-step HORN control is the caveat. It produces nearly the same visual
+  quality and classifier accuracy with very little recurrent compute. That
+  means this conditional MNIST objective allows a shallow
+  label-conditioning/readout route if the model is trained directly for it.
+- The full variable-depth HORN run still has a real settling signature: step 0
+  is near chance, step 8 becomes useful, and step 16 peaks. But the current
+  task is not enough to claim that long oscillator settling is necessary.
+- Updated claim: sparse local HORN is the best current OscNet generator and a
+  strong learned-dynamics result against matched controls. The next scientific
+  test should reduce static conditioning shortcuts or move to a harder
+  benchmark before presenting it as a deeper oscillator-generation
+  breakthrough.
+
+Sparse local HORN conditioning-route probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_sparse_horn_conditioning_route_probe
+```
+
+The probe wrote:
+
+```text
+outputs/analysis/modal_mnist_generator_sparse_horn_conditioning_route_probe.csv
+outputs/analysis/modal_mnist_generator_sparse_horn_conditioning_route_probe.json
+outputs/analysis/modal_mnist_generator_sparse_horn_conditioning_route_samples/montage.png
+```
+
+This is the first direct anti-shortcut test after the one-step result. It
+compares the current `phase_shift` label route against variants where the class
+label no longer adds a direct initial-state vector. `class_coupling` applies a
+learned class-specific drive during HORN settling; `class_oscillator` routes the
+label through a separate conditioning oscillator pool.
+
+Single-seed compact probe, seed 11:
+
+| Variant | Final classifier acc | Best acc | Step 0 | Step 1 | Step 8 | Step 16 | Step 32 | Diversity | Visual read |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| phase-shift full | 0.9922 | 0.9863 @ 16 | 0.0020 | 0.0059 | 0.8848 | 0.9863 | 0.8887 | 1.3062 | Crisp digits |
+| phase-shift 1-step | 0.9785 | 0.9805 @ 0 | 0.9805 | 0.9805 | - | - | - | 1.2884 | Crisp digits |
+| class-coupling full | 0.5293 | 0.6426 @ 32 | 0.0938 | 0.1133 | 0.2871 | 0.5312 | 0.6426 | 1.4874 | Blurry class-like blobs |
+| class-coupling 1-step | 0.1016 | 0.1133 @ 1 | 0.1113 | 0.1133 | - | - | - | 0.5165 | Chance-like |
+| class-oscillator full | 0.1035 | 0.1133 @ 16 | 0.0996 | 0.0977 | 0.1016 | 0.1133 | 0.1035 | 0.4177 | Non-digit texture |
+| class-oscillator 1-step | 0.1016 | 0.1133 @ 0 | 0.1133 | 0.1113 | - | - | - | 0.4941 | Non-digit texture |
+| frozen class-oscillator | 0.1055 | 0.1172 @ 16 | 0.0996 | 0.0977 | 0.1074 | 0.1172 | 0.0996 | 0.4146 | Non-digit texture |
+
+Interpretation:
+
+- The one-step caveat is real, not a bookkeeping artifact. The `phase_shift`
+  route can learn a direct class-conditioned initial state/readout code that
+  already produces crisp digits at step 0/1.
+- Removing that initial label-shift route makes the task much harder.
+  `class_oscillator` fails: the current separate conditioning oscillator pool
+  does not provide a usable class signal for MNIST generation.
+- `class_coupling` is the useful anti-shortcut lead. It starts at chance and
+  climbs steadily with settling, reaching `0.6426` classifier accuracy at step
+  32. The samples are still blurry blobs, but the dynamics are doing real
+  class-routing work that one step cannot do.
+- Updated research read: the near-perfect HORN result is mostly a strong
+  conditional oscillator scaffold with a direct label-initialization route.
+  The more ONN-native no-direct-label route is not solved yet, but
+  `class_coupling` gives a concrete path: train/evaluate longer settling
+  horizons and strengthen the dynamic class drive without reintroducing a
+  direct initial-state label code.
 
 ## Maintenance Notes
 

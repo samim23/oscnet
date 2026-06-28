@@ -157,6 +157,7 @@ __all__ = [
     "FractalHORNCell",
     "HORNImageGenerator",
     "KuramotoImageGenerator",
+    "StateMLPImageGenerator",
     "FeedForwardPatchJEPAPredictor",
     "RecurrentConvPatchJEPAPredictor",
     "ConvLSTMPatchJEPAPredictor",
