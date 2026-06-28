@@ -55,11 +55,20 @@ cleaner harness.
 
 ## Current Takeaway
 
-The strongest direction so far is not a conventional latent autoencoder. It is
-a conditional spatial field/refinement model, strongest when a semantic prior
-is paired with a local recurrent correction field. Winfree phase dynamics are a
-promising version of that correction field, but the recurrent-conv residual
-control shows that the broader hybrid pattern also matters:
+The strongest result so far is the sparse local HORN MNIST generator. It is not
+a conventional latent autoencoder: random oscillator position/velocity state is
+settled by learned second-order HORN dynamics and then read out by a small
+resize-conv decoder. Across the latest replicated low-data generator probe,
+the sparse local HORN model beats a matched non-oscillatory state-MLP control
+on semantic sample quality and diversity, while using only about 3.7% of
+possible oscillator couplings.
+
+The strongest masked-completion direction is also not a conventional latent
+autoencoder. It is a conditional spatial field/refinement model, strongest when
+a semantic prior is paired with a local recurrent correction field. Winfree
+phase dynamics are a promising version of that correction field, but the
+recurrent-conv residual control shows that the broader hybrid pattern also
+matters:
 
 ```text
 corrupted image patches -> local theta/omega + content fields -> coupled settling -> clean patches
@@ -72,6 +81,11 @@ feedforward controls, and simple recurrent-conv controls. On the later
 prior-refinement robustness probe, Winfree keeps a small edge over a matched
 recurrent-conv residual control, while both residual refiners improve the
 feedforward prior.
+
+Current repo-wide research read: HORN is the best OscNet-native generator
+branch; Winfree/rate-phase remains the best direct masked-completion branch.
+Neither should be presented as a universal ONN victory, but the HORN generator
+is the cleanest positive dynamics-attribution result in the repo right now.
 
 ## Repo Pattern Established
 
@@ -4645,6 +4659,52 @@ from one-seed architecture probing to replication: verify the sparse local HORN
 advantage over the matched state-MLP and decoder/frozen controls across seeds,
 then test whether the same recipe scales to a less toy dataset or a harder
 generation metric.
+
+Sparse local HORN vs state-MLP replication:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_sparse_horn_state_mlp_replication_probe
+```
+
+The probe wrote:
+
+```text
+outputs/analysis/modal_mnist_generator_sparse_horn_state_mlp_replication_probe.csv
+outputs/analysis/modal_mnist_generator_sparse_horn_state_mlp_replication_probe.json
+```
+
+Three-seed comparison. Both models use the same low-data recipe
+(`train_limit=500`), resize-conv readout, `label_phase_scale=0.0`,
+`pixel_drift` loss, queue-backed positives, and variable-depth training over
+8/16/32 settling steps. HORN uses sparse local radius `0.24`; state-MLP uses a
+matched residual latent-state transition with almost the same parameter and
+operation budget.
+
+| Model | Final classifier acc | Diversity | Step-0 acc | Step-8 acc | Step-16 acc | Step-32 acc | Params | Decoder fraction | Coupling density |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Sparse local HORN | 0.9792 | 1.3342 | 0.0033 | 0.8880 | 0.9727 | 0.8789 | 42,981 | 0.0560 | 0.0367 |
+| State-MLP control | 0.6361 | 0.5442 | 0.4811 | 0.6335 | 0.6328 | 0.5215 | 42,441 | 0.0568 | 0.0000 |
+
+Interpretation:
+
+- This is the strongest generator result in the repo so far. Sparse local HORN
+  is not merely producing nicer-looking grids; it is substantially more stable
+  across seeds than the matched state-MLP control.
+- The dynamics-attribution signal is strong: HORN is near useless at step 0,
+  then becomes class-structured through settling, peaking around 16 steps.
+  The state-MLP starts partly class-biased but is unstable and collapses badly
+  on one seed.
+- The result is not just a large decoder effect. The decoder is only about
+  5.6% of parameters, while roughly 94% of trainable parameters live in the
+  recurrent/conditioning side.
+- The nearest-real MSE remains lower for the state-MLP control, which is a good
+  warning metric: bland or collapsed samples can be close to some real sample
+  while still having worse semantic quality and diversity.
+- The precise claim should be: sparse local HORN is the current best
+  OscNet-native MNIST generator and the cleanest positive learned-dynamics
+  result so far. It is not yet a proof that ONNs beat strong conventional
+  generative models in general.
 
 ## Maintenance Notes
 

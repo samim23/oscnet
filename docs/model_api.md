@@ -261,7 +261,14 @@ and internally convert them to patch sequences.
   `[position, velocity]` features. Use it through
   `examples/image_mnist_kuramoto_generator.py --model-family horn` when testing
   colleague-style HORN generator claims against Kuramoto, `frozen_horn`, and
-  `horn_decoder_only` controls.
+  `horn_decoder_only` controls. The strongest current MNIST generator recipe
+  uses `decoder_mode="resize_conv"`, `readout_mode="mean_relative"`,
+  variable-depth training with `train_settling_steps=(8, 16, 32)`, and sparse
+  local coupling via `coupling_profile="local_radius"` with a small radius.
+  This makes HORN the best current OscNet generator branch while keeping the
+  claim precise: it is a conditional MNIST generator with useful learned
+  oscillator dynamics, not yet a general image-generation win over all
+  conventional models.
 
 `StateMLPImageGenerator`
 : A non-oscillatory latent-state control for the HORN generator. It keeps the

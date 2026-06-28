@@ -89,6 +89,13 @@ menu. Importable training/evaluation harnesses live in `oscnet.experiments`;
 see `oscnet/experiments/README.md` if you want to compare runs or understand
 the MNIST/audio research tasks.
 
+The strongest current generative branch is the sparse local HORN MNIST
+generator: a coupled oscillator field trained as an implicit image generator,
+not as an autoencoder. Start with
+`examples/image_mnist_kuramoto_generator.py --model-family horn`, then see
+`examples/README.md` for the fuller sparse-HORN recipe and
+`docs/experiment_report.md` for the benchmark interpretation.
+
 Tiny smoke run:
 
 ```bash

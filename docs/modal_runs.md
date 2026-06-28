@@ -670,6 +670,27 @@ OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_generator.py \
   --print-only
 ```
 
+Run the sparse-HORN vs state-MLP replication probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_sparse_horn_state_mlp_replication_probe
+```
+
+This repeats the low-data, variable-depth setup across seeds `11`, `12`, and
+`13`, comparing the current best sparse local HORN recipe
+(`local_radius`, radius `0.24`) against the matched trainable state-MLP
+transition. Results write to
+`outputs/analysis/modal_mnist_generator_sparse_horn_state_mlp_replication_probe.csv`.
+
+Dry-run it first:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_sparse_horn_state_mlp_replication_probe \
+  --print-only
+```
+
 Run the resize-conv generator with Un-0-style dynamic conditioning oscillators:
 
 ```bash

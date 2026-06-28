@@ -26,6 +26,55 @@ python examples/image_mnist_phase_flow.py --help
 
 Runs write checkpoints, plots, metrics, traces, and samples under `outputs/`.
 
+The strongest current generator branch is the sparse local HORN MNIST
+generator. It starts from random oscillator state, settles a coupled
+position/velocity field, and decodes the final oscillator features into an
+image. A small synthetic smoke test is:
+
+```bash
+python examples/image_mnist_kuramoto_generator.py \
+  --data-source synthetic \
+  --model-family horn \
+  --decoder-mode resize_conv \
+  --num-oscillators 98 \
+  --resize-conv-min-channels 4 \
+  --epochs 1 \
+  --train-limit 8 \
+  --eval-limit 4
+```
+
+For the current research recipe on real MNIST, use sparse local HORN coupling
+and score several settling depths:
+
+```bash
+python examples/image_mnist_kuramoto_generator.py \
+  --data-source idx \
+  --conditional \
+  --model-family horn \
+  --label-phase-scale 0.0 \
+  --conditioning-mode phase_shift \
+  --readout-mode mean_relative \
+  --decoder-mode resize_conv \
+  --resize-conv-seed-size 7 \
+  --resize-conv-upsamples 2 \
+  --resize-conv-min-channels 8 \
+  --num-oscillators 196 \
+  --decoder-hidden-dim 256 \
+  --decoder-depth 0 \
+  --steps 16 \
+  --train-settling-steps 8,16,32 \
+  --settling-steps 0,1,2,4,8,16,32 \
+  --coupling-profile local_radius \
+  --coupling-length-scale 0.24 \
+  --loss-mode pixel_drift \
+  --drift-queue-size 512 \
+  --drift-queue-num-pos 32 \
+  --quality-classifier-epochs 5 \
+  --epochs 20 \
+  --train-limit 500 \
+  --eval-limit 1000
+```
+
 ## Example Menu
 
 | Example | What it runs |
