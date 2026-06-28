@@ -4,6 +4,7 @@ import jax.numpy as jnp
 from oscnet.models import (
     ConvLSTMPatchDenoiserConfig,
     FeedForwardPatchAutoencoderConfig,
+    KuramotoImageGeneratorConfig,
     OscillatoryAutoencoderConfig,
     PatchOscillatoryAutoencoderConfig,
     RecurrentConvPatchDenoiserConfig,
@@ -80,6 +81,107 @@ def test_model_configs_build_expected_shapes():
     assert recurrent_prior_refinement_model.refiner.steps == 2
     assert recurrent_prior_refinement_model.refiner.residual_strength == 0.4
     assert recurrent_prior_refinement_model.refinement_strength == 0.5
+
+    generator_model = KuramotoImageGeneratorConfig(
+        num_oscillators=8,
+        image_shape=(8, 8),
+        decoder_hidden_dim=12,
+        decoder_depth=1,
+        steps=2,
+        num_classes=3,
+    ).build(jax.random.PRNGKey(17))
+    assert generator_model(
+        jax.random.PRNGKey(18),
+        2,
+        jnp.asarray([0, 1], dtype=jnp.int32),
+    ).shape == (2, 64)
+    assert generator_model.steps == 2
+    assert generator_model.train_dynamics
+
+    class_coupled_generator = KuramotoImageGeneratorConfig(
+        num_oscillators=8,
+        image_shape=(8, 8),
+        decoder_hidden_dim=12,
+        decoder_depth=1,
+        steps=2,
+        num_classes=3,
+        num_condition_oscillators=4,
+        conditioning_mode="class_coupling",
+        readout_mode="relative",
+    ).build(jax.random.PRNGKey(19))
+    assert class_coupled_generator(
+        jax.random.PRNGKey(20),
+        2,
+        jnp.asarray([0, 1], dtype=jnp.int32),
+    ).shape == (2, 64)
+    assert class_coupled_generator.conditioning_mode == "class_coupling"
+    assert class_coupled_generator.readout_mode == "relative"
+
+    condition_oscillator_generator = KuramotoImageGeneratorConfig(
+        num_oscillators=8,
+        image_shape=(8, 8),
+        decoder_hidden_dim=12,
+        decoder_depth=1,
+        steps=2,
+        num_classes=3,
+        num_condition_oscillators=4,
+        conditioning_mode="class_oscillator",
+        readout_mode="mean_relative",
+    ).build(jax.random.PRNGKey(29))
+    assert condition_oscillator_generator(
+        jax.random.PRNGKey(30),
+        2,
+        jnp.asarray([0, 1], dtype=jnp.int32),
+    ).shape == (2, 64)
+    assert condition_oscillator_generator.conditioning_mode == "class_oscillator"
+    assert condition_oscillator_generator.readout_mode == "mean_relative"
+
+    spatial_generator = KuramotoImageGeneratorConfig(
+        num_oscillators=9,
+        image_shape=(8, 8),
+        decoder_depth=0,
+        steps=2,
+        num_classes=3,
+        num_condition_oscillators=4,
+        conditioning_mode="class_coupling",
+        readout_mode="relative",
+        decoder_mode="spatial_basis",
+    ).build(jax.random.PRNGKey(21))
+    assert spatial_generator(
+        jax.random.PRNGKey(22),
+        2,
+        jnp.asarray([0, 1], dtype=jnp.int32),
+    ).shape == (2, 64)
+    assert spatial_generator.decoder_mode == "spatial_basis"
+
+    local_generator = KuramotoImageGeneratorConfig(
+        num_oscillators=9,
+        image_shape=(8, 8),
+        decoder_depth=0,
+        steps=2,
+        num_classes=3,
+        num_condition_oscillators=4,
+        conditioning_mode="class_coupling",
+        readout_mode="relative",
+        decoder_mode="local_basis",
+        local_patch_size=3,
+        coupling_profile="distance_decay",
+        coupling_length_scale=0.6,
+        coupling_floor=0.05,
+        coupling_bias_strength=0.1,
+        train_recurrent_dynamics=False,
+        train_conditioning_dynamics=True,
+    ).build(jax.random.PRNGKey(23))
+    assert local_generator(
+        jax.random.PRNGKey(24),
+        2,
+        jnp.asarray([0, 1], dtype=jnp.int32),
+    ).shape == (2, 64)
+    assert local_generator.decoder_mode == "local_basis"
+    assert local_generator.coupling_profile == "distance_decay"
+    assert local_generator.coupling_floor == 0.05
+    assert not local_generator.train_recurrent_dynamics
+    assert local_generator.train_conditioning_dynamics
 
     conv_lstm_model = ConvLSTMPatchDenoiserConfig(
         input_dim=32,

@@ -1,8 +1,5 @@
----
-description: This rule provides best practices and coding standards for the JAX library, emphasizing functional programming, JIT compilation, automatic differentiation, and immutable data structures. It also covers performance considerations, common pitfalls, and tooling recommendations.
-globs: *.py
-alwaysApply: false
----
+# Jax development best practices
+
 - **Functional Programming**: JAX emphasizes a functional programming style. Ensure functions are pure (no side effects, no reliance on global variables) for consistent JIT compilation and optimization.
 
 - **JIT Compilation**: Use `@jax.jit` to decorate functions for performance optimization, especially those called multiple times with the same input shapes. Understand the implications of tracing and static arguments.
@@ -28,50 +25,6 @@ alwaysApply: false
 - **Out-of-Bounds Indexing**: JAX handles out-of-bounds indexing by clamping the index to the bounds of the array for retrieval operations. Array update operations at out-of-bounds indices are skipped. Use the optional parameters of `ndarray.at` for finer-grained control.
 
 - **Miscellaneous Divergences from NumPy**: Be aware of differences in type promotion rules, unsafe type casts, and other corner cases where JAX's behavior may differ from NumPy.
-
-## Code Organization and Structure:
-
-- **Directory Structure**: Consider a structure like this:
-  
-  project_root/
-  ├── src/
-  │   ├── __init__.py
-  │   ├── models/
-  │   │   ├── __init__.py
-  │   │   ├── model_a.py
-  │   │   └── model_b.py
-  │   ├── layers/
-  │   │   ├── __init__.py
-  │   │   ├── layer_a.py
-  │   │   └── layer_b.py
-  │   ├── utils/
-  │   │   ├── __init__.py
-  │   │   ├── data_loading.py
-  │   │   └── evaluation.py
-  │   ├── train.py
-  │   └── predict.py
-  ├── tests/
-  │   ├── __init__.py
-  │   ├── models/
-  │   │   ├── test_model_a.py
-  │   │   └── test_model_b.py
-  │   ├── utils/
-  │   │   ├── test_data_loading.py
-  │   │   └── test_evaluation.py
-  │   └── test_train.py
-  ├── notebooks/
-  │   ├── exploration.ipynb
-  │   └── analysis.ipynb
-  ├── data/
-  │   ├── raw/
-  │   └── processed/
-  ├── models/
-  │   └── saved_models/
-  ├── .gitignore
-  ├── README.md
-  ├── requirements.txt
-  └── setup.py
-  
 
 - **File Naming**: Use descriptive, lowercase names with underscores (e.g., `data_loading.py`, `model_a.py`).
 

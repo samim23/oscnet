@@ -5,6 +5,7 @@ from oscnet.models import (
     AutoregressiveOscillatoryDecoder,
     ConvLSTMPatchDenoiser,
     FeedForwardPatchAutoencoder,
+    KuramotoImageGenerator,
     OscillatoryAutoencoder,
     PatchOscillatoryAutoencoder,
     PositionalLatentOscillatoryDecoder,
@@ -143,6 +144,230 @@ def test_feedforward_patch_autoencoder_maps_flat_images_back_to_flat_images():
     assert trace["decoder_hidden"].shape == (2, 4, 8)
     assert jnp.all(reconstruction >= 0.0)
     assert jnp.all(reconstruction <= 1.0)
+
+
+def test_kuramoto_image_generator_samples_from_phase_noise():
+    model = KuramotoImageGenerator(
+        num_oscillators=8,
+        image_shape=(8, 8),
+        decoder_hidden_dim=12,
+        decoder_depth=1,
+        steps=2,
+        num_classes=3,
+        output_activation="sigmoid",
+        key=jax.random.PRNGKey(30),
+    )
+    labels = jnp.asarray([0, 1, 2], dtype=jnp.int32)
+
+    generated = model(jax.random.PRNGKey(31), 3, labels)
+    trace = model.collect_trace(jax.random.PRNGKey(32), 3, labels)
+
+    assert generated.shape == (3, 64)
+    assert trace["initial_theta"].shape == (3, 8)
+    assert trace["theta_trajectory"].shape == (2, 3, 8)
+    assert trace["final_theta"].shape == (3, 8)
+    assert trace["generated"].shape == (3, 64)
+    assert trace["coupling"].shape == (8, 8)
+    assert trace["label_phase_shift"].shape == (3, 8)
+    assert trace["label_condition_phase"].shape == (0, 0)
+    assert trace["label_condition_coupling"].shape == (0, 8, 0)
+    assert jnp.all(generated >= 0.0)
+    assert jnp.all(generated <= 1.0)
+
+
+def test_kuramoto_image_generator_supports_class_coupled_conditioning():
+    model = KuramotoImageGenerator(
+        num_oscillators=8,
+        image_shape=(8, 8),
+        decoder_hidden_dim=12,
+        decoder_depth=1,
+        steps=2,
+        num_classes=3,
+        num_condition_oscillators=4,
+        conditioning_mode="class_coupling",
+        readout_mode="relative",
+        output_activation="sigmoid",
+        key=jax.random.PRNGKey(33),
+    )
+    labels = jnp.asarray([0, 1, 2], dtype=jnp.int32)
+
+    generated = model(jax.random.PRNGKey(34), 3, labels)
+    trace = model.collect_trace(jax.random.PRNGKey(35), 3, labels)
+
+    assert generated.shape == (3, 64)
+    assert trace["label_phase_shift"].shape == (0, 8)
+    assert trace["label_condition_phase"].shape == (3, 4)
+    assert trace["label_condition_coupling"].shape == (3, 8, 4)
+    assert model.conditioning_mode == "class_coupling"
+    assert model.readout_mode == "relative"
+    assert jnp.all(jnp.isfinite(generated))
+
+
+def test_kuramoto_image_generator_supports_condition_oscillator_drive():
+    model = KuramotoImageGenerator(
+        num_oscillators=8,
+        image_shape=(8, 8),
+        decoder_hidden_dim=12,
+        decoder_depth=1,
+        steps=2,
+        num_classes=3,
+        num_condition_oscillators=4,
+        conditioning_mode="class_oscillator",
+        readout_mode="mean_relative",
+        output_activation="sigmoid",
+        key=jax.random.PRNGKey(49),
+    )
+    labels = jnp.asarray([0, 1, 2], dtype=jnp.int32)
+
+    generated = model(jax.random.PRNGKey(50), 3, labels)
+    trace = model.collect_trace(jax.random.PRNGKey(51), 3, labels)
+
+    assert generated.shape == (3, 64)
+    assert trace["condition_initial_theta"].shape == (3, 4)
+    assert trace["condition_theta_trajectory"].shape == (2, 3, 4)
+    assert trace["condition_final_theta"].shape == (3, 4)
+    assert trace["condition_omega"].shape == (4,)
+    assert trace["condition_coupling"].shape == (4, 4)
+    assert trace["label_condition_phase"].shape == (0, 4)
+    assert trace["label_condition_coupling"].shape == (3, 8, 4)
+    assert model.conditioning_mode == "class_oscillator"
+    assert model.readout_mode == "mean_relative"
+    assert jnp.all(jnp.isfinite(generated))
+
+
+def test_kuramoto_image_generator_supports_spatial_basis_readout():
+    model = KuramotoImageGenerator(
+        num_oscillators=9,
+        image_shape=(8, 8),
+        decoder_mode="spatial_basis",
+        decoder_depth=0,
+        steps=2,
+        num_classes=3,
+        num_condition_oscillators=4,
+        conditioning_mode="class_coupling",
+        readout_mode="relative",
+        output_activation="sigmoid",
+        key=jax.random.PRNGKey(36),
+    )
+    labels = jnp.asarray([0, 1, 2], dtype=jnp.int32)
+
+    generated = model(jax.random.PRNGKey(37), 3, labels)
+    trace = model.collect_trace(jax.random.PRNGKey(38), 3, labels)
+
+    assert generated.shape == (3, 64)
+    assert trace["spatial_phase_weights"].shape == (9, 2)
+    assert trace["spatial_output_bias"].shape == ()
+    assert model.decoder_mode == "spatial_basis"
+    assert jnp.all(generated >= 0.0)
+    assert jnp.all(generated <= 1.0)
+
+
+def test_kuramoto_image_generator_supports_local_basis_readout():
+    model = KuramotoImageGenerator(
+        num_oscillators=9,
+        image_shape=(8, 8),
+        decoder_mode="local_basis",
+        local_patch_size=3,
+        decoder_depth=0,
+        steps=2,
+        num_classes=3,
+        num_condition_oscillators=4,
+        conditioning_mode="class_coupling",
+        readout_mode="relative",
+        output_activation="sigmoid",
+        key=jax.random.PRNGKey(39),
+    )
+    labels = jnp.asarray([0, 1, 2], dtype=jnp.int32)
+
+    generated = model(jax.random.PRNGKey(40), 3, labels)
+    trace = model.collect_trace(jax.random.PRNGKey(41), 3, labels)
+
+    assert generated.shape == (3, 64)
+    assert trace["local_patch_weights"].shape == (9, 2, 9)
+    assert model.decoder_mode == "local_basis"
+    assert jnp.all(generated >= 0.0)
+    assert jnp.all(generated <= 1.0)
+
+
+def test_kuramoto_image_generator_supports_distance_decay_coupling():
+    model = KuramotoImageGenerator(
+        num_oscillators=9,
+        image_shape=(8, 8),
+        decoder_mode="local_basis",
+        local_patch_size=3,
+        decoder_depth=0,
+        steps=2,
+        coupling_profile="distance_decay",
+        coupling_length_scale=0.6,
+        coupling_floor=0.05,
+        coupling_bias_strength=0.1,
+        output_activation="sigmoid",
+        key=jax.random.PRNGKey(42),
+    )
+
+    generated = model(jax.random.PRNGKey(43), 2)
+    trace = model.collect_trace(jax.random.PRNGKey(44), 2)
+    profile = model.coupling_profile_matrix()
+    effective_coupling = model._dynamics_params()[1]
+
+    assert generated.shape == (2, 64)
+    assert trace["coupling_profile"].shape == (9, 9)
+    assert profile.shape == (9, 9)
+    assert jnp.allclose(jnp.diag(profile), 0.0)
+    assert jnp.max(profile) <= 1.0
+    assert jnp.min(profile + jnp.eye(9)) >= 0.05
+    assert jnp.allclose(
+        effective_coupling - model.coupling * profile,
+        0.1 * profile,
+    )
+    assert model.coupling_profile == "distance_decay"
+    assert jnp.all(generated >= 0.0)
+    assert jnp.all(generated <= 1.0)
+
+
+def test_kuramoto_image_generator_supports_split_dynamics_trainability():
+    conditioning_only = KuramotoImageGenerator(
+        num_oscillators=9,
+        image_shape=(8, 8),
+        decoder_mode="local_basis",
+        local_patch_size=3,
+        decoder_depth=0,
+        steps=2,
+        num_classes=3,
+        num_condition_oscillators=4,
+        conditioning_mode="class_coupling",
+        readout_mode="relative",
+        train_recurrent_dynamics=False,
+        train_conditioning_dynamics=True,
+        output_activation="sigmoid",
+        key=jax.random.PRNGKey(45),
+    )
+    recurrent_only = KuramotoImageGenerator(
+        num_oscillators=9,
+        image_shape=(8, 8),
+        decoder_mode="local_basis",
+        local_patch_size=3,
+        decoder_depth=0,
+        steps=2,
+        num_classes=3,
+        num_condition_oscillators=4,
+        conditioning_mode="class_coupling",
+        readout_mode="relative",
+        train_recurrent_dynamics=True,
+        train_conditioning_dynamics=False,
+        output_activation="sigmoid",
+        key=jax.random.PRNGKey(46),
+    )
+    labels = jnp.asarray([0, 1], dtype=jnp.int32)
+
+    assert conditioning_only(jax.random.PRNGKey(47), 2, labels).shape == (2, 64)
+    assert recurrent_only(jax.random.PRNGKey(48), 2, labels).shape == (2, 64)
+    assert conditioning_only.train_dynamics
+    assert conditioning_only.train_conditioning_dynamics
+    assert not conditioning_only.train_recurrent_dynamics
+    assert recurrent_only.train_dynamics
+    assert recurrent_only.train_recurrent_dynamics
+    assert not recurrent_only.train_conditioning_dynamics
 
 
 def test_core_patch_models_accept_extra_input_channel_and_output_one_image():

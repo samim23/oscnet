@@ -1,8 +1,9 @@
 # Modal GPU Runs
 
 Modal support is kept outside the OscNet library. The reusable models and
-experiments still run locally with the normal Python CLI; `scripts/modal_mnist.py`
-is only a launch adapter for running the same MNIST experiment on a remote GPU.
+experiments still run locally with the normal Python CLI; the scripts under
+`scripts/modal_*.py` are launch adapters for running the same experiments on
+remote GPUs.
 
 ## Setup
 
@@ -262,13 +263,523 @@ recurrent-conv, ConvLSTM, local Winfree rate-phase, and slow/global Winfree
 rate-phase for seeds 11 and 12. It writes a local comparison CSV to
 `outputs/analysis/modal_block50_jepa_core.csv`.
 
+Run the Un-0-style implicit generator comparison:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=3 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_core
+```
+
+This compares learned Kuramoto dynamics, frozen Kuramoto reservoir dynamics,
+and decoder-only generation for seeds 11 and 12. All variants sample from
+random oscillator phase/noise and train with the same unpaired distributional
+MNIST objective. It writes a local comparison CSV to
+`outputs/analysis/modal_mnist_generator_core.csv`.
+
+Generator sweep CSVs include the usual quality metrics plus the
+`success_diagnostics` scorecard: total parameters, decoder parameter fraction,
+trainable recurrent parameter fraction, estimated recurrent operation fraction,
+sample throughput, and phase-trajectory movement/order proxies. These are
+digital-simulation diagnostics for attribution and efficiency comparison, not
+physical energy measurements.
+
+Run the simple conditional generator comparison:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=3 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_conditional_core
+```
+
+This adds label phase shifts plus class/prototype distribution terms to the
+same learned Kuramoto, frozen Kuramoto, and decoder-only controls. Results
+write to `outputs/analysis/modal_mnist_generator_conditional_core.csv`.
+
+Run the closer Un-0 conditioning probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=3 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_un0_coupled_core
+```
+
+This compares learned class-coupled Kuramoto dynamics, frozen class-coupled
+reservoir dynamics, and a decoder-only phase-shift label control. The
+class-coupled variants use separate conditioning oscillators with
+label-specific unidirectional coupling into the main oscillator pool and
+reference-relative phase readout. Results write to
+`outputs/analysis/modal_mnist_generator_un0_coupled_core.csv`.
+
+Run the low-decoder spatial readout probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=3 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_spatial_readout_core
+```
+
+This keeps the closer Un-0 conditioning setup but replaces the MLP decoder with
+`--decoder-mode spatial_basis`, a fixed Gaussian basis readout with only
+trainable sin/cos oscillator weights and one output bias. It is a deliberately
+hard attribution probe: if it works, image structure must be carried mostly by
+the oscillator field rather than by a conventional decoder. Results write to
+`outputs/analysis/modal_mnist_generator_spatial_readout_core.csv`.
+
+Run the structured local-basis readout probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=3 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_local_readout_core
+```
+
+This keeps the closer Un-0 conditioning setup and uses
+`--decoder-mode local_basis`, where each oscillator writes trainable local patch
+weights through fixed Gaussian patch bases. It is less starved than
+`spatial_basis`, but still keeps the decoder small enough for attribution: the
+trained dynamics must beat frozen dynamics and decoder-only controls to claim
+value. Results write to
+`outputs/analysis/modal_mnist_generator_local_readout_core.csv`.
+
+Run the spatial coupling probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=3 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_spatial_coupling_core
+```
+
+This reuses the local-basis readout and class-coupled conditioning, but sets
+`--coupling-profile distance_decay`, `--coupling-length-scale 0.35`,
+`--coupling-floor 0.05`, and `--coupling-bias-strength 0.05`. The hypothesis is
+that whole-digit composition needs a spatially biased phase field: mostly local
+coordination, with weak long-range communication, without increasing decoder
+capacity. Results write to
+`outputs/analysis/modal_mnist_generator_spatial_coupling_core.csv`.
+
+Run the trainability attribution probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=3 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_trainability_attribution_core
+```
+
+This reuses the dense local-basis generator and separates trainability of the
+main recurrent oscillator field from the class-conditioning oscillator drive.
+It compares all-trained, conditioning-only, recurrent-only, and fully frozen
+variants for seeds 11 and 12. Use this before adding another architecture
+feature: it answers whether the local-basis win comes from learned main
+coupling, learned class-conditioning, or their interaction. Results write to
+`outputs/analysis/modal_mnist_generator_trainability_attribution_core.csv`.
+
+Run the unconditional local-basis generator probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=3 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_unconditional_local_readout_core
+```
+
+This removes class labels, class moments, and prototype losses while keeping the
+low-capacity `local_basis` renderer. It compares learned recurrent Kuramoto,
+frozen reservoir, and decoder-only controls for seeds 11 and 12. This is the
+cleanest test of whether the main recurrent phase field helps generation when
+class conditioning cannot carry the result. Results write to
+`outputs/analysis/modal_mnist_generator_unconditional_local_readout_core.csv`.
+
+Dry-run it first:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=3 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_unconditional_local_readout_core \
+  --print-only
+```
+
+Run the source-faithful resize-conv generator probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=3 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_resize_conv_core
+```
+
+This keeps the class-coupled Kuramoto conditioning path but replaces the
+low-capacity basis renderer with a Un-0-inspired spatial resize-conv decoder:
+`196` oscillators form an 8-channel `7x7` phase-feature seed, then two
+nearest-neighbor upsample/convolution blocks render `28x28` MNIST samples. It
+compares learned recurrent dynamics, frozen reservoir dynamics, and
+decoder-only controls for seeds 11 and 12. Results write to
+`outputs/analysis/modal_mnist_generator_resize_conv_core.csv`.
+
+Dry-run it first:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=3 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_resize_conv_core \
+  --print-only
+```
+
+Run the resize-conv generator with the Un-0-inspired pixel-drift objective:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=3 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_resize_conv_pixel_drift_core
+```
+
+This keeps the same learned Kuramoto, frozen-reservoir, and decoder-only
+controls, but switches the objective from distributional SWD/moment matching to
+`loss_mode="pixel_drift"`. Results write to
+`outputs/analysis/modal_mnist_generator_resize_conv_pixel_drift_core.csv`.
+
+Dry-run it first:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=3 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_resize_conv_pixel_drift_core \
+  --print-only
+```
+
+Run the resize-conv generator with queue-backed pixel drift:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=3 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_resize_conv_pixel_drift_queue_core
+```
+
+This is the next source-faithful Un-0 port after pixel drift. It keeps the same
+controls, but draws same-class positives from a host-side per-class FIFO memory
+using `--drift-queue-size 512 --drift-queue-num-pos 32`. Results write to
+`outputs/analysis/modal_mnist_generator_resize_conv_pixel_drift_queue_core.csv`.
+
+Dry-run it first:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=3 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_resize_conv_pixel_drift_queue_core \
+  --print-only
+```
+
+Run the resize-conv generator with Un-0-style dynamic conditioning oscillators:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=3 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_resize_conv_pixel_drift_queue_un0_condition_core
+```
+
+This keeps the strongest current MNIST generator objective fixed
+(`pixel_drift` with queue-backed same-class positives) and changes only the
+conditioning/readout pair: `conditioning_mode="class_oscillator"` plus
+`readout_mode="mean_relative"`. It compares learned Kuramoto,
+frozen-reservoir, and decoder-only controls. Results write to
+`outputs/analysis/modal_mnist_generator_resize_conv_pixel_drift_queue_un0_condition_core.csv`.
+
+Dry-run it first:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=3 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_resize_conv_pixel_drift_queue_un0_condition_core \
+  --print-only
+```
+
+Run the queue-backed pixel-drift generator with light distributional
+regularization:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=3 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_resize_conv_pixel_drift_queue_distributional_core
+```
+
+This starts from the strongest current generator result,
+`mnist_generator_resize_conv_pixel_drift_queue_core`, and adds a small
+distributional loss term at weights `0.005` and `0.01`. The goal is to test
+whether whole-sample quality and pixel statistics improve without sacrificing
+the learned-Kuramoto class-alignment gap over frozen/decoder controls. Results
+write to
+`outputs/analysis/modal_mnist_generator_resize_conv_pixel_drift_queue_distributional_core.csv`.
+
+Dry-run it first:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=3 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_resize_conv_pixel_drift_queue_distributional_core \
+  --print-only
+```
+
+Run the resize-conv generator with fixed structural feature drift:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=3 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_resize_conv_feature_drift_core
+```
+
+This keeps the same attribution controls but trains with
+`loss_mode="pixel_feature_drift"`: half-weight pixel drift plus a fixed MNIST
+structural feature drift target. Results write to
+`outputs/analysis/modal_mnist_generator_resize_conv_feature_drift_core.csv`.
+
+Dry-run it first:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=3 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_resize_conv_feature_drift_core \
+  --print-only
+```
+
+Run the resize-conv generator with learned MNIST feature drift:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=3 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_resize_conv_learned_feature_drift_core
+```
+
+This trains a small MNIST feature classifier first, freezes its penultimate
+features, then compares learned Kuramoto, frozen-reservoir, and decoder-only
+controls under `loss_mode="pixel_feature_drift"` with
+`feature_drift_mode="learned"`. Results write to
+`outputs/analysis/modal_mnist_generator_resize_conv_learned_feature_drift_core.csv`.
+
+Dry-run it first:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=3 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_resize_conv_learned_feature_drift_core \
+  --print-only
+```
+
+Run the resize-conv generator with queue-backed learned feature drift:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=3 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_resize_conv_learned_feature_drift_queue_core
+```
+
+This combines the two source-faithful Un-0 ports: a per-class positive queue and
+a frozen learned MNIST feature target. It should be compared directly against
+both `mnist_generator_resize_conv_learned_feature_drift_core` and
+`mnist_generator_resize_conv_pixel_drift_queue_core`. Results write to
+`outputs/analysis/modal_mnist_generator_resize_conv_learned_feature_drift_queue_core.csv`.
+
+Dry-run it first:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=3 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_resize_conv_learned_feature_drift_queue_core \
+  --print-only
+```
+
 Outputs are written to the Modal Volume named `oscnet-runs` by default:
 
 ```text
 /mnt/oscnet-runs/mnist/<run-name>/
+/mnt/oscnet-runs/mnist_generator/<run-name>/
+/mnt/oscnet-runs/mnist_phase_flow/<run-name>/
+/mnt/oscnet-runs/mnist_phase_vae/<run-name>/
 ```
 
 The MNIST IDX cache and JAX compilation cache are also kept on that volume.
+
+## MNIST Phase VAE
+
+Run the paired MNIST phase-VAE control sweep:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=3 modal run scripts/modal_mnist_phase_vae.py \
+  --sweep-preset mnist_phase_vae_core
+```
+
+This compares the same VAE scaffold with trainable Kuramoto phase dynamics,
+frozen phase dynamics, and no dynamics. It is the cleanest generator sanity
+check when the unpaired oscillator generator is underconstrained. Results write
+to:
+
+```text
+outputs/analysis/modal_mnist_phase_vae_core.csv
+outputs/analysis/modal_mnist_phase_vae_core.json
+outputs/analysis/modal_mnist_phase_vae_samples/
+```
+
+Dry-run it first:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=3 modal run scripts/modal_mnist_phase_vae.py \
+  --sweep-preset mnist_phase_vae_core \
+  --print-only
+```
+
+Run the forced/larger phase-dynamics probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=3 modal run scripts/modal_mnist_phase_vae.py \
+  --sweep-preset mnist_phase_vae_forced_dynamics_core
+```
+
+This keeps the same VAE scaffold but increases the oscillator pool to 128
+phases, uses eight stronger recurrent steps, and switches to `mean_relative`
+readout. It is a targeted test of whether more Un-0-like phase motion helps, not
+a replacement for the baseline phase-VAE sweep. Results write to:
+
+```text
+outputs/analysis/modal_mnist_phase_vae_forced_dynamics_core.csv
+outputs/analysis/modal_mnist_phase_vae_samples/
+```
+
+## Un-0 Reference Calibration
+
+Run the upstream Un-0 reference generator in an isolated PyTorch Modal image:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_un0_reference.py \
+  --pretrained cifar10/n1024 \
+  --classes 0,1,2,3,4,5,6,7,8,9 \
+  --samples-per-class 4 \
+  --seed 42
+```
+
+This does not import PyTorch into OscNet. It installs the Un-0 package from
+`unconv-ai/Un-0` at commit `43f2587`, loads the released Hugging Face
+checkpoint, writes a local PNG grid under `outputs/analysis/un0_reference/`,
+and appends lightweight calibration metrics to
+`outputs/analysis/un0_reference/un0_reference_runs.csv`.
+
+Use this as a north-star sanity check before trying to reproduce Un-0 behavior
+inside OscNet. It is not a training run and it does not compute FID.
+
+For the stronger released CIFAR-10 checkpoint:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_un0_reference.py \
+  --pretrained cifar10/n4096 \
+  --classes 0,1,2,3,4,5,6,7,8,9 \
+  --samples-per-class 2 \
+  --seed 42
+```
+
+To probe whether the released checkpoint needs oscillator evolution at
+inference time, sweep the integration step count with the same seed and labels:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_un0_reference.py \
+  --pretrained cifar10/n1024 \
+  --classes 0,1,2,3,4,5,6,7,8,9 \
+  --samples-per-class 2 \
+  --seed 42 \
+  --step-sweep 0,1,2,5,10
+```
+
+This writes one PNG/JSON pair per step count and a sweep CSV under
+`outputs/analysis/un0_reference/`. It reseeds before each step count so the
+initial phase samples are comparable.
+
+## MNIST Phase-Flow Sampler
+
+Run the native phase-rate field sampler sweep:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=3 modal run scripts/modal_mnist_phase_flow.py \
+  --sweep-preset mnist_phase_flow_core
+```
+
+This compares a trainable oscillator field against a frozen-reservoir control
+and a no-dynamics control under the same rectified-flow objective. It is the
+current cleanest attribution test for whether oscillator dynamics help a
+generative MNIST task.
+
+Results write to:
+
+```text
+outputs/analysis/modal_mnist_phase_flow_core.csv
+outputs/analysis/modal_mnist_phase_flow_core.json
+outputs/analysis/modal_mnist_phase_flow_samples/
+```
+
+Run only the matched recurrent-conv flow control, reusing the existing
+phase-flow/frozen/no-dynamics CSV for comparison:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_phase_flow.py \
+  --sweep-preset mnist_phase_flow_recurrent_conv_control
+```
+
+This writes:
+
+```text
+outputs/analysis/modal_mnist_phase_flow_recurrent_conv_control.csv
+outputs/analysis/modal_mnist_phase_flow_samples/
+```
+
+Run the coarse/global phase-carrier probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_phase_flow.py \
+  --sweep-preset mnist_phase_flow_coarse_global_probe
+```
+
+This writes:
+
+```text
+outputs/analysis/modal_mnist_phase_flow_coarse_global_probe.csv
+outputs/analysis/modal_mnist_phase_flow_samples/
+```
+
+Run the same coarse/global model with a Heun predictor-corrector sampler and 32
+sample steps:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_phase_flow.py \
+  --sweep-preset mnist_phase_flow_coarse_heun_probe
+```
+
+This writes:
+
+```text
+outputs/analysis/modal_mnist_phase_flow_coarse_heun_probe.csv
+outputs/analysis/modal_mnist_phase_flow_samples/
+```
+
+Run the coarse/global model with fixed spatial phase-coordinate features:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_phase_flow.py \
+  --sweep-preset mnist_phase_flow_coarse_position_probe
+```
+
+This writes:
+
+```text
+outputs/analysis/modal_mnist_phase_flow_coarse_position_probe.csv
+outputs/analysis/modal_mnist_phase_flow_samples/
+```
+
+Run the closure/binding probe for the coarse/global phase-flow model:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_phase_flow.py \
+  --sweep-preset mnist_phase_flow_coarse_closure_probe
+```
+
+This adds `--closure-loss-weight 1.0`, a train-time low-frequency endpoint
+loss at `14x14` and `7x7`, and runs both the spatial-position and no-position
+coarse/global variants. It writes:
+
+```text
+outputs/analysis/modal_mnist_phase_flow_coarse_closure_probe.csv
+outputs/analysis/modal_mnist_phase_flow_samples/
+```
+
+To rerun the full four-way attribution matrix in one request:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=3 modal run scripts/modal_mnist_phase_flow.py \
+  --sweep-preset mnist_phase_flow_conv_control_core
+```
+
+This writes:
+
+```text
+outputs/analysis/modal_mnist_phase_flow_conv_control_core.csv
+outputs/analysis/modal_mnist_phase_flow_samples/
+```
+
+Dry-run it first:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=3 modal run scripts/modal_mnist_phase_flow.py \
+  --sweep-preset mnist_phase_flow_core \
+  --print-only
+```
 
 ## Configuration
 

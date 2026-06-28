@@ -12,6 +12,7 @@ from .config import (
     ConvLSTMPatchDenoiserConfig,
     RecurrentConvPatchDenoiserConfig,
     RecurrentConvPriorRefinementPatchDenoiserConfig,
+    KuramotoImageGeneratorConfig,
     WaveletAutoencoderConfig,
     WinfreeCoarseGlobalRatePhaseConditionalPatchDenoiserConfig,
     WinfreeCoarsePredictiveRatePhaseConditionalPatchDenoiserConfig,
@@ -25,6 +26,7 @@ from .config import (
     WinfreePhaseAutoencoderConfig,
 )
 from .fractal import FractalHORNCell
+from .generative import KuramotoImageGenerator, KuramotoPhaseVAE
 from .jepa import (
     ConvLSTMPatchJEPAPredictor,
     FeedForwardPatchJEPAPredictor,
@@ -56,6 +58,11 @@ from .phase import (
     WinfreePhaseAutoencoder,
     WinfreePhaseOscillatorCell,
     WinfreePhaseSequenceLayer,
+)
+from .phase_flow import (
+    CoarseGlobalPhaseRateFlowField,
+    PhaseRateFlowField,
+    RecurrentConvFlowField,
 )
 from .wavelet import (
     ProductionWaveletAutoencoder,
@@ -107,6 +114,8 @@ __all__ = [
     "FeedForwardPatchAutoencoderConfig",
     "RecurrentConvPatchDenoiserConfig",
     "RecurrentConvPriorRefinementPatchDenoiserConfig",
+    "KuramotoImageGeneratorConfig",
+    "KuramotoPhaseVAE",
     "ConvLSTMPatchDenoiserConfig",
     "WaveletAutoencoderConfig",
     "WinfreeCoarseGlobalRatePhaseConditionalPatchDenoiserConfig",
@@ -122,6 +131,9 @@ __all__ = [
     "WinfreePhaseOscillatorCell",
     "WinfreePhaseSequenceLayer",
     "WinfreePhaseAutoencoder",
+    "PhaseRateFlowField",
+    "CoarseGlobalPhaseRateFlowField",
+    "RecurrentConvFlowField",
     "wrap_phase",
     "phase_features",
     "WinfreeFieldLayer",
@@ -138,6 +150,7 @@ __all__ = [
     "WinfreePriorRefinementPatchDenoiser",
     "WONNPatchAutoencoder",
     "FractalHORNCell",
+    "KuramotoImageGenerator",
     "FeedForwardPatchJEPAPredictor",
     "RecurrentConvPatchJEPAPredictor",
     "ConvLSTMPatchJEPAPredictor",

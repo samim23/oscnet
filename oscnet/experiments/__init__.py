@@ -17,6 +17,20 @@ from .mnist_jepa import (
     dct_lowfreq_basis,
     run_mnist_jepa_experiment,
 )
+from .mnist_generator import (
+    MNISTGeneratorExperimentConfig,
+    make_projection_matrix,
+    run_mnist_generator_experiment,
+    sliced_wasserstein_loss,
+)
+from .mnist_phase_vae import (
+    MNISTPhaseVAEExperimentConfig,
+    run_mnist_phase_vae_experiment,
+)
+from .mnist_phase_flow import (
+    MNISTPhaseFlowExperimentConfig,
+    run_mnist_phase_flow_experiment,
+)
 from .results import (
     DEFAULT_RESULT_METRICS,
     ExperimentSummaryRow,
@@ -34,6 +48,9 @@ __all__ = [
     "ExperimentPaths",
     "ExperimentSummaryRow",
     "MNISTJEPAExperimentConfig",
+    "MNISTGeneratorExperimentConfig",
+    "MNISTPhaseVAEExperimentConfig",
+    "MNISTPhaseFlowExperimentConfig",
     "collect_experiment_summaries",
     "collect_sequence_state_trace",
     "compute_hidden_patch_weights",
@@ -43,9 +60,14 @@ __all__ = [
     "find_experiment_runs",
     "format_comparison_table",
     "load_experiment_summary",
+    "make_projection_matrix",
     "prepare_experiment_paths",
     "run_eval_only",
     "run_mnist_jepa_experiment",
+    "run_mnist_generator_experiment",
+    "run_mnist_phase_vae_experiment",
+    "run_mnist_phase_flow_experiment",
+    "sliced_wasserstein_loss",
     "train_autoencoder",
     "write_comparison_csv",
 ]

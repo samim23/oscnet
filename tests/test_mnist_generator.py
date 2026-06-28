@@ -1,0 +1,726 @@
+import json
+
+import jax
+import jax.numpy as jnp
+
+from oscnet.experiments.harness import AutoencoderExperimentConfig
+from oscnet.experiments.mnist_generator import (
+    MNISTDriftQueue,
+    MNISTFeatureClassifier,
+    MNISTGeneratorExperimentConfig,
+    conditional_feature_drift_loss,
+    conditional_pixel_drift_loss,
+    compute_class_prototypes,
+    compute_generator_success_diagnostics,
+    generator_distribution_loss,
+    generator_loss,
+    make_projection_matrix,
+    mnist_structural_features,
+    run_mnist_generator_experiment,
+    sliced_wasserstein_loss,
+    train_mnist_feature_classifier,
+)
+
+
+def test_sliced_wasserstein_loss_is_zero_for_identical_batches():
+    images = jnp.linspace(0.0, 1.0, 4 * 16).reshape(4, 16)
+    projections = make_projection_matrix(
+        jax.random.PRNGKey(0),
+        image_dim=16,
+        num_projections=8,
+    )
+
+    loss = sliced_wasserstein_loss(images, images, projections)
+
+    assert loss < 1e-7
+
+
+def test_conditional_generator_loss_uses_class_terms():
+    images = jnp.linspace(0.0, 1.0, 6 * 16).reshape(6, 16)
+    labels = jnp.asarray([0, 0, 1, 1, 2, 2], dtype=jnp.int32)
+    generated = jnp.flip(images, axis=0)
+    projections = make_projection_matrix(
+        jax.random.PRNGKey(1),
+        image_dim=16,
+        num_projections=8,
+    )
+    prototypes = compute_class_prototypes(images, labels, num_classes=3)
+
+    loss, parts = generator_distribution_loss(
+        images,
+        generated,
+        projections,
+        labels=labels,
+        prototypes=prototypes,
+        num_classes=3,
+        class_moment_weight=0.5,
+        prototype_weight=0.25,
+    )
+
+    assert loss > 0.0
+    assert parts["class_moment_loss"] > 0.0
+    assert parts["prototype_loss"] > 0.0
+    assert prototypes.shape == (3, 16)
+
+
+def test_conditional_pixel_drift_loss_backprops_to_generated_samples():
+    real = jnp.linspace(0.0, 1.0, 12 * 16).reshape(12, 16)
+    generated = jnp.flip(real, axis=0)
+    labels = jnp.asarray(
+        [0, 0, 0, 1, 1, 1, 2, 2, 2, 3, 3, 3],
+        dtype=jnp.int32,
+    )
+
+    loss = conditional_pixel_drift_loss(
+        real,
+        generated,
+        labels,
+        num_classes=4,
+        gamma=0.2,
+    )
+    grad = jax.grad(
+        lambda samples: conditional_pixel_drift_loss(
+            real,
+            samples,
+            labels,
+            num_classes=4,
+            gamma=0.2,
+        )
+    )(generated)
+
+    assert loss > 0.0
+    assert grad.shape == generated.shape
+    assert jnp.linalg.norm(grad) > 0.0
+    assert bool(jnp.all(jnp.isfinite(grad)))
+
+
+def test_mnist_drift_queue_draws_balanced_positive_memory():
+    queue = MNISTDriftQueue.create(
+        num_classes=3,
+        queue_size=4,
+        image_dim=5,
+        seed=123,
+    )
+    images = jnp.arange(12 * 5, dtype=jnp.float32).reshape(12, 5)
+    labels = jnp.asarray([0, 1, 2] * 4, dtype=jnp.int32)
+
+    queue.push(images, labels)
+    positives, positive_labels = queue.draw(2)
+
+    assert positives.shape == (6, 5)
+    assert positive_labels.shape == (6,)
+    assert queue.ready(2)
+    assert jnp.array_equal(
+        jnp.bincount(positive_labels, length=3),
+        jnp.asarray([2, 2, 2]),
+    )
+
+
+def test_conditional_pixel_drift_loss_accepts_queue_positive_pool():
+    real = jnp.linspace(0.0, 1.0, 18 * 16).reshape(18, 16)
+    generated = jnp.flip(real[:6], axis=0)
+    generated_labels = jnp.asarray([0, 0, 1, 1, 2, 2], dtype=jnp.int32)
+    positive_labels = jnp.asarray([0, 1, 2] * 6, dtype=jnp.int32)
+    gamma_real = real[:9]
+    gamma_labels = jnp.asarray([0, 1, 2] * 3, dtype=jnp.int32)
+
+    loss = conditional_pixel_drift_loss(
+        real,
+        generated,
+        generated_labels,
+        num_classes=3,
+        positive_labels=positive_labels,
+        gamma_real=gamma_real,
+        gamma_labels=gamma_labels,
+        gamma=0.2,
+    )
+    grad = jax.grad(
+        lambda samples: conditional_pixel_drift_loss(
+            real,
+            samples,
+            generated_labels,
+            num_classes=3,
+            positive_labels=positive_labels,
+            gamma_real=gamma_real,
+            gamma_labels=gamma_labels,
+            gamma=0.2,
+        )
+    )(generated)
+
+    assert loss > 0.0
+    assert grad.shape == generated.shape
+    assert jnp.linalg.norm(grad) > 0.0
+    assert bool(jnp.all(jnp.isfinite(grad)))
+
+
+def test_structural_feature_drift_backprops_to_generated_samples():
+    real = jnp.linspace(0.0, 1.0, 12 * 28 * 28).reshape(12, 28 * 28)
+    generated = jnp.flip(real, axis=0)
+    labels = jnp.asarray(
+        [0, 0, 0, 1, 1, 1, 2, 2, 2, 3, 3, 3],
+        dtype=jnp.int32,
+    )
+
+    features = mnist_structural_features(real)
+    loss = conditional_feature_drift_loss(
+        real,
+        generated,
+        labels,
+        num_classes=4,
+        feature_mode="structural",
+        gamma=0.2,
+    )
+    grad = jax.grad(
+        lambda samples: conditional_feature_drift_loss(
+            real,
+            samples,
+            labels,
+            num_classes=4,
+            feature_mode="structural",
+            gamma=0.2,
+        )
+    )(generated)
+
+    assert features.shape[0] == real.shape[0]
+    assert 0 < features.shape[1] < real.shape[1]
+    assert loss > 0.0
+    assert grad.shape == generated.shape
+    assert jnp.linalg.norm(grad) > 0.0
+    assert bool(jnp.all(jnp.isfinite(grad)))
+
+
+def test_learned_feature_drift_backprops_through_frozen_classifier():
+    real = jnp.linspace(0.0, 1.0, 12 * 28 * 28).reshape(12, 28 * 28)
+    generated = jnp.flip(real, axis=0)
+    labels = jnp.asarray(
+        [0, 0, 0, 1, 1, 1, 2, 2, 2, 3, 3, 3],
+        dtype=jnp.int32,
+    )
+    classifier = MNISTFeatureClassifier(
+        feature_dim=16,
+        depth=1,
+        num_classes=4,
+        key=jax.random.PRNGKey(13),
+    )
+
+    loss = conditional_feature_drift_loss(
+        real,
+        generated,
+        labels,
+        num_classes=4,
+        feature_mode="learned",
+        feature_model=classifier,
+        gamma=0.2,
+    )
+    grad = jax.grad(
+        lambda samples: conditional_feature_drift_loss(
+            real,
+            samples,
+            labels,
+            num_classes=4,
+            feature_mode="learned",
+            feature_model=classifier,
+            gamma=0.2,
+        )
+    )(generated)
+
+    assert classifier.features(real).shape == (12, 16)
+    assert loss > 0.0
+    assert grad.shape == generated.shape
+    assert jnp.linalg.norm(grad) > 0.0
+    assert bool(jnp.all(jnp.isfinite(grad)))
+
+
+def test_generator_loss_combines_pixel_and_feature_drift():
+    real = jnp.linspace(0.0, 1.0, 12 * 28 * 28).reshape(12, 28 * 28)
+    generated = jnp.flip(real, axis=0)
+    labels = jnp.asarray(
+        [0, 0, 0, 1, 1, 1, 2, 2, 2, 3, 3, 3],
+        dtype=jnp.int32,
+    )
+    projections = make_projection_matrix(
+        jax.random.PRNGKey(12),
+        image_dim=28 * 28,
+        num_projections=8,
+    )
+
+    loss, parts = generator_loss(
+        real,
+        generated,
+        projections,
+        labels=labels,
+        num_classes=4,
+        loss_mode="pixel_feature_drift",
+        pixel_drift_weight=0.5,
+        feature_drift_weight=1.0,
+        distributional_weight=0.0,
+    )
+
+    expected = 0.5 * parts["pixel_drift_loss"] + parts["feature_drift_loss"]
+    assert loss > 0.0
+    assert jnp.allclose(loss, expected)
+    assert parts["pixel_drift_loss"] > 0.0
+    assert parts["feature_drift_loss"] > 0.0
+
+
+def test_train_mnist_feature_classifier_smoke():
+    images = jnp.linspace(0.0, 1.0, 12 * 28 * 28).reshape(12, 28 * 28)
+    labels = jnp.asarray([0, 1, 2, 3] * 3, dtype=jnp.int32)
+
+    classifier, history = train_mnist_feature_classifier(
+        images,
+        labels,
+        images[:8],
+        labels[:8],
+        key=jax.random.PRNGKey(14),
+        num_classes=4,
+        feature_dim=12,
+        depth=1,
+        epochs=1,
+        batch_size=4,
+        learning_rate=1e-3,
+        weight_decay=0.0,
+        max_grad_norm=1.0,
+    )
+
+    assert classifier.features(images[:2]).shape == (2, 12)
+    assert history["epochs"] == 1
+    assert 0.0 <= history["final_eval_accuracy"] <= 1.0
+    assert history["final_eval_loss"] >= 0.0
+
+
+def test_mnist_generator_synthetic_training_smoke(tmp_path):
+    run = AutoencoderExperimentConfig(
+        name="mnist_generator_test",
+        output_dir=tmp_path / "mnist_generator",
+        seed=5,
+        epochs=1,
+        batch_size=2,
+        learning_rate=1e-3,
+        checkpoint_every=1,
+        artifact_every=1,
+    )
+    config = MNISTGeneratorExperimentConfig(
+        run=run,
+        model_family="kuramoto",
+        num_oscillators=8,
+        decoder_hidden_dim=12,
+        decoder_depth=1,
+        steps=1,
+        num_projections=8,
+        eval_sample_count=2,
+        data_source="synthetic",
+        train_limit=4,
+        eval_limit=2,
+    )
+
+    result = run_mnist_generator_experiment(config)
+
+    assert (result.paths.metrics / "summary.json").exists()
+    assert (
+        result.paths.artifacts / "mnist_generator_samples_epoch_001.npz"
+    ).exists()
+    assert (result.paths.traces / "mnist_generator_trace_epoch_001.npz").exists()
+    with open(result.paths.metrics / "summary.json") as f:
+        summary = json.load(f)
+    assert summary["generator"]["distributional_not_paired_reconstruction"]
+    diagnostics = summary["generator"]["success_diagnostics"]
+    assert diagnostics["total_params"] > 0
+    assert 0.0 <= diagnostics["decoder_param_fraction"] <= 1.0
+    assert "estimated_recurrent_op_fraction" in diagnostics
+    assert "phase_mean_abs_displacement" in diagnostics
+    assert summary["final_eval_loss"] >= 0.0
+
+
+def test_mnist_generator_conditional_synthetic_training_smoke(tmp_path):
+    run = AutoencoderExperimentConfig(
+        name="mnist_generator_conditional_test",
+        output_dir=tmp_path / "mnist_generator_conditional",
+        seed=6,
+        epochs=1,
+        batch_size=2,
+        learning_rate=1e-3,
+        checkpoint_every=1,
+        artifact_every=1,
+    )
+    config = MNISTGeneratorExperimentConfig(
+        run=run,
+        model_family="kuramoto",
+        conditional=True,
+        num_classes=10,
+        num_condition_oscillators=4,
+        conditioning_mode="class_coupling",
+        readout_mode="relative",
+        class_moment_weight=0.2,
+        prototype_weight=0.1,
+        num_oscillators=8,
+        decoder_hidden_dim=12,
+        decoder_depth=1,
+        steps=1,
+        num_projections=8,
+        eval_sample_count=2,
+        data_source="synthetic",
+        train_limit=4,
+        eval_limit=2,
+    )
+
+    result = run_mnist_generator_experiment(config)
+
+    with open(result.paths.metrics / "summary.json") as f:
+        summary = json.load(f)
+    assert summary["generator"]["conditional"]
+    assert "prototype_nearest_accuracy" in summary["generator"]
+    assert "success_diagnostics" in summary["generator"]
+    assert summary["final_eval_loss"] >= 0.0
+
+
+def test_mnist_generator_spatial_basis_synthetic_training_smoke(tmp_path):
+    run = AutoencoderExperimentConfig(
+        name="mnist_generator_spatial_basis_test",
+        output_dir=tmp_path / "mnist_generator_spatial_basis",
+        seed=7,
+        epochs=1,
+        batch_size=2,
+        learning_rate=1e-3,
+        checkpoint_every=1,
+        artifact_every=1,
+    )
+    config = MNISTGeneratorExperimentConfig(
+        run=run,
+        model_family="kuramoto",
+        conditional=True,
+        num_classes=10,
+        num_condition_oscillators=4,
+        conditioning_mode="class_coupling",
+        readout_mode="relative",
+        decoder_mode="spatial_basis",
+        class_moment_weight=0.2,
+        prototype_weight=0.1,
+        num_oscillators=9,
+        decoder_hidden_dim=12,
+        decoder_depth=0,
+        steps=1,
+        num_projections=8,
+        eval_sample_count=2,
+        data_source="synthetic",
+        train_limit=4,
+        eval_limit=2,
+    )
+
+    result = run_mnist_generator_experiment(config)
+
+    with open(result.paths.metrics / "summary.json") as f:
+        summary = json.load(f)
+    diagnostics = summary["generator"]["success_diagnostics"]
+    assert summary["generator"]["decoder_mode"] == "spatial_basis"
+    assert diagnostics["decoder_param_fraction"] < 0.5
+    assert diagnostics["decoder_mode"] == "spatial_basis"
+    assert summary["final_eval_loss"] >= 0.0
+
+
+def test_mnist_generator_local_basis_synthetic_training_smoke(tmp_path):
+    run = AutoencoderExperimentConfig(
+        name="mnist_generator_local_basis_test",
+        output_dir=tmp_path / "mnist_generator_local_basis",
+        seed=8,
+        epochs=1,
+        batch_size=2,
+        learning_rate=1e-3,
+        checkpoint_every=1,
+        artifact_every=1,
+    )
+    config = MNISTGeneratorExperimentConfig(
+        run=run,
+        model_family="kuramoto",
+        conditional=True,
+        num_classes=10,
+        num_condition_oscillators=4,
+        conditioning_mode="class_coupling",
+        readout_mode="relative",
+        decoder_mode="local_basis",
+        local_patch_size=3,
+        class_moment_weight=0.2,
+        prototype_weight=0.1,
+        num_oscillators=9,
+        decoder_hidden_dim=12,
+        decoder_depth=0,
+        steps=1,
+        num_projections=8,
+        eval_sample_count=2,
+        data_source="synthetic",
+        train_limit=4,
+        eval_limit=2,
+    )
+
+    result = run_mnist_generator_experiment(config)
+
+    with open(result.paths.metrics / "summary.json") as f:
+        summary = json.load(f)
+    diagnostics = summary["generator"]["success_diagnostics"]
+    assert summary["generator"]["decoder_mode"] == "local_basis"
+    assert diagnostics["decoder_mode"] == "local_basis"
+    assert 0.0 < diagnostics["decoder_param_fraction"] < 0.75
+    assert summary["final_eval_loss"] >= 0.0
+
+
+def test_resize_conv_generator_decodes_spatial_phase_seed():
+    from oscnet.models import KuramotoImageGenerator
+
+    model = KuramotoImageGenerator(
+        num_oscillators=98,
+        image_shape=(28, 28),
+        decoder_mode="resize_conv",
+        resize_conv_min_channels=4,
+        steps=1,
+        key=jax.random.PRNGKey(81),
+    )
+    generated = model(jax.random.PRNGKey(82), 3)
+    trace = model.collect_trace(jax.random.PRNGKey(83), 3)
+
+    diagnostics = compute_generator_success_diagnostics(
+        model,
+        trace=trace,
+        sample_count=12,
+        total_train_seconds=2.0,
+    )
+
+    assert generated.shape == (3, 28 * 28)
+    assert model.resize_conv_seed_shape == (4, 7, 7)
+    assert len(model.resize_conv_layers) == 4
+    assert diagnostics["decoder_mode"] == "resize_conv"
+    assert diagnostics["decoder_params"] > 0
+    assert diagnostics["estimated_decoder_ops_per_sample"] > 0
+
+
+def test_mnist_generator_resize_conv_synthetic_training_smoke(tmp_path):
+    run = AutoencoderExperimentConfig(
+        name="mnist_generator_resize_conv_test",
+        output_dir=tmp_path / "mnist_generator_resize_conv",
+        seed=82,
+        epochs=1,
+        batch_size=2,
+        learning_rate=1e-3,
+        checkpoint_every=1,
+        artifact_every=1,
+    )
+    config = MNISTGeneratorExperimentConfig(
+        run=run,
+        model_family="kuramoto",
+        decoder_mode="resize_conv",
+        resize_conv_min_channels=4,
+        num_oscillators=98,
+        decoder_hidden_dim=12,
+        decoder_depth=0,
+        steps=1,
+        num_projections=8,
+        eval_sample_count=2,
+        data_source="synthetic",
+        train_limit=4,
+        eval_limit=2,
+    )
+
+    result = run_mnist_generator_experiment(config)
+
+    with open(result.paths.metrics / "summary.json") as f:
+        summary = json.load(f)
+    diagnostics = summary["generator"]["success_diagnostics"]
+    assert summary["generator"]["decoder_mode"] == "resize_conv"
+    assert summary["generator"]["resize_conv_seed_size"] == 7
+    assert diagnostics["decoder_mode"] == "resize_conv"
+    assert diagnostics["decoder_params"] > 0
+    assert summary["final_eval_loss"] >= 0.0
+
+
+def test_mnist_generator_learned_feature_drift_synthetic_training_smoke(tmp_path):
+    run = AutoencoderExperimentConfig(
+        name="mnist_generator_learned_feature_test",
+        output_dir=tmp_path / "mnist_generator_learned_feature",
+        seed=84,
+        epochs=1,
+        batch_size=2,
+        learning_rate=1e-3,
+        checkpoint_every=1,
+        artifact_every=1,
+    )
+    config = MNISTGeneratorExperimentConfig(
+        run=run,
+        model_family="kuramoto",
+        conditional=True,
+        num_classes=10,
+        num_condition_oscillators=3,
+        conditioning_mode="class_coupling",
+        readout_mode="relative",
+        loss_mode="pixel_feature_drift",
+        pixel_drift_weight=0.5,
+        feature_drift_weight=1.0,
+        feature_drift_mode="learned",
+        learned_feature_epochs=1,
+        learned_feature_dim=8,
+        learned_feature_depth=1,
+        num_oscillators=8,
+        decoder_hidden_dim=12,
+        decoder_depth=1,
+        steps=1,
+        num_projections=8,
+        eval_sample_count=2,
+        data_source="synthetic",
+        train_limit=4,
+        eval_limit=2,
+    )
+
+    result = run_mnist_generator_experiment(config)
+
+    with open(result.paths.metrics / "summary.json") as f:
+        summary = json.load(f)
+    assert (result.paths.metrics / "feature_classifier.json").exists()
+    assert summary["generator"]["loss"] == "pixel_feature_drift"
+    assert summary["generator"]["feature_drift_mode"] == "learned"
+    assert summary["generator"]["feature_classifier"]["epochs"] == 1
+    assert summary["final_eval_feature_drift_loss"] >= 0.0
+
+
+def test_generator_success_diagnostics_expose_attribution_proxies():
+    from oscnet.models import KuramotoImageGenerator
+
+    model = KuramotoImageGenerator(
+        num_oscillators=8,
+        image_shape=(8, 8),
+        decoder_hidden_dim=12,
+        decoder_depth=1,
+        steps=2,
+        num_classes=3,
+        num_condition_oscillators=4,
+        conditioning_mode="class_coupling",
+        readout_mode="relative",
+        key=jax.random.PRNGKey(9),
+    )
+    labels = jnp.asarray([0, 1, 2], dtype=jnp.int32)
+    trace = model.collect_trace(jax.random.PRNGKey(10), 3, labels)
+
+    diagnostics = compute_generator_success_diagnostics(
+        model,
+        trace=trace,
+        sample_count=12,
+        total_train_seconds=3.0,
+    )
+
+    assert diagnostics["total_params"] > diagnostics["decoder_params"]
+    assert diagnostics["conditioning_params"] > 0
+    assert diagnostics["train_recurrent_dynamics"]
+    assert diagnostics["train_conditioning_dynamics"]
+    assert diagnostics["trainable_main_recurrent_params"] > 0
+    assert diagnostics["trainable_conditioning_params"] > 0
+    assert diagnostics["trainable_recurrent_param_fraction"] > 0.0
+    assert diagnostics["samples_per_train_second"] == 4.0
+    assert diagnostics["phase_mean_abs_displacement"] >= 0.0
+
+
+def test_generator_success_diagnostics_count_spatial_basis_as_decoder():
+    from oscnet.models import KuramotoImageGenerator
+
+    model = KuramotoImageGenerator(
+        num_oscillators=9,
+        image_shape=(8, 8),
+        decoder_mode="spatial_basis",
+        decoder_depth=0,
+        steps=2,
+        num_classes=3,
+        num_condition_oscillators=4,
+        conditioning_mode="class_coupling",
+        readout_mode="relative",
+        key=jax.random.PRNGKey(11),
+    )
+    labels = jnp.asarray([0, 1, 2], dtype=jnp.int32)
+    trace = model.collect_trace(jax.random.PRNGKey(12), 3, labels)
+
+    diagnostics = compute_generator_success_diagnostics(model, trace=trace)
+
+    assert diagnostics["decoder_mode"] == "spatial_basis"
+    assert diagnostics["decoder_params"] == 19
+    assert diagnostics["decoder_param_fraction"] < 0.5
+
+
+def test_generator_success_diagnostics_count_local_basis_as_decoder():
+    from oscnet.models import KuramotoImageGenerator
+
+    model = KuramotoImageGenerator(
+        num_oscillators=9,
+        image_shape=(8, 8),
+        decoder_mode="local_basis",
+        local_patch_size=3,
+        decoder_depth=0,
+        steps=2,
+        num_classes=3,
+        num_condition_oscillators=4,
+        conditioning_mode="class_coupling",
+        readout_mode="relative",
+        key=jax.random.PRNGKey(13),
+    )
+    labels = jnp.asarray([0, 1, 2], dtype=jnp.int32)
+    trace = model.collect_trace(jax.random.PRNGKey(14), 3, labels)
+
+    diagnostics = compute_generator_success_diagnostics(model, trace=trace)
+
+    assert diagnostics["decoder_mode"] == "local_basis"
+    assert diagnostics["decoder_params"] == 163
+    assert diagnostics["decoder_param_fraction"] < 0.5
+
+
+def test_generator_success_diagnostics_report_coupling_profile():
+    from oscnet.models import KuramotoImageGenerator
+
+    model = KuramotoImageGenerator(
+        num_oscillators=9,
+        image_shape=(8, 8),
+        decoder_mode="local_basis",
+        local_patch_size=3,
+        decoder_depth=0,
+        steps=2,
+        coupling_profile="distance_decay",
+        coupling_length_scale=0.6,
+        coupling_floor=0.05,
+        coupling_bias_strength=0.1,
+        key=jax.random.PRNGKey(15),
+    )
+
+    diagnostics = compute_generator_success_diagnostics(model)
+
+    assert diagnostics["coupling_profile"] == "distance_decay"
+    assert diagnostics["coupling_length_scale"] == 0.6
+    assert diagnostics["coupling_floor"] == 0.05
+    assert diagnostics["coupling_bias_strength"] == 0.1
+    assert diagnostics["coupling_profile_mean"] < 1.0
+    assert diagnostics["coupling_profile_max"] < 1.0
+    assert diagnostics["coupling_profile_max"] > 0.05
+
+
+def test_generator_success_diagnostics_report_split_trainability():
+    from oscnet.models import KuramotoImageGenerator
+
+    model = KuramotoImageGenerator(
+        num_oscillators=9,
+        image_shape=(8, 8),
+        decoder_mode="local_basis",
+        local_patch_size=3,
+        decoder_depth=0,
+        steps=2,
+        num_classes=3,
+        num_condition_oscillators=4,
+        conditioning_mode="class_coupling",
+        readout_mode="relative",
+        train_recurrent_dynamics=False,
+        train_conditioning_dynamics=True,
+        key=jax.random.PRNGKey(16),
+    )
+
+    diagnostics = compute_generator_success_diagnostics(model)
+
+    assert diagnostics["train_recurrent_dynamics"] is False
+    assert diagnostics["train_conditioning_dynamics"] is True
+    assert diagnostics["trainable_main_recurrent_params"] == 0
+    assert diagnostics["trainable_conditioning_params"] == (
+        diagnostics["conditioning_params"]
+    )
+    assert diagnostics["trainable_recurrent_params"] == (
+        diagnostics["trainable_conditioning_params"]
+    )

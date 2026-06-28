@@ -1514,6 +1514,9 @@ This explains most of the positive and negative results so far.
 | Boundary-clamped core still favors feedforward | Feedforward beats current Winfree variants on hidden-region MSE even when visible pixels are clamped | The bottleneck is missing-region generative synthesis, not visible-pixel preservation or metric contamination |
 | Prior + Winfree residual improves robustness | A Winfree residual branch improves the same feedforward prior across mask-stress scenarios | The oscillator branch is useful as a spatial refiner, but this is a hybrid result |
 | Recurrent residual control is close | A matched recurrent-conv residual captures most of the same robustness gain, while Winfree keeps a small edge | The strongest current claim is not oscillator uniqueness; it is that local recurrent refinement works, with Winfree currently a slightly better refinement mechanism |
+| Un-0-style generator is alive but not attributed | Random-phase Kuramoto generation learns an MNIST-like distributional loss, but frozen reservoir and decoder-only controls are essentially tied | Oscillators-as-generative-prior is the right new branch, but the current objective/dynamics do not yet prove learned coupling value |
+| Pixel-drift generator improves class attribution | The resize-conv Kuramoto model gets much higher prototype-class alignment than frozen/decoder controls, but drift loss itself is tied and samples remain fragments | The Un-0 source code points to the right structural ingredients, but pixel-only drift is still not enough; feature-space or trajectory objectives are the next real test |
+| Fixed structural feature drift is not enough | Hand-built pooled/edge/moment features are optimized better by frozen/decoder controls, while learned Kuramoto remains more class-aligned but overactive | The missing Un-0 ingredient is likely learned semantic features, not just any feature-space loss |
 
 The failed experiments therefore mostly align with the emerging hypothesis
 rather than contradicting it. They draw a boundary around the useful regime:
@@ -1668,6 +1671,1530 @@ inductive-bias result.
 6. Keep adaptive coupling as a secondary branch.
    The residual version is safe, but the two-seed result does not justify making
    it the main path yet.
+
+7. Improve the Un-0-style generator objective/architecture.
+   The first generator sweeps are complete. Learned Kuramoto is competitive,
+   and the closer Un-0 class-coupled mode improves class-prototype alignment,
+   but frozen reservoirs and decoder-only controls remain too strong. The next
+   generator step should target attribution: a better decoder/readout split,
+   learned feature targets, explicit phase-field regularization, or a task
+   where oscillator settling changes the generated sample in a measurable way.
+   The spatial-basis probe shows that removing decoder capacity entirely is too
+   harsh, so the next readout should be structured but not powerless: local
+   phase-conv readout, hierarchical phase fields, or an explicit
+   decoder-fraction budget.
+
+## Un-0-Style Generative Branch
+
+The Un-0 post reframes the oscillator question in a way that our previous
+autoencoder and inpainting experiments did not: random oscillator phase is the
+generative noise source, learned coupling transforms that noise, and a decoder
+renders final phase features into an image. This is a different hypothesis from
+masked recovery.
+
+New reusable pieces:
+
+- `KuramotoImageGenerator` in `oscnet.models.generative`
+- `MNISTGeneratorExperimentConfig` and `run_mnist_generator_experiment` in
+  `oscnet.experiments.mnist_generator`
+- `examples/image_mnist_kuramoto_generator.py`
+- `scripts/modal_mnist_generator.py`
+
+Architecture:
+
+```text
+random theta_0
+-> dense learned Kuramoto coupling for T steps
+-> sin/cos phase features
+-> small decoder
+-> generated MNIST sample
+```
+
+Training is deliberately unpaired. The first objective is not reconstruction
+MSE. It combines:
+
+- sliced-Wasserstein distance on random pixel projections
+- per-pixel moment matching
+- per-pixel marginal distribution matching
+
+The original Un-0 writeup also uses a few mechanisms that shaped the second
+probe here: class-specific conditioning oscillators, unidirectional coupling
+from the conditioning pool into the main oscillator pool, and relative phase
+features before decoding. See:
+`https://unconv.ai/blog/introducing-un-0-generating-images-with-coupled-oscillators/`
+
+### Un-0 Source Audit
+
+The open-source Un-0 reference implementation was inspected from
+`https://github.com/unconv-ai/Un-0` at commit `43f2587` (2026-06-26). This
+changed the read on the branch. The blog architecture is not just "Kuramoto
+plus labels"; the released recipe combines several ingredients that our first
+MNIST generator did not yet reproduce.
+
+Important implementation facts:
+
+- Tasks and scale are different. The released checkpoints target CIFAR-10 and
+  ImageNet-64, not MNIST. CIFAR uses 1024/2048/4096 oscillators; ImageNet-64
+  uses 6656/10240/16384 oscillators.
+- The decoder is a real image renderer. Final phase features are reshaped into
+  a 4x4 seed and decoded by resize-convolution blocks. Our `mlp`,
+  `spatial_basis`, and `local_basis` readouts were useful controls, but they are
+  not faithful to this decoder design.
+- The training loss is the biggest missing piece. Un-0 uses a class-conditional
+  drift objective in pixel space plus DINOv2 feature space. Generated samples
+  are pulled toward same-class real positives and pushed relative to generated
+  and other-class negatives. This is much more semantic than our
+  sliced-Wasserstein plus pixel-moment objective.
+- Training uses a per-class positive queue so the drift target sees many
+  same-class positives per step. This matters because the loss needs enough
+  same-class real examples to define a useful direction.
+- Conditioning includes a separate oscillator population with class-specific
+  unidirectional drive into the main oscillator pool. We already approximated
+  this with `class_coupling`, but Un-0 also applies classifier-free-style class
+  dropout during training.
+- Readout is sin/cos phase encoding with relativization, commonly
+  `mean_relative` for CIFAR and `ref_oscillator` for ImageNet. We have a
+  simpler relative readout, but not the full set of readout options.
+- They evaluate and ablate with FID, not just training loss. Their ablation
+  suite explicitly compares decoder-only, frozen reservoirs, and trained
+  Euler-step dynamics across learning-rate sweeps.
+
+Implication for OscNet:
+
+The current MNIST generator branch is promising as a testbed, but it is still a
+loose analogue. The most likely reason we do not see Un-0-like qualitative
+samples is not merely bad hyperparameters. We are missing the semantic drift
+objective and the conv renderer, and we are operating at much smaller scale.
+
+The next port should therefore be structural and staged:
+
+1. Add a source-faithful resize-conv decoder/readout path in the OscNet
+   generator API.
+2. Add a pixel-only conditional drift loss first, because it is lightweight and
+   directly maps to JAX/MNIST.
+3. Add a learned or frozen feature-space drift target later. For MNIST this can
+   start with a small classifier/autoencoder feature extractor before attempting
+   a DINO-style dependency.
+4. Repeat the attribution suite under the new loss: decoder-only,
+   frozen-reservoir, trained 1/2/5/10-step dynamics, each with matched learning
+   rates or at least a small LR sweep.
+
+Port step 1 is now implemented in OscNet: `KuramotoImageGenerator` supports
+`decoder_mode="resize_conv"`. For MNIST, the default source-faithful setting is
+a `7x7` phase-feature seed upsampled twice to `28x28`. This mirrors the Un-0
+idea that final oscillator phase features should be interpreted as a spatial
+seed and rendered by convolutional upsampling, rather than forced through a
+global MLP or an intentionally weak local basis.
+
+Modal preset:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=3 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_resize_conv_core
+```
+
+This compares learned Kuramoto, frozen reservoir, and decoder-only controls
+using the resize-conv renderer. It is still trained with the older
+SWD/moment/prototype objective, so it tests the decoder port only. A positive
+or negative result here should not be treated as a final Un-0 reproduction
+until the conditional drift loss is added.
+
+Result:
+
+```text
+outputs/analysis/modal_mnist_generator_resize_conv_core.csv
+outputs/analysis/modal_mnist_generator_samples/resize_conv_kuramoto_seed11.png
+outputs/analysis/modal_mnist_generator_samples/resize_conv_frozen_seed11.png
+outputs/analysis/modal_mnist_generator_samples/resize_conv_decoder_seed11.png
+```
+
+Two-seed means:
+
+| variant | best loss | final eval loss | prototype nearest acc | diversity ratio | nearest real MSE | generated std | decoder param fraction | recurrent op fraction |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| learned Kuramoto | 0.047757 | 0.052158 | 0.146484 | 0.967791 | 0.068615 | 0.291471 | 0.042426 | 0.341463 |
+| decoder-only | 0.052593 | 0.071159 | 0.110352 | 0.971743 | 0.075004 | 0.291406 | 0.042426 | 0.000000 |
+| frozen Kuramoto | 0.053482 | 0.059551 | 0.093750 | 0.949083 | 0.072553 | 0.287606 | 0.042426 | 0.341463 |
+
+Interpretation:
+
+- This is the strongest generator attribution result so far. The learned
+  Kuramoto resize-conv model beats decoder-only by about 9.2% relative
+  best-loss and frozen reservoir by about 10.7%.
+- The decoder is still small by parameter count: about 4.2% of total parameters.
+  That matters because the result is not simply a massive conventional decoder
+  swallowing the oscillator branch.
+- Visual samples are smoother and more spatially connected than the local-basis
+  grids, but they are still mostly stroke fragments and blobs. This is not yet
+  convincing digit generation.
+- The result supports the Un-0 source audit: a spatial renderer is a better
+  fit for oscillator phase features than the intentionally weak local basis.
+  The next likely missing piece is the objective, especially conditional drift
+  in pixel/feature space.
+
+Success criteria for this branch are intentionally broader than image loss
+alone:
+
+- Quality: generated samples and distribution metrics must improve.
+- Attribution: learned dynamics should beat decoder-only and frozen-reservoir
+  controls.
+- Dynamics value: phase trajectories should move, settle, separate classes, or
+  improve with meaningful test-time integration.
+- Efficiency proxy: parameter count, decoder fraction, recurrent fraction,
+  estimated recurrent operation fraction, and sample throughput should be
+  tracked. These are digital-simulation proxies, not physical energy claims.
+- Robustness: later generator runs should test perturbations, step schedules,
+  and sample diversity.
+
+`MNISTGeneratorExperimentConfig` now writes a `success_diagnostics` block into
+`summary.json` with those attribution and efficiency proxies. This is meant to
+catch false positives such as "the oscillator generator won" when nearly all
+capacity lives in the decoder, or when a frozen reservoir explains the result.
+
+Controls are built into the experiment API from the start:
+
+- `kuramoto`: learned coupling and learned natural frequencies
+- `frozen_kuramoto`: frozen oscillator dynamics, trained decoder
+- `decoder_only`: no oscillator settling, trained decoder
+
+First CPU smoke:
+
+```bash
+python examples/image_mnist_kuramoto_generator.py \
+  --output-dir outputs/reference/mnist_generator_kuramoto_n32_seed11_2e_marginal_smoke \
+  --data-source idx \
+  --train-limit 128 \
+  --eval-limit 64 \
+  --eval-sample-count 64 \
+  --epochs 2 \
+  --batch-size 16 \
+  --seed 11 \
+  --num-oscillators 32 \
+  --decoder-hidden-dim 64 \
+  --decoder-depth 1 \
+  --steps 4 \
+  --num-projections 32 \
+  --learning-rate 0.002 \
+  --checkpoint-every 2 \
+  --artifact-every 2
+```
+
+Smoke result:
+
+| epoch | train loss | eval loss |
+| ---: | ---: | ---: |
+| 1 | 0.174118 | 0.149231 |
+| 2 | 0.161513 | 0.139136 |
+
+Final smoke diagnostics:
+
+| metric | value |
+| --- | ---: |
+| generated mean | 0.121476 |
+| generated std | 0.021985 |
+| diversity ratio | 0.100285 |
+| nearest real MSE | 0.033247 |
+| real nearest-real MSE | 0.059272 |
+
+Interpretation:
+
+- The training path has real signal: distributional train and eval losses both
+  move in the right direction on real MNIST.
+- The sparse output bias and marginal term fix the first failure mode from the
+  earliest smoke, where samples stayed around gray `0.5`.
+- The visual samples are still low-diversity dark texture rather than digits.
+  This is not yet evidence of strong generation.
+- The correct next experiment is a GPU control sweep, not more local CPU
+  tinkering: learned Kuramoto vs frozen reservoir vs decoder-only, same decoder
+  and same distributional objective.
+
+Modal preset:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=3 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_core
+```
+
+Modal control sweep result:
+
+```text
+outputs/analysis/modal_mnist_generator_core.csv
+outputs/analysis/modal_mnist_generator_core.json
+```
+
+Two-seed means:
+
+| model | final eval loss | best loss | diversity ratio | nearest real MSE | pixel mean MSE | pixel std MSE |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| decoder-only | 0.016180 | 0.013708 | 0.956742 | 0.071990 | 0.001419 | 0.001140 |
+| frozen Kuramoto | 0.015950 | 0.013801 | 0.985443 | 0.073762 | 0.001882 | 0.001063 |
+| learned Kuramoto | 0.015638 | 0.013897 | 0.981784 | 0.073769 | 0.002242 | 0.001049 |
+
+Seed-level read:
+
+- Learned Kuramoto has the best two-seed mean final eval loss.
+- Decoder-only has the best two-seed mean best loss and nearest-real MSE.
+- Frozen Kuramoto is essentially tied with learned Kuramoto on diversity and
+  distribution metrics.
+- Visual samples are much better than the CPU smoke: digit-like blobs and loops
+  appear, but samples are still speckled and not clean MNIST digits.
+
+Interpretation:
+
+- This branch is materially closer to the Un-0 idea than the earlier
+  autoencoder/inpainting work: generated samples come from random phase/noise,
+  not from an input image.
+- The first control sweep does not yet show an oscillator-specific win. Learned
+  coupling is competitive, but decoder-only and frozen reservoir explain most
+  of the current generator behavior.
+- The next generator sprint should not simply scale this exact objective. It
+  should add a stronger distributional signal or ONN-native dynamics that can
+  beat the decoder-only/frozen controls: class-conditioned generation,
+  learned/teacher feature drift, phase-rate state, or a richer readout that
+  preserves oscillator attribution.
+
+### Simple Conditional Generator Probe
+
+The first conditional probe added label phase shifts plus class/prototype
+distribution terms, while keeping the same three controls:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=3 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_conditional_core
+```
+
+Result:
+
+```text
+outputs/analysis/modal_mnist_generator_conditional_core.csv
+outputs/analysis/modal_mnist_generator_conditional_core.json
+```
+
+Two-seed means:
+
+| model | final eval loss | best loss | diversity ratio | nearest real MSE | prototype MSE | prototype nearest acc |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| learned Kuramoto | 0.040180 | 0.039609 | 0.868265 | 0.065366 | 0.063690 | 0.092773 |
+| frozen Kuramoto | 0.041478 | 0.039540 | 0.883173 | 0.064547 | 0.065083 | 0.088867 |
+| decoder-only | 0.042624 | 0.039262 | 0.878380 | 0.064868 | 0.065232 | 0.106445 |
+
+Interpretation:
+
+- Label phase shifts did not make the generator meaningfully
+  class-conditional. Prototype-nearest accuracy stayed near chance.
+- Learned Kuramoto had the best final eval loss, but decoder-only had the best
+  best-loss and class-prototype nearest accuracy.
+- Visual samples remained digit-like blobs/strokes, not convincing conditional
+  MNIST digits.
+
+### Un-0-Coupled Conditioning Probe
+
+The closer Un-0 probe added:
+
+- separate conditioning oscillators
+- label-specific unidirectional coupling from conditioning oscillators into the
+  main oscillator pool
+- reference-relative phase readout before the decoder
+
+Modal preset:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=3 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_un0_coupled_core
+```
+
+Result:
+
+```text
+outputs/analysis/modal_mnist_generator_un0_coupled_core.csv
+outputs/analysis/modal_mnist_generator_un0_coupled_core.json
+```
+
+Two-seed means:
+
+| model | final eval loss | best loss | diversity ratio | nearest real MSE | prototype MSE | prototype nearest acc |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| class-coupled Kuramoto | 0.040438 | 0.039375 | 0.878092 | 0.063757 | 0.062613 | 0.122070 |
+| class-coupled frozen reservoir | 0.039324 | 0.039324 | 0.869282 | 0.065137 | 0.062630 | 0.104492 |
+| phase-shift decoder-only | 0.040402 | 0.039208 | 0.853709 | 0.062119 | 0.062876 | 0.102539 |
+
+Interpretation:
+
+- This is closer to the Un-0 architecture than the first conditional probe.
+- Learned class-coupled Kuramoto gives the best class-prototype nearest
+  accuracy and diversity of the three variants.
+- Frozen class-coupled dynamics gives the best final eval loss, and
+  decoder-only still wins nearest-real MSE and best-loss.
+- The visual samples are still speckled MNIST-shaped mass, not clean digits.
+  This branch is alive, but current results do not yet show a strong learned
+  oscillator-specific generator advantage.
+
+Current generator conclusion:
+
+The oscillator-as-generative-prior framing is better aligned with the Un-0
+idea than the old autoencoder branch, but the present MNIST implementation is
+still mostly limited by objective/readout attribution. Class-coupled dynamics
+nudges conditional structure in the right direction; it does not yet deliver
+the qualitative leap from the blog post.
+
+### Low-Decoder Spatial Basis Probe
+
+The new success diagnostics exposed a major attribution problem: small
+generator smokes can spend nearly all trainable capacity in the decoder. A
+synthetic smoke showed `decoder_param_fraction = 0.993`, which means a nominal
+oscillator generator can still be mostly a conventional image decoder.
+
+To pressure-test this, `KuramotoImageGenerator` now supports
+`--decoder-mode spatial_basis`. This replaces the MLP decoder with fixed
+Gaussian image bases and trainable sin/cos phase weights per oscillator:
+
+```text
+final theta
+-> sin/cos phase value per oscillator
+-> fixed spatial Gaussian basis per oscillator
+-> generated image
+```
+
+CPU smoke:
+
+```bash
+python examples/image_mnist_kuramoto_generator.py \
+  --output-dir outputs/reference/mnist_generator_spatial_basis_peak_n32_seed11_2e_smoke \
+  --data-source idx \
+  --train-limit 128 \
+  --eval-limit 64 \
+  --eval-sample-count 64 \
+  --epochs 2 \
+  --batch-size 16 \
+  --seed 11 \
+  --conditional \
+  --class-moment-weight 0.5 \
+  --prototype-weight 0.2 \
+  --label-phase-scale 1.0 \
+  --num-condition-oscillators 8 \
+  --conditioning-mode class_coupling \
+  --readout-mode relative \
+  --decoder-mode spatial_basis \
+  --num-oscillators 32 \
+  --decoder-depth 0 \
+  --steps 4 \
+  --num-projections 32
+```
+
+Smoke result:
+
+| metric | value |
+| --- | ---: |
+| final eval loss | 0.206182 |
+| generated std | 0.006301 |
+| diversity ratio | 0.033129 |
+| decoder param fraction | 0.017283 |
+| trainable recurrent param fraction | 0.982717 |
+| estimated recurrent op fraction | 0.140044 |
+
+Interpretation:
+
+- This is a strong attribution probe, and it does what it was designed to do:
+  decoder capacity drops from almost all of the model to almost none of it.
+- Image generation collapses to dim smooth blobs on the tiny CPU smoke.
+- Peak-normalized spatial bases are more alive than sum-normalized bases, but
+  the current low-capacity readout is too weak to generate MNIST.
+- The next generator architecture should look for a middle ground: structured
+  spatial readout, local convolutional phase readout, hierarchical oscillator
+  fields, or a small decoder with an explicit decoder-fraction budget.
+
+### Structured Local-Basis Readout Probe
+
+The next readout used that middle ground. `KuramotoImageGenerator` now supports
+`--decoder-mode local_basis`, where each oscillator writes a trainable local
+patch through fixed Gaussian patch bases:
+
+```text
+final theta
+-> relative sin/cos phase value per oscillator
+-> per-oscillator local patch weights
+-> fixed Gaussian patch placement
+-> generated image
+```
+
+This is still an attribution probe, but not an impossible one: the decoder can
+draw local stroke fragments, while global composition must come from the phase
+field and conditioning dynamics.
+
+Modal preset:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=3 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_local_readout_core
+```
+
+Result:
+
+```text
+outputs/analysis/modal_mnist_generator_local_readout_core.csv
+outputs/analysis/modal_mnist_generator_local_readout_core.json
+outputs/analysis/modal_mnist_generator_samples/local_class_coupled_kuramoto_seed11.png
+outputs/analysis/modal_mnist_generator_samples/local_class_coupled_frozen_seed11.png
+outputs/analysis/modal_mnist_generator_samples/local_phase_shift_decoder_seed11.png
+```
+
+Two-seed means:
+
+| model | final eval loss | diversity ratio | nearest real MSE | prototype nearest acc | generated std | decoder param fraction | trainable recurrent fraction |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| local-basis class-coupled Kuramoto | 0.040158 | 0.845809 | 0.062803 | 0.321289 | 0.267580 | 0.079592 | 0.920408 |
+| local-basis frozen class-coupled reservoir | 0.053789 | 0.813664 | 0.065187 | 0.087891 | 0.246310 | 0.079592 | 0.000000 |
+| local-basis phase-shift decoder-only | 0.053613 | 0.819346 | 0.066038 | 0.102539 | 0.247662 | 0.157739 | 0.000000 |
+
+Interpretation:
+
+- This is the clearest positive attribution result in the generator branch so
+  far. With a structured, low-capacity readout, learned class-coupled Kuramoto
+  dynamics beat both frozen dynamics and decoder-only controls by about 25% on
+  final eval loss.
+- Prototype-nearest accuracy jumps from near chance in the controls to about
+  32%, so the learned dynamics are carrying class-conditional organization,
+  not just extra ink.
+- The decoder is no longer dominating the model. The winning run has only
+  about 8% of parameters in the decoder and about 92% in trainable recurrent
+  dynamics, so this is a much cleaner oscillator-claim setup than the MLP
+  generator.
+- The samples are still visibly broken: stroke-like fragments, partial loops,
+  and digit-ish masses appear, but global composition is unstable and speckled.
+  This is not yet a qualitative Un-0-style breakthrough.
+
+Updated generator conclusion:
+
+The generator branch now has a real foothold. The MLP readout branch produced
+better-looking distributional shortcuts but weak attribution; the scalar
+spatial-basis branch had strong attribution but too little rendering power; the
+local-basis branch is the first useful middle regime where trained oscillator
+dynamics clearly matter. The next generator sprint should focus on making the
+phase field compose strokes into whole digits without handing the job back to a
+large decoder.
+
+### Spatial Coupling Composition Probe
+
+The local-basis samples suggest the current failure mode is not local stroke
+rendering. It is global composition: fragments, loops, and digit-ish masses
+appear, but they do not reliably settle into coherent whole digits.
+
+To test an ONN-native composition mechanism, `KuramotoImageGenerator` now
+supports `coupling_profile="distance_decay"`. This applies a fixed spatial
+decay profile to the learned pairwise couplings:
+
+```text
+effective coupling_ij
+= learned coupling_ij * distance_profile_ij
+  + coupling_bias_strength * distance_profile_ij
+```
+
+The default remains `coupling_profile="dense"`, so existing generator behavior
+is unchanged. The distance profile is a physics-style inductive bias: mostly
+local coordination, with optional weak long-range communication through
+`coupling_floor`, without giving the renderer a larger decoder.
+
+Tiny synthetic smoke:
+
+```bash
+python examples/image_mnist_kuramoto_generator.py \
+  --output-dir outputs/reference/mnist_generator_distance_decay_local_basis_synthetic_smoke \
+  --data-source synthetic \
+  --model-family kuramoto \
+  --epochs 1 \
+  --train-limit 8 \
+  --eval-limit 4 \
+  --eval-sample-count 4 \
+  --batch-size 4 \
+  --num-oscillators 9 \
+  --decoder-depth 0 \
+  --decoder-mode local_basis \
+  --local-patch-size 3 \
+  --steps 2 \
+  --conditional \
+  --conditioning-mode class_coupling \
+  --num-condition-oscillators 3 \
+  --readout-mode relative \
+  --coupling-profile distance_decay \
+  --coupling-length-scale 0.6 \
+  --coupling-floor 0.05 \
+  --coupling-bias-strength 0.1
+```
+
+Smoke result:
+
+| metric | value |
+| --- | ---: |
+| final eval loss | 0.118524 |
+| coupling profile mean | 0.142904 |
+| coupling profile max | 0.286885 |
+| decoder param fraction | 0.294756 |
+| trainable recurrent param fraction | 0.705244 |
+| phase mean abs displacement | 0.027251 |
+
+Modal preset:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=3 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_spatial_coupling_core
+```
+
+Result:
+
+```text
+outputs/analysis/modal_mnist_generator_spatial_coupling_core.csv
+outputs/analysis/modal_mnist_generator_spatial_coupling_core.json
+outputs/analysis/modal_mnist_generator_samples/spatial_coupled_kuramoto_seed11.png
+outputs/analysis/modal_mnist_generator_samples/spatial_coupled_frozen_seed11.png
+outputs/analysis/modal_mnist_generator_samples/spatial_phase_shift_decoder_seed11.png
+```
+
+Two-seed means:
+
+| model | final eval loss | diversity ratio | nearest real MSE | prototype nearest acc | generated std | decoder param fraction | trainable recurrent fraction |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| spatial-decay local-basis Kuramoto | 0.040267 | 0.843700 | 0.062888 | 0.321289 | 0.267462 | 0.079592 | 0.920408 |
+| spatial-decay frozen reservoir | 0.053787 | 0.813637 | 0.065188 | 0.088867 | 0.246321 | 0.079592 | 0.000000 |
+| spatial-decay decoder-only | 0.053614 | 0.819352 | 0.066038 | 0.099609 | 0.247662 | 0.157739 | 0.000000 |
+
+Dense-vs-spatial comparison:
+
+| trained local-basis variant | final eval loss | prototype nearest acc | diversity ratio | phase displacement |
+| --- | ---: | ---: | ---: | ---: |
+| dense coupling | 0.040158 | 0.321289 | 0.845809 | 0.323149 |
+| distance-decay coupling | 0.040267 | 0.321289 | 0.843700 | 0.319241 |
+
+Interpretation:
+
+- Distance-decay coupling preserves the main positive result: trained
+  class-coupled dynamics still beat frozen and decoder-only controls by about
+  25% on final eval loss.
+- It does not improve the dense local-basis generator. The difference from
+  dense coupling is within noise and slightly worse on loss/diversity.
+- The representative samples are visually very close to the dense local-basis
+  samples: stroke fragments and partial loops, but still unstable whole-digit
+  composition.
+- This points to a sharper attribution question. The trained-vs-frozen gap may
+  be driven more by learned class-conditioning oscillators/couplings than by
+  learned main-pool recurrent coupling. The next control should separate
+  trainable conditioning dynamics from trainable recurrent field dynamics
+  before adding another architectural embellishment.
+
+### Trainability Attribution Probe
+
+To isolate the source of the local-basis win, `KuramotoImageGenerator` now
+separates:
+
+- `train_recurrent_dynamics`: train/freeze main-pool omega and learned pairwise
+  recurrent coupling
+- `train_conditioning_dynamics`: train/freeze label phase shifts and
+  class-conditioning oscillator phases/couplings
+
+Both default to the old `train_dynamics` behavior, so existing generator runs
+keep their original semantics unless these flags are set explicitly.
+
+This also fixes a control sharpness issue: direct `phase_shift` conditioning is
+now governed by `train_conditioning_dynamics`, so decoder-only controls no
+longer silently train label phase shifts unless requested.
+
+Tiny synthetic smoke:
+
+```bash
+python examples/image_mnist_kuramoto_generator.py \
+  --output-dir outputs/reference/mnist_generator_conditioning_only_synthetic_smoke \
+  --data-source synthetic \
+  --model-family kuramoto \
+  --epochs 1 \
+  --train-limit 8 \
+  --eval-limit 4 \
+  --eval-sample-count 4 \
+  --batch-size 4 \
+  --num-oscillators 9 \
+  --decoder-depth 0 \
+  --decoder-mode local_basis \
+  --local-patch-size 3 \
+  --steps 2 \
+  --conditional \
+  --conditioning-mode class_coupling \
+  --num-condition-oscillators 3 \
+  --readout-mode relative \
+  --no-train-recurrent-dynamics \
+  --train-conditioning-dynamics
+```
+
+Smoke result:
+
+| metric | value |
+| --- | ---: |
+| final eval loss | 0.109048 |
+| train recurrent dynamics | false |
+| train conditioning dynamics | true |
+| trainable main recurrent params | 0 |
+| trainable conditioning params | 300 |
+| decoder param fraction | 0.294756 |
+| trainable recurrent param fraction | 0.647948 |
+
+Modal preset:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=3 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_trainability_attribution_core
+```
+
+Result:
+
+```text
+outputs/analysis/modal_mnist_generator_trainability_attribution_core.csv
+outputs/analysis/modal_mnist_generator_trainability_attribution_core.json
+outputs/analysis/modal_mnist_generator_samples/attrib_all_trained_seed11.png
+outputs/analysis/modal_mnist_generator_samples/attrib_conditioning_only_seed11.png
+outputs/analysis/modal_mnist_generator_samples/attrib_recurrent_only_seed11.png
+outputs/analysis/modal_mnist_generator_samples/attrib_frozen_seed11.png
+```
+
+Two-seed means:
+
+| variant | final eval loss | prototype nearest acc | diversity ratio | generated std | phase displacement | trainable main recurrent params | trainable conditioning params |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| all-trained | 0.040159 | 0.322266 | 0.845796 | 0.267580 | 0.323165 | 65,792 | 82,240 |
+| conditioning-only | 0.040346 | 0.322266 | 0.842600 | 0.267108 | 0.310421 | 0 | 82,240 |
+| recurrent-only | 0.052771 | 0.097656 | 0.817216 | 0.248597 | 0.262592 | 65,792 | 0 |
+| frozen | 0.053789 | 0.087891 | 0.813667 | 0.246311 | 0.248903 | 0 | 0 |
+
+Interpretation:
+
+- Conditioning-only explains almost the entire local-basis generator win. It
+  matches all-trained prototype accuracy and is within about 0.5% relative loss.
+- Recurrent-only barely beats frozen on loss and stays near chance on
+  prototype-nearest accuracy. Under this objective, the main recurrent
+  oscillator field is not the primary source of class-conditional structure.
+- The representative sample grids agree with the metrics. All-trained vs
+  conditioning-only has a small mean absolute pixel difference, while
+  conditioning-only vs recurrent-only is much farther apart.
+- This does not make the branch useless. It sharpens it: the current
+successful mechanism is a learned oscillator-conditioned drive into a
+structured local phase renderer, not yet a self-organizing recurrent field.
+
+### Unconditional Local-Basis Probe
+
+The trainability attribution result raised a sharp concern: maybe the
+class-conditional generator was mostly learning a label-to-renderer drive, not
+an oscillator field. To remove that route, this probe disables labels,
+class-moment loss, and prototype loss while keeping the low-capacity
+`local_basis` renderer.
+
+Modal preset:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=3 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_unconditional_local_readout_core
+```
+
+Result:
+
+```text
+outputs/analysis/modal_mnist_generator_unconditional_local_readout_core.csv
+outputs/analysis/modal_mnist_generator_samples/uncond_local_kuramoto_seed11.png
+outputs/analysis/modal_mnist_generator_samples/uncond_local_frozen_seed11.png
+outputs/analysis/modal_mnist_generator_samples/uncond_local_decoder_seed11.png
+```
+
+Two-seed means:
+
+| variant | best loss | final eval loss | diversity ratio | nearest real MSE | generated std | phase displacement | recurrent op fraction |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| learned Kuramoto | 0.024296 | 0.024530 | 0.858939 | 0.068686 | 0.255290 | 0.257059 | 0.172492 |
+| frozen Kuramoto | 0.025112 | 0.025418 | 0.855574 | 0.068636 | 0.253060 | 0.248900 | 0.172492 |
+| decoder-only | 0.025203 | 0.025682 | 0.856225 | 0.068599 | 0.252956 | 0.000000 | 0.000000 |
+
+Interpretation:
+
+- This is the first generator control where learned main-pool recurrent
+  dynamics clearly win after removing class conditioning. The relative
+  best-loss gain is about 3.2% over frozen Kuramoto and about 3.6% over
+  decoder-only.
+- The win is real but small. Visual samples remain fragmented stroke textures,
+  not convincing MNIST digits. Learned and frozen sample grids are visibly
+  close even though they are not identical.
+- This supports the branch, but it does not support a "just tune it" story.
+  The recurrent phase field contributes under the current objective, yet the
+  objective/readout still allows texture-level distribution matching without
+  learning whole-digit composition.
+- The next useful generator move should not be generic hyperparameter search.
+  It should force temporal organization to matter: trajectory/self-consistency
+  losses, longer settling with step-wise targets, denoising/phase-noise
+  consistency, or a weak-conditioning task where labels cannot directly drive
+  the output.
+
+### Resize-Conv Pixel-Drift Probe
+
+After inspecting the open-source Un-0 code, the next structural port was a
+pixel-only version of their class-conditional drift objective. This is still
+lighter than the released system: it does not use DINOv2 or another semantic
+feature extractor, and it does not yet maintain a large per-class queue. The
+purpose was to test whether the Un-0-style objective direction helps the
+MNIST-scale oscillator generator before adding more machinery.
+
+Implemented pieces:
+
+- `loss_mode="pixel_drift"` in `MNISTGeneratorExperimentConfig`.
+- `conditional_pixel_drift_loss`, a fixed-shape JAX loss that pulls generated
+  samples toward same-class real positives and uses same-class generated plus
+  other-class real samples as negatives.
+- CLI controls for `--pixel-drift-weight`, `--distributional-weight`,
+  `--drift-gamma`, and `--drift-temperatures`.
+- Modal preset `mnist_generator_resize_conv_pixel_drift_core`, comparing
+  learned Kuramoto, frozen reservoir, and decoder-only controls over seeds 11
+  and 12.
+
+Modal preset:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=3 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_resize_conv_pixel_drift_core
+```
+
+Result:
+
+```text
+outputs/analysis/modal_mnist_generator_resize_conv_pixel_drift_core.csv
+outputs/analysis/modal_mnist_generator_samples/resize_conv_drift_kuramoto_seed11.png
+outputs/analysis/modal_mnist_generator_samples/resize_conv_drift_kuramoto_seed12.png
+outputs/analysis/modal_mnist_generator_samples/resize_conv_drift_frozen_seed11.png
+outputs/analysis/modal_mnist_generator_samples/resize_conv_drift_decoder_seed11.png
+```
+
+Two-seed means:
+
+| variant | best drift loss | final drift loss | prototype nearest acc | diversity ratio | nearest real MSE | generated std | phase displacement | recurrent op fraction |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| learned Kuramoto | 0.000829 | 0.000847 | 0.740234 | 1.466917 | 0.092464 | 0.356046 | 0.402894 | 0.341463 |
+| frozen Kuramoto | 0.000813 | 0.000851 | 0.096680 | 1.140204 | 0.087139 | 0.293471 | 0.242569 | 0.341463 |
+| decoder-only | 0.000830 | 0.000867 | 0.087891 | 1.064461 | 0.080928 | 0.281663 | 0.000000 | 0.000000 |
+
+Interpretation:
+
+- This is a genuine attribution improvement, but not a clean loss win. Learned
+  Kuramoto is effectively tied with frozen/decoder controls on drift loss, yet
+  it improves prototype-nearest class alignment by roughly 7.6x over frozen
+  and 8.4x over decoder-only.
+- The visual grids support the split metric read. Learned Kuramoto samples are
+  sharper, more stroke-like, and more class-organized than controls, while
+  frozen/decoder samples are more speckled and less coherent.
+- The samples are still not convincing MNIST digits. They are saturated stroke
+  fragments and partial loops, not stable complete digits.
+- Pixel-only drift appears to reward class-texture and stroke evidence, but it
+  does not supply enough semantic/global structure to force whole-digit
+  composition. This matches the Un-0 source audit: their released objective is
+  pixel drift plus feature-space drift, not pixel drift alone.
+- The next meaningful port is not another broad hyperparameter sweep. It is a
+  semantic target: a small MNIST feature extractor or classifier feature drift,
+  followed by the same frozen/decoder attribution controls. A trajectory or
+  step-wise consistency loss is also plausible, but feature drift is the
+  clearest missing piece from the released Un-0 recipe.
+
+### Queue-Backed Pixel-Drift Port
+
+After inspecting the Un-0 source, one important gap remained in the pixel-drift
+probe: same-class positives were batch-local only. Un-0 uses a per-class
+positive memory/queue, which gives each generated sample a richer same-class
+target set than the current mini-batch happens to contain.
+
+Implemented pieces:
+
+- `MNISTDriftQueue`, a host-side per-class FIFO memory for positive real
+  examples.
+- `conditional_pixel_drift_loss` can now separate generated labels,
+  queue-positive labels, and current-batch other-class real labels.
+- Feature drift reuses the same positive-memory path, so queue-backed learned
+  feature drift is possible later.
+- CLI controls: `--drift-queue-size` and `--drift-queue-num-pos`.
+- Modal preset `mnist_generator_resize_conv_pixel_drift_queue_core`.
+
+Modal preset:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=3 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_resize_conv_pixel_drift_queue_core
+```
+
+Result:
+
+```text
+outputs/analysis/modal_mnist_generator_resize_conv_pixel_drift_queue_core.csv
+outputs/analysis/modal_mnist_generator_resize_conv_pixel_drift_queue_core.json
+outputs/analysis/modal_mnist_generator_samples/resize_conv_drift_queue_kuramoto_seed12.png
+outputs/analysis/modal_mnist_generator_samples/resize_conv_drift_queue_decoder_seed11.png
+```
+
+The sweep completed on Modal with `OSCNET_MODAL_MAX_CONTAINERS=3`. The queue was
+fully warmed by the final epochs: `final_train_drift_queue_ready = 1.0` for all
+six runs, and all ten per-class queues reached `512` examples.
+
+Two-seed means:
+
+| variant | best loss | final loss | prototype nearest acc | diversity ratio | nearest real MSE | generated std | phase displacement |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| learned Kuramoto | 0.000810 | 0.000813 | 0.736328 | 1.447054 | 0.087654 | 0.352506 | 0.424440 |
+| frozen Kuramoto | 0.000816 | 0.000827 | 0.118164 | 1.016329 | 0.076852 | 0.268222 | 0.242569 |
+| decoder-only | 0.000814 | 0.000852 | 0.096680 | 1.010468 | 0.075112 | 0.265230 | 0.000000 |
+
+Comparison with batch-local pixel drift:
+
+| variant | batch-local final loss | queue final loss | batch-local proto acc | queue proto acc |
+| --- | ---: | ---: | ---: | ---: |
+| learned Kuramoto | 0.000847 | 0.000813 | 0.740234 | 0.736328 |
+| frozen Kuramoto | 0.000851 | 0.000827 | 0.096680 | 0.118164 |
+| decoder-only | 0.000867 | 0.000852 | 0.087891 | 0.096680 |
+
+Interpretation:
+
+- Queue-backed positives improve the objective modestly for all variants, so the
+  queue mechanism is a real training improvement.
+- The learned Kuramoto attribution gap survives. Prototype-nearest class
+  alignment remains about 6.2x over frozen and 7.6x over decoder-only.
+- The queue does not solve global sample quality. The learned Kuramoto grid is
+  more stroke-like and class-organized than decoder-only, but still saturated,
+  fragmented, and not reliably complete digits.
+- This narrows the missing Un-0 ingredients. Positive-memory size was not the
+  main bottleneck. The next source-faithful move should combine queue-backed
+  drift with a stronger semantic feature target, or move to a dataset/feature
+  extractor closer to Un-0's CIFAR/DINO regime.
+- Two representative PNGs were downloaded. Additional seed-11 Kuramoto/frozen
+  grid downloads hit Modal `GOAWAY` connection closes, but the sweep outputs and
+  JSON summaries are complete.
+
+### Fixed Structural Feature-Drift Probe
+
+The first feature-space follow-up added a deterministic MNIST feature map:
+`7x7` pooled ink layout, pooled signed edge fields, row/column profiles, and
+low-order image moments. This was meant as a cheap bridge between pixel-only
+drift and a learned semantic feature target. It is differentiable and reusable,
+but it is not a learned classifier or DINO-like representation.
+
+Implemented pieces:
+
+- `mnist_structural_features` and `conditional_feature_drift_loss`.
+- `loss_mode="feature_drift"` and `loss_mode="pixel_feature_drift"`.
+- CLI controls for `--feature-drift-weight` and `--feature-drift-mode`.
+- Modal preset `mnist_generator_resize_conv_feature_drift_core`, using
+  `0.5 * pixel_drift + structural_feature_drift`.
+
+Modal preset:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=3 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_resize_conv_feature_drift_core
+```
+
+Result:
+
+```text
+outputs/analysis/modal_mnist_generator_resize_conv_feature_drift_core.csv
+outputs/analysis/modal_mnist_generator_samples/resize_conv_feature_kuramoto_seed11.png
+outputs/analysis/modal_mnist_generator_samples/resize_conv_feature_kuramoto_seed12.png
+outputs/analysis/modal_mnist_generator_samples/resize_conv_feature_frozen_seed11.png
+outputs/analysis/modal_mnist_generator_samples/resize_conv_feature_decoder_seed11.png
+```
+
+Two-seed means:
+
+| variant | best loss | final loss | feature drift | pixel drift | prototype nearest acc | diversity ratio | nearest real MSE | generated std | phase displacement |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| learned Kuramoto | 0.003957 | 0.004520 | 0.004060 | 0.000922 | 0.641602 | 1.549316 | 0.105807 | 0.375672 | 0.384248 |
+| frozen Kuramoto | 0.003681 | 0.003842 | 0.003425 | 0.000833 | 0.111328 | 0.974674 | 0.071494 | 0.260678 | 0.242569 |
+| decoder-only | 0.003822 | 0.003858 | 0.003435 | 0.000845 | 0.096680 | 0.987100 | 0.072389 | 0.260219 | 0.000000 |
+
+Interpretation:
+
+- This is a useful negative result. The fixed feature target is easier for
+  conservative frozen/decoder controls to optimize than for learned Kuramoto.
+- Learned Kuramoto still produces much stronger class-prototype alignment:
+  about 5.8x over frozen and 6.6x over decoder-only. But it pays for that with
+  overactive, high-contrast fragments, worse nearest-real MSE, and worse
+  feature-drift loss.
+- The visual samples confirm the metric split. Structural feature drift makes
+  the learned oscillator samples brighter and more class-suggestive, but not
+  more complete. Frozen/decoder controls remain blurrier and less class
+  organized, but they satisfy the hand-built target better.
+- This means "feature-space drift" is not magic by itself. The hand-built
+  feature map mostly encodes generic ink geometry. It does not supply the
+  semantic manifold that Un-0 gets from DINOv2-like features.
+- The infrastructure is still valuable: OscNet can now train generator losses
+  in a non-pixel feature space. The next meaningful step is a learned MNIST
+  classifier/encoder feature target, frozen during generator training, with the
+  same attribution controls.
+
+### Learned MNIST Feature-Drift Probe
+
+The next Un-0-inspired probe replaced the hand-built structural feature map with
+a small frozen MNIST classifier. The classifier is trained first, then generator
+training uses its normalized penultimate features as the semantic feature space
+for conditional drift. This is still much smaller than Un-0's DINOv2 feature
+target, but it tests the same structural idea: the generator should move toward
+same-class real samples in a learned representation, not only in pixel space.
+
+Implemented pieces:
+
+- `MNISTFeatureClassifier` and `train_mnist_feature_classifier`.
+- `feature_drift_mode="learned"`.
+- CLI controls for `--learned-feature-epochs`, `--learned-feature-dim`,
+  `--learned-feature-depth`, `--learned-feature-learning-rate`, and
+  `--learned-feature-weight-decay`.
+- Modal preset `mnist_generator_resize_conv_learned_feature_drift_core`, using
+  `0.5 * pixel_drift + learned_feature_drift`.
+
+Modal preset:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=3 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_resize_conv_learned_feature_drift_core
+```
+
+Result:
+
+```text
+outputs/analysis/modal_mnist_generator_resize_conv_learned_feature_drift_core.csv
+outputs/analysis/modal_mnist_generator_resize_conv_learned_feature_drift_core.json
+```
+
+Two-seed means:
+
+| variant | best loss | final loss | feature drift | pixel drift | feature-clf acc | prototype nearest acc | diversity ratio | nearest real MSE | generated std |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| learned Kuramoto | 0.009964 | 0.010862 | 0.010309 | 0.001105 | 0.911508 | 0.185547 | 1.446040 | 0.104941 | 0.294305 |
+| frozen Kuramoto | 0.009548 | 0.010700 | 0.010126 | 0.001147 | 0.911508 | 0.105469 | 1.803490 | 0.137763 | 0.348196 |
+| decoder-only | 0.009403 | 0.010671 | 0.010175 | 0.000991 | 0.911508 | 0.095703 | 1.470080 | 0.099960 | 0.292720 |
+
+Interpretation:
+
+- The learned classifier is real enough for this probe: final eval accuracy is
+  about 91% on the limited training setup.
+- This did not produce the hoped-for Un-0-like jump. Decoder-only and frozen
+  controls optimize the learned-feature drift loss at least as well as learned
+  Kuramoto.
+- Learned Kuramoto still has better prototype-nearest class alignment than
+  controls, but the gap is much smaller than the pixel-only drift result and the
+  samples remain fragmentary.
+- The likely lesson is that a small MNIST classifier feature target is not a
+  substitute for Un-0's pretrained DINO-style feature space and per-class
+  positive queue. It supplies a semantic signal, but not a strong generative
+  manifold.
+- This makes the next source-faithful missing piece clearer: queue-backed
+  class-conditional drift and/or a stronger pretrained feature target should be
+  tested before declaring the Un-0 recipe structurally weak.
+
+### Queue + Learned Feature-Drift Probe
+
+This probe combined the two closest Un-0 ports currently available in OscNet:
+queue-backed same-class positives plus a frozen learned MNIST feature target.
+It answers a narrow question left open by the prior two results: did learned
+feature drift fail mainly because same-class positives were too sparse?
+
+Modal preset:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=3 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_resize_conv_learned_feature_drift_queue_core
+```
+
+Result:
+
+```text
+outputs/analysis/modal_mnist_generator_resize_conv_learned_feature_drift_queue_core.csv
+outputs/analysis/modal_mnist_generator_resize_conv_learned_feature_drift_queue_core.json
+outputs/analysis/modal_mnist_generator_samples/resize_conv_learned_feature_queue_kuramoto_seed12.png
+outputs/analysis/modal_mnist_generator_samples/resize_conv_learned_feature_queue_decoder_seed12.png
+```
+
+The learned feature classifiers again reached about 91% eval accuracy, and the
+queue was fully active by the final epochs.
+
+Two-seed means:
+
+| variant | best loss | final loss | feature drift | pixel drift | prototype nearest acc | diversity ratio | nearest real MSE | generated std |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| learned Kuramoto | 0.009477 | 0.010396 | 0.009914 | 0.000963 | 0.312500 | 1.206450 | 0.082502 | 0.265216 |
+| frozen Kuramoto | 0.009279 | 0.010322 | 0.009692 | 0.001261 | 0.083008 | 1.590300 | 0.131546 | 0.314638 |
+| decoder-only | 0.009495 | 0.010427 | 0.009869 | 0.001117 | 0.123047 | 1.475574 | 0.105314 | 0.299124 |
+
+Comparison against the two nearest probes:
+
+| probe | learned Kuramoto final loss | learned Kuramoto proto acc | learned Kuramoto nearest real MSE |
+| --- | ---: | ---: | ---: |
+| learned feature drift, no queue | 0.010862 | 0.185547 | 0.104941 |
+| pixel drift with queue | 0.000813 | 0.736328 | 0.087654 |
+| learned feature drift with queue | 0.010396 | 0.312500 | 0.082502 |
+
+Interpretation:
+
+- The queue helps learned-feature drift somewhat: learned Kuramoto improves from
+  about 0.186 to 0.313 prototype-nearest accuracy and gets a lower final loss
+  than the no-queue learned-feature run.
+- It does not preserve the strong pixel-queue result. Prototype-nearest accuracy
+  falls from about 0.736 with pixel queue alone to about 0.313 with
+  learned-feature queue.
+- Learned Kuramoto still beats frozen and decoder controls on class alignment,
+  but the frozen model has slightly better best/final loss and feature-drift
+  loss. So the feature target is not cleanly rewarding learned oscillator
+  dynamics.
+- Visual samples confirm the mixed metric read: queue+feature Kuramoto is more
+  organized than decoder-only but less digit-like/class-consistent than
+  pixel-queue Kuramoto.
+- This is a useful negative. Sparse positives were not the main reason learned
+  MNIST feature drift failed. The bottleneck is probably the feature target
+  itself: a small MLP classifier feature space is not acting like Un-0's DINOv2
+  semantic manifold.
+
+### Un-0 Source Alignment: Dynamic Conditioning Oscillators
+
+Reading the open-source Un-0 implementation clarified that our first
+`class_coupling` port was still a simplification. It used a learned static
+class phase anchor. The Un-0 source instead evolves a separate conditioning
+oscillator population and uses the class label to select a one-way drive matrix
+from that conditioning pool into the main oscillator pool.
+
+Port step:
+
+- `KuramotoImageGenerator` now supports
+  `conditioning_mode="class_oscillator"`.
+- This mode samples random conditioning phases, evolves them under their own
+  Kuramoto dynamics, and applies class-specific unidirectional coupling into
+  the main oscillator pool.
+- Readout now distinguishes `mean_relative` from `ref_oscillator`; the old
+  `relative` mode remains as a ref-oscillator alias for existing experiments.
+- Traces now expose `condition_initial_theta`,
+  `condition_theta_trajectory`, `condition_final_theta`, `condition_omega`,
+  and `condition_coupling`.
+
+Next preset:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=3 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_resize_conv_pixel_drift_queue_un0_condition_core
+```
+
+This is deliberately not a new objective. It keeps the strongest current MNIST
+generator setup fixed: resize-conv decoder plus queue-backed pixel drift. The
+only scientific variable is source-faithful dynamic conditioning plus
+`mean_relative` readout. Compare it directly against
+`modal_mnist_generator_resize_conv_pixel_drift_queue_core.csv`.
+
+Result:
+
+```text
+outputs/analysis/modal_mnist_generator_resize_conv_pixel_drift_queue_un0_condition_core.csv
+outputs/analysis/modal_mnist_generator_resize_conv_pixel_drift_queue_un0_condition_core.json
+```
+
+Two-seed means, compared to the previous static `class_coupling` queue-backed
+pixel-drift branch:
+
+| branch | variant | final loss | prototype nearest acc | nearest real MSE | diversity ratio | generated std |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| static class coupling | learned Kuramoto | 0.000813 | 0.736328 | 0.087654 | 1.447054 | 0.352506 |
+| static class coupling | frozen | 0.000827 | 0.118164 | 0.076852 | 1.016329 | 0.268222 |
+| static class coupling | decoder-only | 0.000852 | 0.096680 | 0.075112 | 1.010468 | 0.265230 |
+| dynamic condition oscillator | learned Kuramoto | 0.000810 | 0.094727 | 0.080897 | 1.058222 | 0.272014 |
+| dynamic condition oscillator | frozen | 0.000867 | 0.086914 | 0.084220 | 1.066520 | 0.283143 |
+| dynamic condition oscillator | decoder-only | 0.000836 | 0.108398 | 0.077674 | 1.038647 | 0.264360 |
+
+Interpretation:
+
+- Source-faithful dynamic conditioning did not improve the MNIST proxy. The
+  learned Kuramoto final loss is similar to the static branch, but the class
+  alignment signal collapses from about 0.736 to about 0.095.
+- This means the earlier strong class-alignment result was not simply “because
+  Un-0 has conditioning oscillators.” In our MNIST pixel-drift setting, the
+  static class phase anchor is acting as a much stronger class prior than the
+  dynamic one-way oscillator drive.
+- The result does not falsify Un-0. It says the conditioning block alone is not
+  the transferable magic ingredient. Un-0's actual success likely depends on
+  the full recipe: large oscillator count, image-scale task, DINOv2 drift
+  manifold, long training, and FID-style evaluation.
+- For OscNet, this is a useful narrowing result. The next generator work should
+  either bring in a stronger pretrained feature target or move closer to the
+  CIFAR-10 recipe, rather than continuing to mutate the MNIST pixel objective.
+
+### Un-0 Reference Calibration Helper
+
+After the dynamic-conditioner result, the next useful calibration is to run the
+released Un-0 checkpoint with the upstream code, not another OscNet
+approximation. This asks a simple question: does the reference recipe itself
+produce sane samples in our workflow, and what are its basic scale/throughput
+numbers?
+
+New helper:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_un0_reference.py \
+  --pretrained cifar10/n1024 \
+  --classes 0,1,2,3,4,5,6,7,8,9 \
+  --samples-per-class 4 \
+  --seed 42
+```
+
+This runs in an isolated PyTorch Modal image and installs
+`unconv-ai/Un-0` at commit `43f2587`. It writes a local PNG sample grid and
+lightweight JSON/CSV metrics under `outputs/analysis/un0_reference/`. It is not
+FID and it is not an OscNet model; it is a reference calibration target.
+
+Reference runs completed:
+
+```text
+outputs/analysis/un0_reference/cifar10_n1024_seed42_stepsckpt.png
+outputs/analysis/un0_reference/cifar10_n1024_seed42_stepsckpt.json
+outputs/analysis/un0_reference/cifar10_n4096_seed42_stepsckpt.png
+outputs/analysis/un0_reference/cifar10_n4096_seed42_stepsckpt.json
+outputs/analysis/un0_reference/un0_reference_runs.csv
+```
+
+| checkpoint | samples | oscillators | params | steps | sample/s | generated mean | generated std |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `cifar10/n1024` | 40 | 1024 | 1,289,387 | 10 | 3.35 | 0.458293 | 0.242680 |
+| `cifar10/n4096` | 20 | 4096 | 19,434,123 | 10 | 2.40 | 0.499176 | 0.232683 |
+
+Qualitative read:
+
+- Both released checkpoints produced recognizable CIFAR-like class samples with
+  the upstream code and pretrained weights. The `n4096` grid is clearly stronger
+  and close to the visual category structure advertised by the project.
+- This is an important sanity anchor: oscillators-as-generative-prior is not
+  obviously doomed. The reference stack can generate recognizable images.
+- The gap is therefore not "oscillators are trash" in general. The gap is
+  between the full Un-0 recipe and our MNIST/JAX proxy: data/task scale,
+  trained checkpoint quality, DINO feature drift, full training length, and
+  probably optimizer/LR recipe.
+- Next OscNet generator work should use this as the north star. Either move
+  toward a CIFAR-10 reproduction path, or add a stronger pretrained feature
+  drift target before spending more time on MNIST-only objective variants.
+
+Updated generator conclusion:
+
+The Un-0-style branch is alive as a testbed, and the open-source Un-0 code
+materially improved the direction. Resize-conv decoding plus pixel drift gives
+stronger class-structured oscillator behavior than the earlier loose analogues.
+However, neither fixed structural feature drift, a small learned MNIST feature
+target, nor the source-faithful dynamic conditioning oscillator block delivered
+the qualitative leap. The best MNIST result still comes from the simpler static
+class-coupling pixel-queue setup, which behaves more like a strong class prior
+than a faithful miniature of Un-0. The reference calibration also shows that
+released Un-0 checkpoints do generate recognizable CIFAR-like samples under the
+upstream stack, so the failure is not "the whole idea is empty." The current
+evidence says our MNIST port captures parts of Un-0's skeleton, but not the full
+recipe. The remaining source-faithful gaps are a stronger pretrained/semantic
+feature target, scale, and formal decoder-only/reservoir/trained-step ablations
+under matched learning-rate sweeps.
+
+### MNIST-Native Phase VAE Pivot
+
+The unpaired generator branch was too easy to underconstrain: several variants
+could optimize drift/prototype metrics without becoming a good MNIST generator.
+To answer the user's sharper question, we added a deliberately conventional
+MNIST generative objective while keeping oscillator dynamics in the latent path.
+
+New reusable pieces:
+
+- `KuramotoPhaseVAE` in `oscnet.models.generative`.
+- `MNISTPhaseVAEExperimentConfig` and `run_mnist_phase_vae_experiment` in
+  `oscnet.experiments.mnist_phase_vae`.
+- `examples/image_mnist_phase_vae.py`.
+- `scripts/modal_mnist_phase_vae.py`.
+
+The model encodes an image to Gaussian `mu/logvar`, samples `z`, wraps `z` as a
+phase vector, optionally evolves it through Kuramoto dynamics, and decodes
+`sin/cos` phase features. Generation samples the same Gaussian prior. This is
+not a full Un-0 reproduction; it is the simplest honest MNIST generator that can
+test whether phase evolution helps.
+
+CPU smoke:
+
+```bash
+python examples/image_mnist_phase_vae.py \
+  --output-dir outputs/reference/mnist_phase_vae_real_smoke_seed21 \
+  --data-source idx \
+  --train-limit 512 \
+  --eval-limit 128 \
+  --eval-sample-count 32 \
+  --epochs 2 \
+  --batch-size 32 \
+  --seed 21 \
+  --latent-dim 16 \
+  --hidden-dim 128 \
+  --encoder-depth 2 \
+  --decoder-depth 2 \
+  --steps 2 \
+  --kl-weight 0.001 \
+  --learning-rate 0.001 \
+  --checkpoint-every 2 \
+  --artifact-every 2
+```
+
+The smoke run learned immediately: eval MSE improved from `0.128760` after
+epoch 1 to `0.065991` after epoch 2. Samples were digit-like but mode-biased,
+as expected from 512 examples and two epochs.
+
+Modal preset:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=3 modal run scripts/modal_mnist_phase_vae.py \
+  --sweep-preset mnist_phase_vae_core
+```
+
+Result:
+
+```text
+outputs/analysis/modal_mnist_phase_vae_core.csv
+outputs/analysis/modal_mnist_phase_vae_samples/
+```
+
+Single-seed 20-epoch sweep on 10k MNIST train examples:
+
+| model | final eval loss | final eval MSE | recon MSE | sample diversity ratio | phase displacement |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| frozen phase VAE | 0.148297 | 0.023259 | 0.022564 | 0.862280 | 0.066502 |
+| trainable phase VAE | 0.148547 | 0.023408 | 0.023042 | 0.852783 | 0.070177 |
+| no-dynamics VAE | 0.152604 | 0.025015 | 0.024145 | 0.794149 | 0.000000 |
+
+Qualitative read:
+
+- The MNIST generative task now works. Prior samples are visibly digit-like,
+  not noise or metric gaming.
+- Oscillator phase evolution helps relative to the no-dynamics VAE under the
+  same scaffold: about a 6 to 7 percent reconstruction-MSE improvement in this
+  run.
+- The best result is the frozen phase transform, with trainable phase dynamics
+  essentially tied. That is a useful but humbling attribution result: current
+  phase evolution acts like a helpful latent periodic transform/regularizer,
+  not yet like a learned generative engine.
+- This is a better base for future generator work than the unpaired MNIST drift
+  branch. Next work should probe stronger latent dynamics, phase-space priors,
+  and longer/annealed settling from this VAE baseline before returning to
+  unpaired generation.
+
+### Forced Phase-Dynamics Probe
+
+To test whether the phase VAE simply needed a larger oscillator pool and
+stronger phase motion, we added `phase_readout_mode` to `KuramotoPhaseVAE` and
+ran a forced-dynamics Modal preset:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=3 modal run scripts/modal_mnist_phase_vae.py \
+  --sweep-preset mnist_phase_vae_forced_dynamics_core
+```
+
+This preset uses 128 latent phases, eight recurrent steps, `dt=0.2`,
+`coupling_strength=2.0`, `omega_scale=0.5`, `coupling_init_scale=0.2`, and
+`phase_readout_mode="mean_relative"`. The matched controls are the same VAE
+with frozen dynamics and no dynamics.
+
+Result:
+
+```text
+outputs/analysis/modal_mnist_phase_vae_forced_dynamics_core.csv
+outputs/analysis/modal_mnist_phase_vae_samples/
+```
+
+Single-seed 20-epoch sweep on 10k MNIST train examples:
+
+| model | final eval loss | final eval MSE | recon MSE | sample diversity ratio | phase displacement |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| no-dynamics relative VAE | 0.157189 | 0.025903 | 0.024460 | 0.691284 | 0.000000 |
+| frozen forced phase VAE | 0.159447 | 0.026885 | 0.026314 | 0.720228 | 0.654761 |
+| trainable forced phase VAE | 0.160099 | 0.027438 | 0.026466 | 0.722657 | 0.588574 |
+
+Interpretation:
+
+- Stronger phase motion did not help. It raised phase displacement from about
+  `0.07` radians in the baseline phase VAE to about `0.6` radians, but both
+  dynamic variants lost to the no-dynamics relative-phase control.
+- The qualitative samples still look digit-like, so this is not a training
+  collapse. It is evidence that simply making the latent oscillator move harder
+  is the wrong knob for this VAE setting.
+- The current best MNIST VAE result remains the milder 32-phase frozen/learned
+  dynamics sweep. The forced probe narrows the next hypothesis: learned
+  oscillator dynamics probably need an objective that requires computation
+  during recurrent settling, rather than a decoder that can solve generation
+  from a static latent phase code.
+- For Un-0 interpretation, this weakens the idea that their success comes from
+  generic large phase motion alone. The remaining likely ingredients are the
+  specific unpaired feature/manifold training signal, decoder interaction with
+  thousands of oscillator channels, conditioning population, and/or a task where
+  generated phase trajectories are rewarded directly.
+
+### Oscillatory Phase-Flow Sampler
+
+The council review converged on a sharper generative hypothesis: stop treating
+oscillators as a latent decoration inside a VAE, and train the image/noise field
+itself as the oscillator medium. We added `PhaseRateFlowField`, a local
+phase-rate field trained with a rectified-flow objective from Gaussian noise to
+MNIST images. The core attribution sweep compares the learned oscillator field
+against frozen and no-dynamics controls with the same conditioning/readout
+scaffold:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=3 modal run scripts/modal_mnist_phase_flow.py \
+  --sweep-preset mnist_phase_flow_core
+```
+
+Result:
+
+```text
+outputs/analysis/modal_mnist_phase_flow_core.csv
+outputs/analysis/modal_mnist_phase_flow_recurrent_conv_control.csv
+outputs/analysis/modal_mnist_phase_flow_coarse_global_probe.csv
+outputs/analysis/modal_mnist_phase_flow_coarse_heun_probe.csv
+outputs/analysis/modal_mnist_phase_flow_coarse_position_probe.csv
+outputs/analysis/modal_mnist_phase_flow_samples/
+```
+
+Single-seed 20-epoch sweep on 10k MNIST train examples, plus a one-job
+recurrent-conv control run and a coarse/global phase-carrier probe:
+
+| model | final eval loss | best eval loss | final velocity loss | final clean loss | sample nearest-real MSE | state displacement |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| coarse/global phase-flow | 0.138228 | 0.133665 | 0.129206 | 0.036091 | 0.069261 | 1.394590 phase |
+| trainable phase-flow | 0.160045 | 0.149670 | 0.149152 | 0.043570 | 0.054002 | 1.492249 phase |
+| recurrent-conv flow | 0.163575 | 0.158277 | 0.152654 | 0.043686 | 0.066649 | 0.470222 hidden |
+| no-dynamics control | 0.434464 | 0.434464 | 0.418005 | 0.065836 | 0.095157 | 0.000000 phase |
+| frozen phase-flow | 0.435151 | 0.435151 | 0.418703 | 0.065794 | 0.092723 | 0.526620 phase |
+
+Interpretation:
+
+- This is the cleanest positive dynamics attribution in the generative branch so
+  far. Learned oscillator dynamics are much better than both frozen and
+  no-dynamics controls on the flow objective, clean-prediction loss, and
+  nearest-real sample proxy.
+- The matched recurrent-conv control is close but still behind the phase-flow
+  model on this seed: best eval loss `0.158277` versus `0.149670`, and
+  nearest-real sample MSE `0.066649` versus `0.054002`. This matters because it
+  suggests the positive result is not only "any local recurrent field works."
+- The coarse/global carrier is the best objective result so far: best eval loss
+  `0.133665`, final clean loss `0.036091`, and much better pixel mean/std
+  matching than local phase-flow. This supports the hypothesis that local
+  oscillator strokes benefit from a slower spatial carrier.
+- The qualitative denoising grids show real stroke formation from noisy inputs;
+  the frozen/no-dynamics controls remain mostly noise texture. The conv control
+  also forms similar stroke fragments, so the current qualitative attractor is
+  shared by learned local recurrence and learned phase-rate recurrence.
+- The free samples are not solved MNIST. They form digit-like strokes and
+  fragments, but often fail to close into coherent whole digits. So this is a
+  native ONN dynamics win, not yet a competitive MNIST generator. The coarse
+  carrier improves the training/denoising objective more than it improves the
+  nearest-real free-sample proxy, so better sampling dynamics still matter.
+- The likely next improvement is not more VAE tuning. The field sampler needs a
+  stronger global closure mechanism or sampling schedule: more integration
+  steps, less fragmented velocity targets near early noise times, and a
+  coarse/long-range phase carrier so local strokes can close into whole digit
+  shapes.
+- Future phase-flow runs now record simple topology metrics: foreground active
+  fraction, connected-component count, and largest-component fraction for both
+  samples and real MNIST. These should make "did strokes close into a digit?"
+  visible as a metric, not just a visual complaint.
+
+Sampling probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_phase_flow.py \
+  --sweep-preset mnist_phase_flow_coarse_heun_probe
+```
+
+This reruns the same coarse/global setup with a Heun predictor-corrector sampler
+and 32 sample steps. Training/eval remains essentially tied with the Euler
+coarse run (`best_loss=0.134258` vs `0.133665`), as expected because the sampler
+does not change the training objective. Sampling changes only slightly:
+nearest-real MSE improves from `0.069261` to `0.068423`, but topology still
+shows fragmentation:
+
+| metric | Heun32 samples | real MNIST |
+| --- | ---: | ---: |
+| active fraction | 0.116091 | 0.143973 |
+| connected components | 3.593750 | 1.015625 |
+| largest component fraction | 0.691411 | 0.995226 |
+
+Interpretation: better numerical integration alone is not the missing trick.
+The model has learned useful denoising/velocity fields, but the generative
+trajectory still needs a mechanism or objective that rewards whole connected
+digit closure rather than independent stroke islands.
+
+Spatial phase-coordinate probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_phase_flow.py \
+  --sweep-preset mnist_phase_flow_coarse_position_probe
+```
+
+This adds fixed 2D coordinate/phase features to the fine and coarse
+initialization projections. It tests whether the field was fragmenting because
+all oscillators were too translation-equivariant and lacked a native spatial
+reference frame.
+
+| metric | coarse baseline | coarse + position |
+| --- | ---: | ---: |
+| best eval loss | 0.133665 | 0.136380 |
+| final clean loss | 0.036091 | 0.035928 |
+| sample nearest-real MSE | 0.069261 | 0.060626 |
+| sample active fraction | n/a | 0.098334 |
+| sample connected components | n/a | 5.343750 |
+| sample largest component fraction | n/a | 0.621284 |
+
+Interpretation: fixed spatial phase coordinates help the sample proxy
+substantially, nearly reaching the real nearest-real baseline
+(`0.060626` versus `0.059272`), but they worsen connectedness. The model is
+better at placing MNIST-like local marks in plausible regions, yet it still
+does not bind them into a single digit. This narrows the next hypothesis:
+spatial reference helps, but the missing piece is a closure/binding pressure,
+not simply "knowing where pixels are."
+
+Closure/binding objective probe:
+
+The phase-flow experiment now exposes `closure_loss_weight`, an auxiliary
+train-time loss on the predicted clean endpoint. It compares predicted and real
+digits after coarse average pooling at `14x14` and `7x7`. This is deliberately
+not a sampler-time steering trick: the model must learn a velocity field whose
+clean endpoint has a coherent low-frequency digit envelope. The intent is to
+test whether explicit whole-shape pressure helps the coarse/global oscillator
+bind local stroke fragments into one digit. The one-container Modal probe was:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_phase_flow.py \
+  --sweep-preset mnist_phase_flow_coarse_closure_probe
+```
+
+Result:
+
+```text
+outputs/analysis/modal_mnist_phase_flow_coarse_closure_probe.csv
+outputs/analysis/modal_mnist_phase_flow_samples/
+```
+
+| model | best eval loss | velocity loss | clean loss | closure loss | nearest-real MSE | active frac | components | largest frac |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| coarse + closure | 0.154992 | 0.129110 | 0.035472 | 0.018724 | 0.071007 | 0.125399 | 3.828125 | 0.682642 |
+| coarse + position + closure | 0.158367 | 0.133539 | 0.036186 | 0.019033 | 0.066514 | 0.130580 | 5.765625 | 0.643742 |
+| coarse + position, no closure | 0.136380 | 0.131554 | 0.035928 | n/a | 0.060626 | 0.098334 | 5.343750 | 0.621284 |
+
+Interpretation:
+
+- This did not unlock whole-digit generation. The generated grids still show
+  disconnected islands and partial strokes.
+- The no-position closure variant slightly improves foreground mass relative to
+  the Heun no-closure topology probe, but not enough to reduce fragmentation in
+  a meaningful way.
+- The position+closure variant raises active fraction from `0.098334` to
+  `0.130580`, but also raises component count from `5.343750` to `5.765625` and
+  worsens nearest-real MSE from `0.060626` to `0.066514`. So the added loss
+  mostly teaches the field to place more material, not to bind material into a
+  single digit.
+- This makes the next hypothesis sharper: endpoint-level low-frequency
+  supervision is too blunt. The missing mechanism is probably not "add a
+  shape loss"; it is a dynamics-native binding mechanism or a target domain
+  where phase coherence directly represents contours/orientation.
+
+Next useful direction: test an ONN-native contour/orientation phase-flow target
+or a trajectory-level coherence objective. The result we want is not just lower
+MSE; it is fewer components and higher largest-component fraction without the
+samples becoming blurry blobs.
 
 ## Maintenance Notes
 

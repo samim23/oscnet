@@ -199,6 +199,105 @@ and internally convert them to patch sequences.
   `--winfree-global-content-strength <value>`, and
   `--winfree-global-content-control shuffle` for the content-shuffled control.
 
+`KuramotoImageGenerator`
+: An Un-0-style implicit image generator. It samples random initial oscillator
+  phases, evolves them through dense learned Kuramoto coupling, and decodes the
+  final phase features into a flat image. It is intentionally not an
+  autoencoder: there is no image input and no paired reconstruction target.
+  The generator supports four conditioning modes: no conditioning, direct
+  label phase shifts, the older static `class_coupling` phase-anchor drive, and
+  source-faithful `class_oscillator` conditioning. In `class_oscillator`, a
+  separate conditioning oscillator pool evolves under its own Kuramoto dynamics
+  and drives the main oscillator pool through class-specific unidirectional
+  coupling, matching the core Un-0 source-code pattern more closely. Readout
+  supports `absolute`, `ref_oscillator`, legacy alias `relative`, and
+  `mean_relative` phase features. Decoder modes include the default MLP
+  decoder, a very low-capacity `spatial_basis` decoder that renders phase
+  features through fixed Gaussian image bases, and a structured `local_basis`
+  decoder where each oscillator writes trainable local patch weights through
+  fixed Gaussian patch bases. `resize_conv` reshapes sin/cos phase features
+  into a spatial seed and renders it with nearest-neighbor upsampling plus
+  convolutions, mirroring the Un-0 reference decoder more closely.
+  The recurrent oscillator pool can use the default dense coupling profile or
+  `coupling_profile="distance_decay"`, which applies a fixed spatial decay
+  profile and optional weak attractive bias to learned pairwise couplings.
+  Generator experiments support distributional pixel matching, Un-0-style
+  conditional pixel drift, fixed structural feature drift, and learned MNIST
+  feature drift via a frozen `MNISTFeatureClassifier`. Conditional drift can
+  optionally draw same-class positives from a host-side `MNISTDriftQueue`, which
+  mirrors Un-0's per-class positive-memory mechanism more closely than
+  batch-local positives. Always compare against `decoder_only` and
+  `frozen_kuramoto` controls before attributing a generation result to learned
+  oscillator dynamics.
+  For attribution controls, `train_recurrent_dynamics` and
+  `train_conditioning_dynamics` can be set independently; by default they
+  inherit `train_dynamics`.
+  Use it through `examples/image_mnist_kuramoto_generator.py` or the
+  `oscnet.experiments.mnist_generator` API when testing oscillators as a
+  generative latent dynamical prior. The MNIST generator experiment supports
+  the original distributional SWD/moment objective and an Un-0-inspired
+  class-conditional `pixel_drift` objective. It also supports fixed structural
+  feature drift through `loss_mode="feature_drift"` or
+  `loss_mode="pixel_feature_drift"`, using pooled layout, edge, profile, and
+  moment features for MNIST-scale probes. Generator experiment summaries include
+  a `success_diagnostics` block with decoder/dynamics parameter fractions,
+  estimated operation fractions, throughput, and phase-trajectory movement
+  proxies for attribution-focused comparison.
+
+`KuramotoPhaseVAE`
+: A MNIST-native generative autoencoder that encodes images into a Gaussian
+  latent, interprets the sampled latent as oscillator phase, optionally evolves
+  it with Kuramoto dynamics, and decodes final phase features back to image
+  probabilities. It is intentionally easier and more controlled than
+  `KuramotoImageGenerator`: it uses paired reconstruction plus KL loss so MNIST
+  generation quality can be debugged without relying on unpaired drift losses.
+  Use `model_family="phase_vae"` for trainable phase dynamics,
+  `"frozen_phase_vae"` for a fixed oscillator transform, and
+  `"phase_vae_no_dynamics"` for the matched VAE control with dynamics removed.
+  `phase_readout_mode` can be `"absolute"`, `"mean_relative"`, or
+  `"ref_oscillator"` when testing whether relative phase geometry matters. The
+  experiment entry point is `examples/image_mnist_phase_vae.py` or the
+  `oscnet.experiments.mnist_phase_vae` API.
+
+`PhaseRateFlowField`
+: A native image-field generative model for rectified-flow and denoising
+  experiments. It keeps the noisy image on the visible grid, initializes a local
+  phase field and rate/content field from `(x_t, t)`, evolves them with tied
+  local phase-rate oscillator dynamics, and reads out a velocity field
+  `dx/dt`. Use this when testing oscillators as the generative medium itself
+  rather than as a latent VAE transform. The MNIST experiment exposes
+  `model_family="phase_flow"` for trainable dynamics,
+  `"frozen_phase_flow"` for a fixed oscillator reservoir, and
+  `"phase_flow_no_dynamics"` for the matched no-settling control. The entry
+  point is `examples/image_mnist_phase_flow.py` or the
+  `oscnet.experiments.mnist_phase_flow` API.
+
+`CoarseGlobalPhaseRateFlowField`
+: A multiscale ONN-native extension of `PhaseRateFlowField`. It runs the same
+  fine phase-rate image field, plus a lower-resolution coarse phase-rate band
+  that is initialized from pooled noisy image evidence and coupled back into
+  the fine phases through relative-phase pull. Use
+  `model_family="coarse_phase_flow"` to test whether long-range/coarse phase
+  coordination helps local stroke fragments close into whole shapes without
+  adding U-Net-style tensor skips or a latent decoder. The MNIST phase-flow
+  experiment also supports `sample_method="euler"` and `"heun"` so sampling
+  integration can be tested separately from the learned dynamics. Set
+  `position_features=True` or pass `--position-features` to add fixed
+  coordinate/phase features to the field initialization; this tests spatial
+  reference frames separately from recurrent oscillator dynamics. Set
+  `closure_loss_weight > 0` or pass `--closure-loss-weight` to add a
+  train-time low-frequency endpoint loss at `14x14` and `7x7`, which probes
+  whether whole-shape binding pressure helps phase-flow samples close into
+  coherent digits.
+
+`RecurrentConvFlowField`
+: A matched non-oscillatory recurrent-flow control for `PhaseRateFlowField`.
+  It keeps the same rectified-flow task, visible image grid, time/class
+  conditioning, tied local recurrence, sampling path, and artifact interfaces,
+  but replaces phase/rate dynamics with a gated local convolutional hidden
+  field. Use `model_family="recurrent_conv_flow"` before claiming that a
+  phase-flow result beats ordinary local recurrent spatial machinery.
+
 ## Config Objects
 
 Config objects are available for experiment scripts that should keep model
@@ -223,6 +322,8 @@ Available configs:
 - `PatchOscillatoryAutoencoderConfig`
 - `FeedForwardPatchAutoencoderConfig`
 - `RecurrentConvPatchDenoiserConfig`
+- `RecurrentConvPriorRefinementPatchDenoiserConfig`
+- `KuramotoImageGeneratorConfig`
 - `ConvLSTMPatchDenoiserConfig`
 - `WaveletAutoencoderConfig`
 - `WinfreePhaseAutoencoderConfig`
@@ -232,6 +333,9 @@ Available configs:
 - `WinfreeRatePhaseConditionalPatchDenoiserConfig`
 - `WinfreeGlobalRatePhaseConditionalPatchDenoiserConfig`
 - `WinfreeCoarseGlobalRatePhaseConditionalPatchDenoiserConfig`
+- `WinfreeCoarseRatePhaseConditionalPatchDenoiserConfig`
+- `WinfreeCoarsePredictiveRatePhaseConditionalPatchDenoiserConfig`
+- `WinfreePriorRefinementPatchDenoiserConfig`
 
 Reference experiment CLIs also expose optional training diagnostics such as
 `--latent-variance-weight` and `--latent-std-floor` for probing latent-collapse
@@ -253,3 +357,5 @@ cell or phase-field layer instead of creating a separate example-only model.
 partial-observation tasks such as masked MNIST, use
 `WinfreeConditionalPatchDenoiser` before adding latent-decoder machinery; it
 keeps the attribution question focused on local phase-field dynamics.
+For distributional generation tasks, use `KuramotoImageGenerator` and keep
+decoder-only and frozen-reservoir controls in the first sweep.

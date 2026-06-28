@@ -27,8 +27,14 @@ pip install -e .
 See `examples/` for usage:
 - `image_mnist_oscillatory_autoencoder.py` — MNIST reference benchmark
 - `audio_wavelet_oscillatory_autoencoder.py` — Audio wavelet reference benchmark
+- `image_mnist_phase_flow.py` — MNIST phase-flow research sampler
+- `image_mnist_phase_vae.py` — MNIST phase-VAE debugging baseline
 - `resonanceDB.py` — Phase-aware similarity store
 - `fractal/` — Hierarchical coupling experiments
+
+For the research experiment map, see `oscnet/experiments/README.md`. For
+detailed model-family notes, see `docs/model_api.md`. For benchmark outcomes
+and negative results, see `docs/experiment_report.md`.
 
 ## Quick Example
 
@@ -92,7 +98,9 @@ extension points.
 The first canonical experiment harness lives in `oscnet.experiments`. It gives
 MNIST and audio wavelet runs the same CLI/config flow, output layout,
 checkpoint metadata, metrics, loss curves, reconstruction plots, and
-latent/state traces.
+latent/state traces. The experiment package also contains newer research
+branches such as MNIST phase-flow generation; see
+`oscnet/experiments/README.md` before running the larger sweeps.
 
 ```bash
 python examples/image_mnist_oscillatory_autoencoder.py \

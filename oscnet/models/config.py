@@ -6,6 +6,7 @@ from typing import Any, Dict, Optional, Tuple, Type
 import jax
 
 from oscnet.core.oscillators import NonlinearHarmonicOscillator, Oscillator
+from oscnet.models.generative import KuramotoImageGenerator
 from oscnet.models.oscillatory import (
     ConvLSTMPatchDenoiser,
     FeedForwardPatchAutoencoder,
@@ -185,6 +186,67 @@ class RecurrentConvPriorRefinementPatchDenoiserConfig:
             recurrent_residual_strength=self.recurrent_residual_strength,
             refinement_strength=self.refinement_strength,
             output_activation=self.output_activation,
+            key=key,
+        )
+
+
+@dataclass(frozen=True)
+class KuramotoImageGeneratorConfig:
+    num_oscillators: int = 64
+    image_shape: Tuple[int, int] = (28, 28)
+    decoder_hidden_dim: int = 128
+    decoder_depth: int = 2
+    steps: int = 8
+    dt: float = 0.1
+    coupling_strength: float = 1.0
+    omega_scale: float = 0.2
+    coupling_init_scale: float = 0.05
+    coupling_profile: str = "dense"
+    coupling_length_scale: float = 0.0
+    coupling_floor: float = 0.0
+    coupling_bias_strength: float = 0.0
+    train_dynamics: bool = True
+    train_recurrent_dynamics: Optional[bool] = None
+    train_conditioning_dynamics: Optional[bool] = None
+    num_classes: int = 0
+    label_phase_scale: float = 0.5
+    num_condition_oscillators: int = 0
+    conditioning_mode: str = "phase_shift"
+    readout_mode: str = "absolute"
+    decoder_mode: str = "mlp"
+    spatial_basis_sigma: float = 0.0
+    local_patch_size: int = 5
+    output_activation: str = "sigmoid"
+    output_bias_init: Optional[float] = None
+
+    def build(self, key: jax.random.PRNGKey) -> KuramotoImageGenerator:
+        return KuramotoImageGenerator(
+            num_oscillators=self.num_oscillators,
+            image_shape=self.image_shape,
+            decoder_hidden_dim=self.decoder_hidden_dim,
+            decoder_depth=self.decoder_depth,
+            steps=self.steps,
+            dt=self.dt,
+            coupling_strength=self.coupling_strength,
+            omega_scale=self.omega_scale,
+            coupling_init_scale=self.coupling_init_scale,
+            coupling_profile=self.coupling_profile,
+            coupling_length_scale=self.coupling_length_scale,
+            coupling_floor=self.coupling_floor,
+            coupling_bias_strength=self.coupling_bias_strength,
+            train_dynamics=self.train_dynamics,
+            train_recurrent_dynamics=self.train_recurrent_dynamics,
+            train_conditioning_dynamics=self.train_conditioning_dynamics,
+            num_classes=self.num_classes,
+            label_phase_scale=self.label_phase_scale,
+            num_condition_oscillators=self.num_condition_oscillators,
+            conditioning_mode=self.conditioning_mode,
+            readout_mode=self.readout_mode,
+            decoder_mode=self.decoder_mode,
+            spatial_basis_sigma=self.spatial_basis_sigma,
+            local_patch_size=self.local_patch_size,
+            output_activation=self.output_activation,
+            output_bias_init=self.output_bias_init,
             key=key,
         )
 
@@ -762,6 +824,7 @@ __all__ = [
     "FeedForwardPatchAutoencoderConfig",
     "RecurrentConvPatchDenoiserConfig",
     "RecurrentConvPriorRefinementPatchDenoiserConfig",
+    "KuramotoImageGeneratorConfig",
     "ConvLSTMPatchDenoiserConfig",
     "WaveletAutoencoderConfig",
     "WinfreePhaseAutoencoderConfig",
