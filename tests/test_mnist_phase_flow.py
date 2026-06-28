@@ -548,6 +548,7 @@ def test_mnist_phase_flow_synthetic_training_smoke(tmp_path):
         eval_sample_count=2,
         sample_steps=2,
         basin_t_values=(0.5,),
+        basin_noise_modes=("uniform", "zeros"),
         data_source="synthetic",
         train_limit=4,
         eval_limit=2,
@@ -567,9 +568,15 @@ def test_mnist_phase_flow_synthetic_training_smoke(tmp_path):
     assert summary["phase_flow"]["sample_readout_mode"] == "primary"
     assert summary["phase_flow"]["train_noise_mode"] == "mixed"
     assert summary["phase_flow"]["basin_t_values"] == [0.5]
+    assert summary["phase_flow"]["basin_noise_modes"] == ["uniform", "zeros"]
+    assert set(summary["phase_flow"]["basin_by_noise"]) == {"uniform", "zeros"}
     basin_metrics = summary["phase_flow"]["basin"]["t0_500"]
+    uniform_metrics = summary["phase_flow"]["basin_by_noise"]["uniform"]["t0_500"]
+    zeros_metrics = summary["phase_flow"]["basin_by_noise"]["zeros"]["t0_500"]
     assert basin_metrics["initial_paired_mse"] >= 0.0
     assert basin_metrics["paired_mse"] >= 0.0
+    assert uniform_metrics["paired_mse"] >= 0.0
+    assert zeros_metrics["paired_mse"] >= 0.0
     assert "paired_mse_delta" in basin_metrics
     assert "paired_mse_improvement_fraction" in basin_metrics
     assert summary["phase_flow"]["closure_loss_weight"] == 0.5

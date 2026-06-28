@@ -87,6 +87,9 @@ SWEEP_CSVS = {
     "mnist_phase_flow_signed_distance_mixed_noise_basin_probe": Path(
         "outputs/analysis/modal_mnist_phase_flow_signed_distance_mixed_noise_basin_probe.csv"
     ),
+    "mnist_phase_flow_signed_distance_mixed_noise_basin_compact": Path(
+        "outputs/analysis/modal_mnist_phase_flow_signed_distance_mixed_noise_basin_compact.csv"
+    ),
 }
 
 REMOTE_PACKAGES = [
@@ -810,6 +813,64 @@ def _mnist_phase_flow_signed_distance_mixed_noise_basin_probe_sweep() -> list[
     return entries
 
 
+def _mnist_phase_flow_signed_distance_mixed_noise_basin_compact_sweep() -> list[
+    tuple[list[str], str]
+]:
+    common = [
+        "--data-source idx",
+        "--epochs 20",
+        "--train-limit 10000",
+        "--eval-limit 1000",
+        "--eval-sample-count 64",
+        "--batch-size 128",
+        "--field-channels 8",
+        "--steps 8",
+        "--kernel-size 3",
+        "--dt 0.15",
+        "--coupling-strength 1.0",
+        "--rate-update 0.5",
+        "--input-drive-strength 0.5",
+        "--global-coupling-strength 0.5",
+        "--coarse-grid-size 4",
+        "--omega-scale 0.2",
+        "--kernel-init-scale 0.05",
+        "--no-position-features",
+        "--conditional",
+        "--clean-loss-weight 0.25",
+        "--closure-loss-weight 0.0",
+        "--train-noise-mode mixed",
+        "--target-representation signed_distance",
+        "--sample-readout-mode primary",
+        "--sample-schedule standard",
+        "--sample-steps 16",
+        "--sample-method euler",
+        "--basin-t-values 0.1,0.25,0.5,0.75,0.9",
+        "--basin-noise-modes uniform,salt_pepper,zeros",
+        "--learning-rate 0.001",
+        "--weight-decay 0.0001",
+        "--checkpoint-every 20",
+        "--artifact-every 20",
+    ]
+    variants = [
+        ("coarse_phase_flow", ["--model-family coarse_phase_flow"]),
+        ("recurrent_conv_flow", ["--model-family recurrent_conv_flow"]),
+    ]
+    entries = []
+    for seed in (31, 32):
+        for suffix, variant_args in variants:
+            run_name = (
+                "mnist_phase_flow_basin_signed_distance_mixed_train_"
+                f"multinoise_{suffix}_seed{seed}_20e"
+            )
+            args = shlex.split(
+                " ".join([f"--seed {seed}", *common, *variant_args])
+            )
+            output_dir = VOLUME_MOUNT / "mnist_phase_flow" / run_name
+            args = _with_default_arg(args, "--output-dir", output_dir)
+            entries.append((args, run_name))
+    return entries
+
+
 def _sweep_entries(preset: str) -> list[tuple[list[str], str]]:
     if preset == "mnist_phase_flow_core":
         return _mnist_phase_flow_core_sweep()
@@ -849,6 +910,8 @@ def _sweep_entries(preset: str) -> list[tuple[list[str], str]]:
         return _mnist_phase_flow_signed_distance_noise_basin_probe_sweep()
     if preset == "mnist_phase_flow_signed_distance_mixed_noise_basin_probe":
         return _mnist_phase_flow_signed_distance_mixed_noise_basin_probe_sweep()
+    if preset == "mnist_phase_flow_signed_distance_mixed_noise_basin_compact":
+        return _mnist_phase_flow_signed_distance_mixed_noise_basin_compact_sweep()
     raise ValueError("unknown sweep preset")
 
 
@@ -878,6 +941,7 @@ def _write_sweep_csv(results: list[dict[str, Any]], path: Path) -> None:
         "phase_flow.sample_readout_mode",
         "phase_flow.basin_t_values",
         "phase_flow.basin_noise_mode",
+        "phase_flow.basin_noise_modes",
         "phase_flow.sample_mean",
         "phase_flow.sample_std",
         "phase_flow.sample_pixel_mean_mse",
@@ -909,6 +973,21 @@ def _write_sweep_csv(results: list[dict[str, Any]], path: Path) -> None:
             "sample_largest_component_fraction",
         ):
             metric_names.append(f"phase_flow.basin.{basin_key}.{metric}")
+    for noise_mode in ("gaussian", "uniform", "salt_pepper", "zeros", "mixed"):
+        for basin_key in ("t0_100", "t0_250", "t0_500", "t0_750", "t0_900"):
+            for metric in (
+                "initial_paired_mse",
+                "paired_mse",
+                "paired_mse_delta",
+                "paired_mse_improvement_fraction",
+                "sample_nearest_real_mse",
+                "sample_active_fraction",
+                "sample_component_count",
+                "sample_largest_component_fraction",
+            ):
+                metric_names.append(
+                    f"phase_flow.basin_by_noise.{noise_mode}.{basin_key}.{metric}"
+                )
     fieldnames = ["run", "root", *metric_names]
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="") as f:
@@ -1012,6 +1091,7 @@ def run_mnist_phase_flow_remote(
         sample_readout_mode=args.sample_readout_mode,
         basin_t_values=args.basin_t_values,
         basin_noise_mode=args.basin_noise_mode,
+        basin_noise_modes=args.basin_noise_modes,
         target_representation=args.target_representation,
         data_source=args.data_source,
         train_limit=args.train_limit,

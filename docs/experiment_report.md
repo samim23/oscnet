@@ -3741,11 +3741,61 @@ Interpretation:
   phase-flow has worse nearest-real sample MSE and fragmented topology than
   the Gaussian-trained model, so this is evidence for basin widening, not yet
   evidence for a high-quality standalone MNIST generator.
-- Current read: basin-aware signed-distance training is now the most promising
-  phase-flow result. The next clean scaling test is a two-seed mixed endpoint
-  sweep for coarse phase-flow, plus a more efficient evaluator that can test
-  several basin modes from one trained checkpoint instead of retraining the
-  same model for every diagnostic mode.
+- Current read from the one-seed diagnostic: basin-aware signed-distance
+  training is now the most promising phase-flow result. The next clean scaling
+  test is a two-seed mixed endpoint sweep for coarse phase-flow, plus a more
+  efficient evaluator that can test several basin modes from one trained
+  checkpoint instead of retraining the same model for every diagnostic mode.
+
+Compact two-seed mixed endpoint probe:
+
+The follow-up added multi-mode basin evaluation via `basin_noise_modes` /
+`--basin-noise-modes`, so one trained checkpoint can evaluate `uniform`,
+`salt_pepper`, and `zeros` basin endpoints without duplicate training. The
+compact Modal preset reruns two seeds for coarse phase-flow and recurrent-conv.
+
+Run:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_phase_flow.py \
+  --sweep-preset mnist_phase_flow_signed_distance_mixed_noise_basin_compact
+```
+
+Artifact:
+
+```text
+outputs/analysis/modal_mnist_phase_flow_signed_distance_mixed_noise_basin_compact.csv
+```
+
+Mean paired MSE over two seeds:
+
+| model/noise | best loss | t=0.10 start -> final | t=0.50 start -> final | t=0.90 start -> final |
+| --- | ---: | ---: | ---: | ---: |
+| coarse phase-flow, uniform | 0.066558 | 0.185307 -> 0.029116 | 0.057231 -> 0.007054 | 0.002275 -> 0.000735 |
+| coarse phase-flow, salt-pepper | 0.066558 | 0.321172 -> 0.039844 | 0.098700 -> 0.011705 | 0.003966 -> 0.001223 |
+| coarse phase-flow, zeros | 0.066558 | 0.073528 -> 0.023326 | 0.022694 -> 0.005079 | 0.000908 -> 0.000646 |
+| recurrent-conv, uniform | 0.105015 | 0.185307 -> 0.052394 | 0.057231 -> 0.020092 | 0.002275 -> 0.000921 |
+| recurrent-conv, salt-pepper | 0.105015 | 0.321172 -> 0.080113 | 0.098700 -> 0.031053 | 0.003966 -> 0.001450 |
+| recurrent-conv, zeros | 0.105015 | 0.073528 -> 0.068834 | 0.022694 -> 0.035644 | 0.000908 -> 0.000886 |
+
+Interpretation:
+
+- The mixed endpoint result survives the two-seed check. Coarse/global
+  phase-flow improves every tested non-Gaussian basin family and beats the
+  recurrent-conv control on best loss and paired basin MSE.
+- The oscillator advantage is clearest on harsh starts. At `t=0.50`,
+  coarse phase-flow reaches `0.007054` on uniform, `0.011705` on salt-pepper,
+  and `0.005079` on zeros. Recurrent-conv is materially worse on all three and
+  still damages zero-start states on average (`0.022694 -> 0.035644`).
+- This is now the strongest field-native ONN result in the repo: not a raw
+  pixel generator, but a robust signed-distance attractor whose basin can be
+  widened by training on endpoint distributions.
+- The remaining gap is sample quality/topology. Free samples remain fragmented
+  enough that the result should be framed as a shape-field attractor win, not a
+  finished generative model. The next architecture move should turn the robust
+  signed-distance attractor into a pixel generator through a constrained
+  shape-to-pixel stage, or add a topology/energy regularizer that prevents
+  fragmented free samples.
 
 Signed-distance flow-field probe:
 

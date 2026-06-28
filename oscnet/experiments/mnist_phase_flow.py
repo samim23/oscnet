@@ -38,6 +38,7 @@ Array = jnp.ndarray
 PhaseFlowModel = (
     PhaseRateFlowField | CoarseGlobalPhaseRateFlowField | RecurrentConvFlowField
 )
+PHASE_FLOW_NOISE_MODES = ("gaussian", "uniform", "salt_pepper", "zeros", "mixed")
 
 
 @dataclass(frozen=True)
@@ -72,6 +73,7 @@ class MNISTPhaseFlowExperimentConfig:
     sample_readout_mode: str = "primary"
     basin_t_values: Tuple[float, ...] = ()
     basin_noise_mode: str = "gaussian"
+    basin_noise_modes: Tuple[str, ...] = ()
     target_representation: str = "pixels"
     data_source: str = "idx"
     train_limit: Optional[int] = 10_000
@@ -190,6 +192,7 @@ def _checkpoint_hyperparams(config: MNISTPhaseFlowExperimentConfig) -> Dict[str,
         "sample_readout_mode": config.sample_readout_mode,
         "basin_t_values": [float(value) for value in config.basin_t_values],
         "basin_noise_mode": config.basin_noise_mode,
+        "basin_noise_modes": list(config.basin_noise_modes),
         "target_representation": config.target_representation,
         "target_channels": phase_flow_target_channels(config.target_representation),
     }
@@ -1172,6 +1175,7 @@ def compute_phase_flow_basin_metrics(
     target_representation: str,
     sample_readout_mode: str,
     noise_mode: str = "gaussian",
+    artifact_prefix: str = "basin",
     artifact_dir: Optional[Path] = None,
 ) -> Dict[str, Dict[str, float]]:
     """Measure how far from real data the sampler can still recover structure."""
@@ -1230,7 +1234,7 @@ def compute_phase_flow_basin_metrics(
         if artifact_dir is not None:
             _save_image_grid(
                 sample_primary[: min(sample_primary.shape[0], 64)],
-                artifact_dir / f"basin_{key_name}_samples.png",
+                artifact_dir / f"{artifact_prefix}_{key_name}_samples.png",
             )
     return results
 
@@ -1631,23 +1635,39 @@ def run_mnist_phase_flow_experiment(
         target_representation=config.target_representation,
         sample_readout_mode=config.sample_readout_mode,
     )
+    effective_basin_noise_modes = (
+        config.basin_noise_modes
+        if config.basin_noise_modes
+        else (config.basin_noise_mode,)
+    )
     basin_metrics: Dict[str, Dict[str, float]] = {}
+    basin_by_noise: Dict[str, Dict[str, Dict[str, float]]] = {}
     if config.basin_t_values:
         basin_labels = eval_labels[:count] if config.conditional else None
-        basin_metrics = compute_phase_flow_basin_metrics(
-            model,
-            eval_images[:count],
-            basin_labels,
-            key=jax.random.fold_in(key, 30_003),
-            t_values=config.basin_t_values,
-            sample_steps=config.sample_steps,
-            sample_method=config.sample_method,
-            batch_size=config.run.batch_size,
-            target_representation=config.target_representation,
-            sample_readout_mode=config.sample_readout_mode,
-            noise_mode=config.basin_noise_mode,
-            artifact_dir=paths.artifacts,
-        )
+        for mode_index, noise_mode in enumerate(effective_basin_noise_modes):
+            artifact_prefix = (
+                "basin"
+                if len(effective_basin_noise_modes) == 1
+                else f"basin_{noise_mode}"
+            )
+            mode_metrics = compute_phase_flow_basin_metrics(
+                model,
+                eval_images[:count],
+                basin_labels,
+                key=jax.random.fold_in(key, 30_003 + mode_index),
+                t_values=config.basin_t_values,
+                sample_steps=config.sample_steps,
+                sample_method=config.sample_method,
+                batch_size=config.run.batch_size,
+                target_representation=config.target_representation,
+                sample_readout_mode=config.sample_readout_mode,
+                noise_mode=noise_mode,
+                artifact_prefix=artifact_prefix,
+                artifact_dir=paths.artifacts,
+            )
+            basin_by_noise[noise_mode] = mode_metrics
+        first_mode = effective_basin_noise_modes[0]
+        basin_metrics = basin_by_noise[first_mode]
     trace_noise = jax.random.normal(
         jax.random.fold_in(key, 30_002),
         eval_images[: min(count, config.run.batch_size)].shape,
@@ -1707,7 +1727,9 @@ def run_mnist_phase_flow_experiment(
             "sample_readout_mode": config.sample_readout_mode,
             "basin_t_values": [float(value) for value in config.basin_t_values],
             "basin_noise_mode": config.basin_noise_mode,
+            "basin_noise_modes": list(effective_basin_noise_modes),
             "basin": basin_metrics,
+            "basin_by_noise": basin_by_noise,
             "coarse_grid_size": (
                 int(model.coarse_grid_size)
                 if hasattr(model, "coarse_grid_size")
@@ -1745,6 +1767,21 @@ def parse_basin_t_values(value: str) -> Tuple[float, ...]:
             raise argparse.ArgumentTypeError(
                 "basin t values must satisfy 0 <= t < 1"
             )
+    return parsed
+
+
+def parse_noise_modes(value: str) -> Tuple[str, ...]:
+    """Parse a comma-separated list of rectified-flow endpoint modes."""
+
+    if not value.strip():
+        return ()
+    parsed = tuple(part.strip() for part in value.split(",") if part.strip())
+    invalid = [mode for mode in parsed if mode not in PHASE_FLOW_NOISE_MODES]
+    if invalid:
+        allowed = ", ".join(PHASE_FLOW_NOISE_MODES)
+        raise argparse.ArgumentTypeError(
+            f"unknown noise mode(s): {', '.join(invalid)}; allowed: {allowed}"
+        )
     return parsed
 
 
@@ -1794,7 +1831,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--t-max", type=float, default=0.999)
     parser.add_argument(
         "--train-noise-mode",
-        choices=["gaussian", "uniform", "salt_pepper", "zeros", "mixed"],
+        choices=PHASE_FLOW_NOISE_MODES,
         default="gaussian",
         help="Noise endpoint used for rectified-flow training chords.",
     )
@@ -1822,9 +1859,18 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--basin-noise-mode",
-        choices=["gaussian", "uniform", "salt_pepper", "zeros"],
+        choices=PHASE_FLOW_NOISE_MODES,
         default="gaussian",
         help="Noise endpoint used for basin chord diagnostics.",
+    )
+    parser.add_argument(
+        "--basin-noise-modes",
+        type=parse_noise_modes,
+        default=(),
+        help=(
+            "Comma-separated basin endpoint modes to evaluate after one "
+            "training run, for example 'uniform,salt_pepper,zeros'."
+        ),
     )
     parser.add_argument(
         "--target-representation",
@@ -1887,6 +1933,7 @@ def main() -> None:
         sample_readout_mode=args.sample_readout_mode,
         basin_t_values=args.basin_t_values,
         basin_noise_mode=args.basin_noise_mode,
+        basin_noise_modes=args.basin_noise_modes,
         target_representation=args.target_representation,
         data_source=args.data_source,
         train_limit=args.train_limit,

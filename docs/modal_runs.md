@@ -1007,6 +1007,24 @@ outputs/analysis/modal_mnist_phase_flow_signed_distance_mixed_noise_basin_probe.
 outputs/analysis/modal_mnist_phase_flow_samples/
 ```
 
+Run the compact two-seed mixed-training basin probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_phase_flow.py \
+  --sweep-preset mnist_phase_flow_signed_distance_mixed_noise_basin_compact
+```
+
+This is the preferred follow-up to the one-seed diagnostic above. It trains
+each seed/model once with `--train-noise-mode mixed`, then evaluates
+`uniform`, `salt_pepper`, and `zeros` basin endpoints via
+`--basin-noise-modes uniform,salt_pepper,zeros`. That gives a two-seed read
+without retraining the same checkpoint for every basin endpoint. It writes:
+
+```text
+outputs/analysis/modal_mnist_phase_flow_signed_distance_mixed_noise_basin_compact.csv
+outputs/analysis/modal_mnist_phase_flow_samples/
+```
+
 To rerun the full four-way attribution matrix in one request:
 
 ```bash

@@ -316,7 +316,9 @@ and internally convert them to patch sequences.
   diagnostic can distinguish true endpoint improvement from simply starting
   close to the target. Set `basin_noise_mode` to `"gaussian"`, `"uniform"`,
   `"salt_pepper"`, or `"zeros"` to probe robustness to different basin
-  endpoints without retraining the model.
+  endpoints without retraining the model. Use `basin_noise_modes` for a
+  comma/list equivalent that evaluates several endpoint modes after one
+  training run and stores the nested result in `phase_flow.basin_by_noise`.
   `oscnet.experiments.mnist_shape_pixel` reuses the same model family for the
   next two-stage test: channel 0 is a noisy/generated pixel image, channel 1 is
   a clamped signed-distance shape condition, and only the pixel channel is

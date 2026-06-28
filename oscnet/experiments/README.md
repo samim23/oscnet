@@ -38,7 +38,7 @@ For runnable commands, start with `examples/README.md`.
 
 ## Choosing a Harness
 
-Use **MNIST autoencoder** if you want the most stable reference benchmark.
+Use **MNIST autoencoder** if you want a stable reference benchmark.
 
 Use **audio wavelet autoencoder** if your data is temporal or sequence-like.
 
@@ -67,7 +67,9 @@ mixture of Gaussian, uniform, salt-pepper, and zero endpoints. Set
 partially real chord states; the harness reports before/after paired error so
 you can see whether the dynamics actually improve the state. Use
 `--basin-noise-mode uniform`, `salt_pepper`, or `zeros` to test non-Gaussian
-basin endpoints.
+basin endpoints. Use
+`--basin-noise-modes uniform,salt_pepper,zeros` to evaluate several basin
+endpoints after one training run.
 
 Use **MNIST shape-to-pixel** if you want the next two-stage experiment after
 the basin probe: the signed-distance field is treated as a fixed scaffold, and
