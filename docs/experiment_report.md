@@ -3488,6 +3488,86 @@ Interpretation:
   learned second-stage pixel refiner conditioned on a settled shape field, not
   a stronger manual schedule.
 
+Locked shape-gated audit:
+
+The next phase-flow step is a locked multi-seed control audit, not another
+architecture tweak. It freezes the current best pixel-producing setup:
+`target_representation="centered_pixels_signed_distance"`,
+`sample_readout_mode="shape_gated"`, `sample_schedule="standard"`,
+`closure_loss_weight=0.0`, 20 epochs, 10k training examples, and 1k eval
+examples.
+
+Run:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_phase_flow.py \
+  --sweep-preset mnist_phase_flow_shape_gated_audit
+```
+
+Planned matrix:
+
+- Seeds: `31`, `32`, `33`, `34`, `35`.
+- Models: `coarse_phase_flow`, `phase_flow`, `frozen_phase_flow`,
+  `phase_flow_no_dynamics`, and `recurrent_conv_flow`.
+- Primary read: active fraction, component count, largest-component fraction,
+  nearest-real MSE, supervised loss, and fixed-seed sample grids.
+
+Decision rule:
+
+- If coarse/global phase-flow does not beat recurrent-conv on most seeds in
+  both supervised field losses and sample topology, stop treating the current
+  pixel-producing phase-flow branch as robust.
+- If learned local phase-flow does not beat frozen/no-dynamics controls, stop
+  treating oscillator dynamics as causal in this setup.
+- If losses win but sample topology remains bad, call this a field-denoising
+  result, not a working MNIST generator.
+- If the audit is mixed or negative, the next move should be a principled
+  two-stage shape-to-pixel model or a basin-of-attraction diagnostic, not more
+  sampler schedules.
+
+Result:
+
+```text
+outputs/analysis/modal_mnist_phase_flow_shape_gated_audit.csv
+outputs/analysis/modal_mnist_phase_flow_samples/
+```
+
+| model | mean best eval loss | mean clean loss | mean nearest-real MSE | mean active frac | mean components | mean largest frac |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| coarse/global phase-flow | 0.214620 | 0.068723 | 0.128170 | 0.220631 | 1.328125 | 0.443232 |
+| local phase-flow | 0.239339 | 0.081113 | 0.195868 | 0.350566 | 1.787500 | 0.473119 |
+| recurrent-conv flow | 0.257613 | 0.083811 | 0.030792 | 0.012636 | 0.509375 | 0.136222 |
+| frozen phase-flow | 0.624334 | 0.162828 | 0.042025 | 0.052117 | 25.821875 | 0.184060 |
+| no-dynamics phase-flow | 0.614370 | 0.160188 | 0.067280 | 0.093375 | 45.090625 | 0.058640 |
+| real MNIST pixels | n/a | n/a | 0.059272 | 0.143973 | 1.015625 | 0.995226 |
+
+Interpretation:
+
+- The supervised field-model result is robust. Coarse/global phase-flow wins
+  best eval loss on all five seeds and has the best mean clean loss. Local
+  trainable phase-flow is also far ahead of frozen/no-dynamics controls, so
+  learned oscillator dynamics are causal for the denoising/velocity task.
+- The generator result is negative. Free samples are not robustly digit-like.
+  Coarse/global phase-flow alternates across seeds between stroke fragments,
+  near-blank collapse, and near-all-foreground collapse. The same model that
+  denoises mid-trajectory digit states well does not reliably originate digits
+  from its own noise trajectory.
+- Nearest-real MSE is not a useful primary generator metric in this setting.
+  Recurrent-conv and blank-collapse runs can score low nearest-real MSE because
+  underdrawn samples are close to MNIST background. Active fraction and sample
+  grids expose this: recurrent-conv averages only `0.012636` active fraction
+  versus real MNIST `0.143973`.
+- Frozen/no-dynamics controls produce poor supervised losses and pathological
+  samples. This keeps the oscillator dynamics attribution alive for field
+  prediction, but not for unconditional MNIST generation.
+- Updated conclusion: the current phase-flow setup is a robust oscillator
+  denoising/shape-field model, not a robust MNIST generator. The next decisive
+  diagnostic should map the basin of attraction by starting samples from
+  `x_t = (1 - t) noise + t data` at several `t` values. If coherence appears
+  only near real data, phase-flow is a shallow denoiser. If signed-distance
+  fields have a wider basin than pixels, the two-stage shape-to-pixel direction
+  remains the principled architecture move.
+
 ## Maintenance Notes
 
 - Put numerical benchmark summaries in this file and/or `outputs/analysis`.

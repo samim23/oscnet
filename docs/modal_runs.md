@@ -856,6 +856,24 @@ outputs/analysis/modal_mnist_phase_flow_shape_guided_sampler_probe.csv
 outputs/analysis/modal_mnist_phase_flow_samples/
 ```
 
+Run the locked multi-seed shape-gated audit:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_phase_flow.py \
+  --sweep-preset mnist_phase_flow_shape_gated_audit
+```
+
+This freezes the current best pixel-producing setup:
+`centered_pixels_signed_distance`, `sample_readout_mode=shape_gated`,
+`sample_schedule=standard`, and no closure loss. It runs seeds `31` through
+`35` for `coarse_phase_flow`, `phase_flow`, `frozen_phase_flow`,
+`phase_flow_no_dynamics`, and `recurrent_conv_flow`. It writes:
+
+```text
+outputs/analysis/modal_mnist_phase_flow_shape_gated_audit.csv
+outputs/analysis/modal_mnist_phase_flow_samples/
+```
+
 To rerun the full four-way attribution matrix in one request:
 
 ```bash
