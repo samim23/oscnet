@@ -26,7 +26,12 @@ from .config import (
     WinfreePhaseAutoencoderConfig,
 )
 from .fractal import FractalHORNCell
-from .generative import HORNImageGenerator, KuramotoImageGenerator, KuramotoPhaseVAE
+from .generative import (
+    HORNImageGenerator,
+    KuramotoImageGenerator,
+    KuramotoPhaseVAE,
+    StateMLPImageGenerator,
+)
 from .jepa import (
     ConvLSTMPatchJEPAPredictor,
     FeedForwardPatchJEPAPredictor,

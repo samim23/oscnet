@@ -575,6 +575,41 @@ def test_horn_resize_conv_generator_decodes_spatial_state_seed():
     assert diagnostics["estimated_decoder_ops_per_sample"] > 0
 
 
+def test_state_mlp_image_generator_is_non_oscillatory_control():
+    from oscnet.models import StateMLPImageGenerator
+
+    model = StateMLPImageGenerator(
+        num_oscillators=8,
+        image_shape=(8, 8),
+        decoder_hidden_dim=12,
+        decoder_depth=1,
+        steps=2,
+        num_classes=3,
+        conditioning_mode="phase_shift",
+        state_mlp_hidden_dim=4,
+        key=jax.random.PRNGKey(96),
+    )
+    labels = jnp.asarray([0, 1, 2], dtype=jnp.int32)
+    generated = model(jax.random.PRNGKey(97), 3, labels)
+    trace = model.collect_trace(jax.random.PRNGKey(98), 3, labels)
+    diagnostics = compute_generator_success_diagnostics(
+        model,
+        trace=trace,
+        sample_count=12,
+        total_train_seconds=2.0,
+    )
+
+    assert generated.shape == (3, 64)
+    assert bool(jnp.all(jnp.isfinite(generated)))
+    assert model.dynamics_family == "state_mlp"
+    assert model.coupling_profile == "none"
+    assert diagnostics["dynamics_family"] == "state_mlp"
+    assert diagnostics["coupling_density"] == 0.0
+    assert diagnostics["transition_params"] > 0
+    assert diagnostics["recurrent_params"] == diagnostics["transition_params"]
+    assert diagnostics["state_mean_abs_velocity_displacement"] >= 0.0
+
+
 def test_mnist_generator_resize_conv_synthetic_training_smoke(tmp_path):
     run = AutoencoderExperimentConfig(
         name="mnist_generator_resize_conv_test",
@@ -658,6 +693,54 @@ def test_mnist_generator_horn_synthetic_training_smoke(tmp_path):
     assert "classifier_label_accuracy" in summary["generator"]
     assert diagnostics["dynamics_family"] == "horn"
     assert "state_final_energy" in diagnostics
+    assert summary["final_eval_loss"] >= 0.0
+
+
+def test_mnist_generator_state_mlp_synthetic_training_smoke(tmp_path):
+    run = AutoencoderExperimentConfig(
+        name="mnist_generator_state_mlp_test",
+        output_dir=tmp_path / "mnist_generator_state_mlp",
+        seed=85,
+        epochs=1,
+        batch_size=2,
+        learning_rate=1e-3,
+        checkpoint_every=1,
+        artifact_every=1,
+    )
+    config = MNISTGeneratorExperimentConfig(
+        run=run,
+        model_family="state_mlp",
+        conditional=True,
+        num_classes=10,
+        conditioning_mode="phase_shift",
+        readout_mode="mean_relative",
+        decoder_mode="resize_conv",
+        resize_conv_min_channels=4,
+        num_oscillators=98,
+        decoder_hidden_dim=12,
+        decoder_depth=0,
+        steps=1,
+        state_mlp_hidden_dim=16,
+        num_projections=8,
+        quality_classifier_epochs=1,
+        quality_classifier_dim=8,
+        quality_classifier_depth=1,
+        eval_sample_count=2,
+        data_source="synthetic",
+        train_limit=4,
+        eval_limit=2,
+    )
+
+    result = run_mnist_generator_experiment(config)
+
+    with open(result.paths.metrics / "summary.json") as f:
+        summary = json.load(f)
+    diagnostics = summary["generator"]["success_diagnostics"]
+    assert summary["generator"]["dynamics_family"] == "state_mlp"
+    assert summary["generator"]["state_mlp_hidden_dim"] == 16
+    assert diagnostics["dynamics_family"] == "state_mlp"
+    assert diagnostics["transition_params"] > 0
+    assert diagnostics["coupling_density"] == 0.0
     assert summary["final_eval_loss"] >= 0.0
 
 

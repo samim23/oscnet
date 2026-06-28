@@ -541,6 +541,28 @@ OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_generator.py \
   --print-only
 ```
 
+Run the matched non-oscillatory state-MLP label-zero control:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_state_mlp_label0_control_probe
+```
+
+This uses the same label-zero, resize-conv, pixel-drift setup as the replicated
+HORN result, but replaces HORN's oscillator update with a residual MLP
+transition over the same position/velocity state. The default hidden size
+(`--state-mlp-hidden-dim 48`) gives roughly the same recurrent parameter budget
+as the HORN dense coupling for 196 oscillators. Results write to
+`outputs/analysis/modal_mnist_generator_state_mlp_label0_control_probe.csv`.
+
+Dry-run it first:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_state_mlp_label0_control_probe \
+  --print-only
+```
+
 Run the resize-conv generator with Un-0-style dynamic conditioning oscillators:
 
 ```bash

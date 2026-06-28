@@ -29,7 +29,11 @@ from oscnet.experiments.harness import (
     write_json,
 )
 from oscnet.experiments.mnist_autoencoder import load_mnist_data
-from oscnet.models import HORNImageGenerator, KuramotoImageGenerator
+from oscnet.models import (
+    HORNImageGenerator,
+    KuramotoImageGenerator,
+    StateMLPImageGenerator,
+)
 from oscnet.utils import save_equinox_checkpoint
 
 Array = jnp.ndarray
@@ -122,6 +126,9 @@ class MNISTGeneratorExperimentConfig:
     horn_damping: float = 0.15
     horn_nonlinearity: float = 0.05
     horn_state_bound: float = 3.0
+    state_mlp_hidden_dim: int = 48
+    state_mlp_depth: int = 1
+    state_mlp_residual_scale: float = 0.1
     train_recurrent_dynamics: Optional[bool] = None
     train_conditioning_dynamics: Optional[bool] = None
     conditional: bool = False
@@ -987,19 +994,28 @@ def build_mnist_generator_model(
 ) -> eqx.Module:
     """Build the requested oscillator generator or control."""
 
-    if config.model_family in ("kuramoto", "horn"):
+    if config.model_family in ("kuramoto", "horn", "state_mlp"):
         steps = config.steps
         train_dynamics = True
-    elif config.model_family in ("decoder_only", "horn_decoder_only"):
+    elif config.model_family in (
+        "decoder_only",
+        "horn_decoder_only",
+        "state_mlp_decoder_only",
+    ):
         steps = 0
         train_dynamics = False
-    elif config.model_family in ("frozen_kuramoto", "frozen_horn"):
+    elif config.model_family in (
+        "frozen_kuramoto",
+        "frozen_horn",
+        "frozen_state_mlp",
+    ):
         steps = config.steps
         train_dynamics = False
     else:
         raise ValueError(
             "model_family must be 'kuramoto', 'decoder_only', "
-            "'frozen_kuramoto', 'horn', 'horn_decoder_only', or 'frozen_horn'"
+            "'frozen_kuramoto', 'horn', 'horn_decoder_only', 'frozen_horn', "
+            "'state_mlp', 'state_mlp_decoder_only', or 'frozen_state_mlp'"
         )
     train_recurrent_dynamics = (
         train_dynamics
@@ -1012,11 +1028,16 @@ def build_mnist_generator_model(
         else bool(config.train_conditioning_dynamics)
     )
 
-    model_class = (
-        HORNImageGenerator
-        if config.model_family in ("horn", "horn_decoder_only", "frozen_horn")
-        else KuramotoImageGenerator
-    )
+    if config.model_family in ("horn", "horn_decoder_only", "frozen_horn"):
+        model_class = HORNImageGenerator
+    elif config.model_family in (
+        "state_mlp",
+        "state_mlp_decoder_only",
+        "frozen_state_mlp",
+    ):
+        model_class = StateMLPImageGenerator
+    else:
+        model_class = KuramotoImageGenerator
     model_kwargs = {
         "num_oscillators": config.num_oscillators,
         "decoder_hidden_dim": config.decoder_hidden_dim,
@@ -1059,6 +1080,15 @@ def build_mnist_generator_model(
                 "horn_frequency": config.horn_frequency,
                 "horn_damping": config.horn_damping,
                 "horn_nonlinearity": config.horn_nonlinearity,
+                "horn_state_bound": config.horn_state_bound,
+            }
+        )
+    if model_class is StateMLPImageGenerator:
+        model_kwargs.update(
+            {
+                "state_mlp_hidden_dim": config.state_mlp_hidden_dim,
+                "state_mlp_depth": config.state_mlp_depth,
+                "state_mlp_residual_scale": config.state_mlp_residual_scale,
                 "horn_state_bound": config.horn_state_bound,
             }
         )
@@ -1422,7 +1452,17 @@ def compute_generator_success_diagnostics(
     if model.resize_conv_output is not None:
         decoder_params += _array_size(model.resize_conv_output.weight)
         decoder_params += _array_size(model.resize_conv_output.bias)
-    recurrent_params = _array_size(model.omega) + _array_size(model.coupling)
+    transition_layers = tuple(getattr(model, "transition_layers", ()))
+    transition_params = sum(
+        _array_size(layer.weight) + _array_size(layer.bias)
+        for layer in transition_layers
+    )
+    dynamics_family = str(getattr(model, "dynamics_family", "kuramoto"))
+    recurrent_params = (
+        int(transition_params)
+        if dynamics_family == "state_mlp"
+        else _array_size(model.omega) + _array_size(model.coupling)
+    )
     conditioning_params = (
         _array_size(model.label_phase_shift)
         + _array_size(model.label_condition_phase)
@@ -1441,7 +1481,6 @@ def compute_generator_success_diagnostics(
         trainable_main_recurrent_params + trainable_conditioning_params
     )
     trainable_total_params = int(decoder_params + trainable_recurrent_params)
-    dynamics_family = str(getattr(model, "dynamics_family", "kuramoto"))
     n = int(model.num_oscillators)
     coupling_profile = np.asarray(model.coupling_profile_matrix(), dtype=np.float32)
     effective_coupling = np.asarray(model.coupling, dtype=np.float32) * coupling_profile
@@ -1452,17 +1491,24 @@ def compute_generator_success_diagnostics(
         off_diagonal_profile = np.asarray([0.0], dtype=np.float32)
 
     condition_n = int(model.num_condition_oscillators)
-    estimated_recurrent_ops_per_sample = int(
-        model.steps
-        * (
-            n * n
-            + (
-                condition_n * condition_n + n * condition_n
-                if model.conditioning_mode == "class_oscillator"
-                else 0
+    if dynamics_family == "state_mlp":
+        transition_ops = sum(
+            int(layer.in_features * layer.out_features)
+            for layer in transition_layers
+        )
+        estimated_recurrent_ops_per_sample = int(model.steps * transition_ops)
+    else:
+        estimated_recurrent_ops_per_sample = int(
+            model.steps
+            * (
+                n * n
+                + (
+                    condition_n * condition_n + n * condition_n
+                    if model.conditioning_mode == "class_oscillator"
+                    else 0
+                )
             )
         )
-    )
     estimated_decoder_ops_per_sample = int(
         sum(layer.in_features * layer.out_features for layer in model.decoder_layers)
     )
@@ -1518,6 +1564,7 @@ def compute_generator_success_diagnostics(
         "trainable_total_params": trainable_total_params,
         "decoder_params": int(decoder_params),
         "recurrent_params": int(recurrent_params),
+        "transition_params": int(transition_params),
         "conditioning_params": int(conditioning_params),
         "train_recurrent_dynamics": bool(model.train_recurrent_dynamics),
         "train_conditioning_dynamics": bool(model.train_conditioning_dynamics),
@@ -2220,6 +2267,9 @@ def run_mnist_generator_experiment(
             "horn_damping": config.horn_damping,
             "horn_nonlinearity": config.horn_nonlinearity,
             "horn_state_bound": config.horn_state_bound,
+            "state_mlp_hidden_dim": config.state_mlp_hidden_dim,
+            "state_mlp_depth": config.state_mlp_depth,
+            "state_mlp_residual_scale": config.state_mlp_residual_scale,
             "train_recurrent_dynamics": model.train_recurrent_dynamics,
             "train_conditioning_dynamics": model.train_conditioning_dynamics,
             "conditioning_mode": config.conditioning_mode,
@@ -2280,6 +2330,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
             "horn",
             "horn_decoder_only",
             "frozen_horn",
+            "state_mlp",
+            "state_mlp_decoder_only",
+            "frozen_state_mlp",
         ],
         default="kuramoto",
     )
@@ -2303,6 +2356,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--horn-damping", type=float, default=0.15)
     parser.add_argument("--horn-nonlinearity", type=float, default=0.05)
     parser.add_argument("--horn-state-bound", type=float, default=3.0)
+    parser.add_argument("--state-mlp-hidden-dim", type=int, default=48)
+    parser.add_argument("--state-mlp-depth", type=int, default=1)
+    parser.add_argument("--state-mlp-residual-scale", type=float, default=0.1)
     parser.add_argument(
         "--train-recurrent-dynamics",
         action=argparse.BooleanOptionalAction,
@@ -2429,6 +2485,9 @@ def config_from_args(args: argparse.Namespace) -> MNISTGeneratorExperimentConfig
         horn_damping=args.horn_damping,
         horn_nonlinearity=args.horn_nonlinearity,
         horn_state_bound=args.horn_state_bound,
+        state_mlp_hidden_dim=args.state_mlp_hidden_dim,
+        state_mlp_depth=args.state_mlp_depth,
+        state_mlp_residual_scale=args.state_mlp_residual_scale,
         train_recurrent_dynamics=args.train_recurrent_dynamics,
         train_conditioning_dynamics=args.train_conditioning_dynamics,
         conditional=args.conditional,

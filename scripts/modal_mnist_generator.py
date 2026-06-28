@@ -93,6 +93,10 @@ SWEEP_CSVS = {
         "outputs/analysis/"
         "modal_mnist_generator_horn_label0_replication_probe.csv"
     ),
+    "mnist_generator_state_mlp_label0_control_probe": Path(
+        "outputs/analysis/"
+        "modal_mnist_generator_state_mlp_label0_control_probe.csv"
+    ),
 }
 
 REMOTE_PACKAGES = [
@@ -1421,6 +1425,77 @@ def _mnist_generator_horn_label0_replication_probe_sweep() -> list[
     return entries
 
 
+def _mnist_generator_state_mlp_label0_control_probe_sweep() -> list[
+    tuple[list[str], str]
+]:
+    entries = []
+    variants = [
+        ("state_mlp", ["--model-family state_mlp"]),
+        ("state_mlp_decoder", ["--model-family state_mlp_decoder_only"]),
+        ("frozen_state_mlp", ["--model-family frozen_state_mlp"]),
+    ]
+    common = [
+        "--conditional",
+        "--label-phase-scale 0.0",
+        "--conditioning-mode phase_shift",
+        "--readout-mode mean_relative",
+        "--decoder-mode resize_conv",
+        "--resize-conv-seed-size 7",
+        "--resize-conv-upsamples 2",
+        "--resize-conv-min-channels 8",
+        "--loss-mode pixel_drift",
+        "--pixel-drift-weight 1.0",
+        "--feature-drift-weight 0.0",
+        "--distributional-weight 0.0",
+        "--drift-gamma 0.2",
+        "--drift-temperatures 0.02,0.05,0.2",
+        "--drift-queue-size 512",
+        "--drift-queue-num-pos 32",
+        "--class-moment-weight 0.0",
+        "--prototype-weight 0.0",
+        "--epochs 20",
+        "--train-limit 5000",
+        "--eval-limit 1000",
+        "--eval-sample-count 512",
+        "--batch-size 128",
+        "--num-oscillators 196",
+        "--decoder-hidden-dim 256",
+        "--decoder-depth 0",
+        "--steps 16",
+        "--dt 0.1",
+        "--coupling-strength 1.0",
+        "--omega-scale 0.1",
+        "--coupling-init-scale 0.05",
+        "--horn-state-bound 3.0",
+        "--state-mlp-hidden-dim 48",
+        "--state-mlp-depth 1",
+        "--state-mlp-residual-scale 0.1",
+        "--num-projections 256",
+        "--moment-weight 0.1",
+        "--pixel-marginal-weight 1.0",
+        "--quality-classifier-epochs 5",
+        "--quality-classifier-dim 128",
+        "--quality-classifier-depth 2",
+        "--output-bias-init -2.0",
+        "--artifact-every 20",
+        "--checkpoint-every 20",
+    ]
+    for seed in (11, 12, 13):
+        for model_suffix, model_args in variants:
+            run_name = (
+                "mnist_generator_state_mlp_label0_control_"
+                f"{model_suffix}_n196_resizeconv_steps16_train5000_"
+                f"seed{seed}_20e"
+            )
+            args = shlex.split(
+                " ".join([f"--seed {seed}", *common, *model_args])
+            )
+            output_dir = VOLUME_MOUNT / "mnist_generator" / run_name
+            args = _with_default_arg(args, "--output-dir", output_dir)
+            entries.append((args, run_name))
+    return entries
+
+
 def _sweep_entries(preset: str) -> list[tuple[list[str], str]]:
     if preset == "mnist_generator_core":
         return _mnist_generator_core_sweep()
@@ -1460,6 +1535,8 @@ def _sweep_entries(preset: str) -> list[tuple[list[str], str]]:
         return _mnist_generator_horn_conditioning_attribution_probe_sweep()
     if preset == "mnist_generator_horn_label0_replication_probe":
         return _mnist_generator_horn_label0_replication_probe_sweep()
+    if preset == "mnist_generator_state_mlp_label0_control_probe":
+        return _mnist_generator_state_mlp_label0_control_probe_sweep()
     raise ValueError("unknown sweep preset")
 
 
@@ -1481,6 +1558,9 @@ def _write_sweep_csv(results: list[dict[str, Any]], path: Path) -> None:
         "generator.horn_damping",
         "generator.horn_nonlinearity",
         "generator.horn_state_bound",
+        "generator.state_mlp_hidden_dim",
+        "generator.state_mlp_depth",
+        "generator.state_mlp_residual_scale",
         "generator.conditional",
         "generator.label_phase_scale",
         "generator.conditioning_mode",
@@ -1529,6 +1609,7 @@ def _write_sweep_csv(results: list[dict[str, Any]], path: Path) -> None:
         "generator.success_diagnostics.train_conditioning_dynamics",
         "generator.success_diagnostics.trainable_main_recurrent_params",
         "generator.success_diagnostics.trainable_conditioning_params",
+        "generator.success_diagnostics.transition_params",
         "generator.success_diagnostics.estimated_recurrent_op_fraction",
         "generator.success_diagnostics.coupling_profile",
         "generator.success_diagnostics.coupling_profile_mean",

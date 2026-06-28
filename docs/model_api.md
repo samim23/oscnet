@@ -260,6 +260,15 @@ and internally convert them to patch sequences.
   colleague-style HORN generator claims against Kuramoto, `frozen_horn`, and
   `horn_decoder_only` controls.
 
+`StateMLPImageGenerator`
+: A non-oscillatory latent-state control for the HORN generator. It keeps the
+  same position/velocity state, relative readout, and decoder surface, but
+  replaces oscillator dynamics with a residual MLP transition. Use it through
+  `model_family="state_mlp"`, `"frozen_state_mlp"`, or
+  `"state_mlp_decoder_only"` when checking whether HORN's recurrent field beats
+  a conventional trainable latent-state mapper under the same objective and
+  readout.
+
 `KuramotoPhaseVAE`
 : A MNIST-native generative autoencoder that encodes images into a Gaussian
   latent, interprets the sampled latent as oscillator phase, optionally evolves
