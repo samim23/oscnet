@@ -36,6 +36,7 @@ Runs write checkpoints, plots, metrics, traces, and samples under `outputs/`.
 | `image_mnist_kuramoto_generator.py` | Coupled-oscillator MNIST generator branch. |
 | `image_mnist_phase_vae.py` | MNIST phase VAE generative baseline. |
 | `image_mnist_phase_flow.py` | MNIST phase-rate rectified-flow sampler. |
+| `image_mnist_shape_pixel.py` | Two-stage signed-distance shape-to-pixel renderer. |
 | `resonanceDB.py` | Phase-aware similarity store demo. |
 | `fractal/` | Fractal/HORN coupling examples. |
 
@@ -131,6 +132,17 @@ python examples/image_mnist_phase_flow.py \
   --target-representation centered_pixels_signed_distance \
   --sample-schedule shape_guided \
   --sample-readout-mode shape_gated \
+  --epochs 1 \
+  --field-channels 2 \
+  --steps 1 \
+  --eval-sample-count 4
+```
+
+Shape-to-pixel renderer run:
+
+```bash
+python examples/image_mnist_shape_pixel.py \
+  --data-source synthetic \
   --epochs 1 \
   --field-channels 2 \
   --steps 1 \

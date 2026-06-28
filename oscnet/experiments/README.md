@@ -34,6 +34,7 @@ For runnable commands, start with `examples/README.md`.
 | Kuramoto MNIST generator | Explore Un-0-style coupled-oscillator image generation objectives. | `python examples/image_mnist_kuramoto_generator.py --help` |
 | MNIST phase VAE | A conventional paired VAE where the latent code passes through oscillator phase dynamics. | `python examples/image_mnist_phase_vae.py --help` |
 | MNIST phase-flow sampler | Treat the noisy image itself as a phase-rate oscillator field trained with rectified flow. | `python examples/image_mnist_phase_flow.py --help` |
+| MNIST shape-to-pixel renderer | Render pixels from a clamped signed-distance shape scaffold with phase-flow dynamics and recurrent controls. | `python examples/image_mnist_shape_pixel.py --help` |
 
 ## Choosing a Harness
 
@@ -61,6 +62,11 @@ open pixel-channel updates later during Euler sampling. Set
 partially real chord states; the harness reports before/after paired error so
 you can see whether the dynamics actually improve the state.
 
+Use **MNIST shape-to-pixel** if you want the next two-stage experiment after
+the basin probe: the signed-distance field is treated as a fixed scaffold, and
+the model learns a pixel rectified-flow conditioned on that scaffold. This is
+the clean test of "oscillators settle shape; a second field renders pixels."
+
 Use **MNIST masked representation** if you care about masked image recovery,
 block occlusion, or representation-prediction controls. This branch is useful
 for comparing recurrent and oscillatory predictors on partial-observation
@@ -76,7 +82,9 @@ The example scripts are convenient, but the harnesses can also be imported:
 ```python
 from oscnet.experiments import (
     MNISTPhaseFlowExperimentConfig,
+    MNISTShapePixelExperimentConfig,
     run_mnist_phase_flow_experiment,
+    run_mnist_shape_pixel_experiment,
 )
 ```
 

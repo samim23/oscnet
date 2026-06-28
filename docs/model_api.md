@@ -307,6 +307,10 @@ and internally convert them to patch sequences.
   Basin metrics include the starting paired MSE and final paired MSE, so this
   diagnostic can distinguish true endpoint improvement from simply starting
   close to the target.
+  `oscnet.experiments.mnist_shape_pixel` reuses the same model family for the
+  next two-stage test: channel 0 is a noisy/generated pixel image, channel 1 is
+  a clamped signed-distance shape condition, and only the pixel channel is
+  sampled. This isolates shape-field settling from pixel rendering.
 
 `RecurrentConvFlowField`
 : A matched non-oscillatory recurrent-flow control for `PhaseRateFlowField`.

@@ -31,6 +31,10 @@ from .mnist_phase_flow import (
     MNISTPhaseFlowExperimentConfig,
     run_mnist_phase_flow_experiment,
 )
+from .mnist_shape_pixel import (
+    MNISTShapePixelExperimentConfig,
+    run_mnist_shape_pixel_experiment,
+)
 from .results import (
     DEFAULT_RESULT_METRICS,
     ExperimentSummaryRow,
@@ -51,6 +55,7 @@ __all__ = [
     "MNISTGeneratorExperimentConfig",
     "MNISTPhaseVAEExperimentConfig",
     "MNISTPhaseFlowExperimentConfig",
+    "MNISTShapePixelExperimentConfig",
     "collect_experiment_summaries",
     "collect_sequence_state_trace",
     "compute_hidden_patch_weights",
@@ -67,6 +72,7 @@ __all__ = [
     "run_mnist_generator_experiment",
     "run_mnist_phase_vae_experiment",
     "run_mnist_phase_flow_experiment",
+    "run_mnist_shape_pixel_experiment",
     "sliced_wasserstein_loss",
     "train_autoencoder",
     "write_comparison_csv",

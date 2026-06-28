@@ -3639,6 +3639,55 @@ Interpretation:
   on that field. More sampler tweaks on raw pixel phase-flow are unlikely to
   solve the binding problem by themselves.
 
+Two-stage shape-to-pixel renderer:
+
+The next branch is `oscnet.experiments.mnist_shape_pixel` /
+`examples/image_mnist_shape_pixel.py`. It operationalizes the basin result as a
+clean two-stage hypothesis:
+
+```text
+stage 1: signed-distance field = oscillator-native shape scaffold
+stage 2: pixel rectified-flow renderer conditioned on that scaffold
+```
+
+The renderer uses the existing phase-flow model families, but changes the
+visible state contract:
+
+```text
+channel 0: noisy/generated pixel image
+channel 1: clamped signed-distance shape condition
+```
+
+The training target predicts pixel velocity and zero shape velocity; sampling
+clamps the shape channel after every integration step. This intentionally tests
+whether oscillatory phase-flow helps render pixels from a stable shape field
+without asking the same dynamics to invent shape and pixels simultaneously.
+The matched `recurrent_conv_flow` renderer remains the required control before
+claiming an oscillator-specific win.
+
+Initial smoke command:
+
+```bash
+python examples/image_mnist_shape_pixel.py \
+  --data-source synthetic \
+  --epochs 1 \
+  --field-channels 2 \
+  --steps 1 \
+  --eval-sample-count 4
+```
+
+Decision rule:
+
+- If coarse phase-flow beats recurrent-conv when conditioned on oracle
+  signed-distance scaffolds, the slow/global oscillator may be useful as a
+  renderer too.
+- If recurrent-conv wins, the stronger interpretation is that ONN dynamics are
+  best used for shape-field relaxation, while pixel rendering should be a
+  separate conventional module.
+- If both render well from oracle shapes, the next decisive test is cascading a
+  sampled signed-distance phase-flow scaffold into the renderer and measuring
+  the full two-stage generator.
+
 ## Maintenance Notes
 
 - Put numerical benchmark summaries in this file and/or `outputs/analysis`.
