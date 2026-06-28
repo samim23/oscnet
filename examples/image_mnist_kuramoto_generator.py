@@ -1,4 +1,4 @@
-"""Run the Un-0-style Kuramoto MNIST generator experiment."""
+"""Run the MNIST oscillator generator experiment."""
 
 from oscnet.experiments.mnist_generator import main
 

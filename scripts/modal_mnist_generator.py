@@ -19,7 +19,7 @@ VOLUME_MOUNT = Path("/mnt/oscnet-runs")
 GPU = os.environ.get("OSCNET_MODAL_GPU", "A10G")
 TIMEOUT_SECONDS = int(os.environ.get("OSCNET_MODAL_TIMEOUT_SECONDS", "10800"))
 JAX_PACKAGE = os.environ.get("OSCNET_MODAL_JAX", "jax[cuda13]")
-MAX_CONTAINERS = int(os.environ.get("OSCNET_MODAL_MAX_CONTAINERS", "3"))
+MAX_CONTAINERS = int(os.environ.get("OSCNET_MODAL_MAX_CONTAINERS", "1"))
 
 DEFAULT_SMOKE_ARGS = (
     "--data-source synthetic --model-family kuramoto --seed 0 --epochs 1 "
@@ -81,6 +81,13 @@ SWEEP_CSVS = {
     "mnist_generator_resize_conv_learned_feature_drift_queue_core": Path(
         "outputs/analysis/"
         "modal_mnist_generator_resize_conv_learned_feature_drift_queue_core.csv"
+    ),
+    "mnist_generator_horn_resize_conv_core": Path(
+        "outputs/analysis/modal_mnist_generator_horn_resize_conv_core.csv"
+    ),
+    "mnist_generator_horn_conditioning_attribution_probe": Path(
+        "outputs/analysis/"
+        "modal_mnist_generator_horn_conditioning_attribution_probe.csv"
     ),
 }
 
@@ -1190,6 +1197,155 @@ def _mnist_generator_resize_conv_learned_feature_drift_queue_core_sweep() -> lis
     return entries
 
 
+def _mnist_generator_horn_resize_conv_core_sweep() -> list[tuple[list[str], str]]:
+    entries = []
+    variants = [
+        ("horn", ["--model-family horn"]),
+        ("frozen_horn", ["--model-family frozen_horn"]),
+        ("horn_decoder", ["--model-family horn_decoder_only"]),
+        ("kuramoto", ["--model-family kuramoto"]),
+        ("frozen_kuramoto", ["--model-family frozen_kuramoto"]),
+        ("kuramoto_decoder", ["--model-family decoder_only"]),
+    ]
+    common = [
+        "--conditional",
+        "--conditioning-mode phase_shift",
+        "--readout-mode mean_relative",
+        "--decoder-mode resize_conv",
+        "--resize-conv-seed-size 7",
+        "--resize-conv-upsamples 2",
+        "--resize-conv-min-channels 8",
+        "--loss-mode pixel_drift",
+        "--pixel-drift-weight 1.0",
+        "--feature-drift-weight 0.0",
+        "--distributional-weight 0.0",
+        "--drift-gamma 0.2",
+        "--drift-temperatures 0.02,0.05,0.2",
+        "--drift-queue-size 512",
+        "--drift-queue-num-pos 32",
+        "--class-moment-weight 0.0",
+        "--prototype-weight 0.0",
+        "--epochs 20",
+        "--train-limit 5000",
+        "--eval-limit 1000",
+        "--eval-sample-count 512",
+        "--batch-size 128",
+        "--num-oscillators 196",
+        "--decoder-hidden-dim 256",
+        "--decoder-depth 0",
+        "--steps 16",
+        "--dt 0.1",
+        "--coupling-strength 1.0",
+        "--omega-scale 0.1",
+        "--coupling-init-scale 0.05",
+        "--horn-frequency 1.0",
+        "--horn-damping 0.15",
+        "--horn-nonlinearity 0.05",
+        "--horn-state-bound 3.0",
+        "--num-projections 256",
+        "--moment-weight 0.1",
+        "--pixel-marginal-weight 1.0",
+        "--output-bias-init -2.0",
+        "--artifact-every 20",
+        "--checkpoint-every 20",
+    ]
+    for seed in (11, 12):
+        for suffix, model_args in variants:
+            run_name = (
+                "mnist_generator_"
+                f"{suffix}_n196_resizeconv_steps16_train5000_seed{seed}_20e"
+            )
+            args = shlex.split(
+                " ".join([f"--seed {seed}", *common, *model_args])
+            )
+            output_dir = VOLUME_MOUNT / "mnist_generator" / run_name
+            args = _with_default_arg(args, "--output-dir", output_dir)
+            entries.append((args, run_name))
+    return entries
+
+
+def _mnist_generator_horn_conditioning_attribution_probe_sweep() -> list[
+    tuple[list[str], str]
+]:
+    entries = []
+    variants = [
+        ("horn", ["--model-family horn"]),
+        ("horn_decoder", ["--model-family horn_decoder_only"]),
+        ("frozen_horn", ["--model-family frozen_horn"]),
+    ]
+    conditioning_variants = [
+        ("label0_train", ["--conditional", "--label-phase-scale 0.0"]),
+        ("label01_train", ["--conditional", "--label-phase-scale 0.1"]),
+        ("label05_train", ["--conditional", "--label-phase-scale 0.5"]),
+    ]
+    common = [
+        "--conditioning-mode phase_shift",
+        "--readout-mode mean_relative",
+        "--decoder-mode resize_conv",
+        "--resize-conv-seed-size 7",
+        "--resize-conv-upsamples 2",
+        "--resize-conv-min-channels 8",
+        "--loss-mode pixel_drift",
+        "--pixel-drift-weight 1.0",
+        "--feature-drift-weight 0.0",
+        "--distributional-weight 0.0",
+        "--drift-gamma 0.2",
+        "--drift-temperatures 0.02,0.05,0.2",
+        "--drift-queue-size 512",
+        "--drift-queue-num-pos 32",
+        "--class-moment-weight 0.0",
+        "--prototype-weight 0.0",
+        "--epochs 20",
+        "--train-limit 5000",
+        "--eval-limit 1000",
+        "--eval-sample-count 512",
+        "--batch-size 128",
+        "--num-oscillators 196",
+        "--decoder-hidden-dim 256",
+        "--decoder-depth 0",
+        "--steps 16",
+        "--dt 0.1",
+        "--coupling-strength 1.0",
+        "--omega-scale 0.1",
+        "--coupling-init-scale 0.05",
+        "--horn-frequency 1.0",
+        "--horn-damping 0.15",
+        "--horn-nonlinearity 0.05",
+        "--horn-state-bound 3.0",
+        "--num-projections 256",
+        "--moment-weight 0.1",
+        "--pixel-marginal-weight 1.0",
+        "--quality-classifier-epochs 5",
+        "--quality-classifier-dim 128",
+        "--quality-classifier-depth 2",
+        "--output-bias-init -2.0",
+        "--artifact-every 20",
+        "--checkpoint-every 20",
+    ]
+    for seed in (11,):
+        for condition_suffix, condition_args in conditioning_variants:
+            for model_suffix, model_args in variants:
+                run_name = (
+                    "mnist_generator_horn_conditioning_"
+                    f"{condition_suffix}_{model_suffix}_"
+                    f"n196_resizeconv_steps16_train5000_seed{seed}_20e"
+                )
+                args = shlex.split(
+                    " ".join(
+                        [
+                            f"--seed {seed}",
+                            *common,
+                            *condition_args,
+                            *model_args,
+                        ]
+                    )
+                )
+                output_dir = VOLUME_MOUNT / "mnist_generator" / run_name
+                args = _with_default_arg(args, "--output-dir", output_dir)
+                entries.append((args, run_name))
+    return entries
+
+
 def _sweep_entries(preset: str) -> list[tuple[list[str], str]]:
     if preset == "mnist_generator_core":
         return _mnist_generator_core_sweep()
@@ -1223,6 +1379,10 @@ def _sweep_entries(preset: str) -> list[tuple[list[str], str]]:
         return _mnist_generator_resize_conv_learned_feature_drift_core_sweep()
     if preset == "mnist_generator_resize_conv_learned_feature_drift_queue_core":
         return _mnist_generator_resize_conv_learned_feature_drift_queue_core_sweep()
+    if preset == "mnist_generator_horn_resize_conv_core":
+        return _mnist_generator_horn_resize_conv_core_sweep()
+    if preset == "mnist_generator_horn_conditioning_attribution_probe":
+        return _mnist_generator_horn_conditioning_attribution_probe_sweep()
     raise ValueError("unknown sweep preset")
 
 
@@ -1239,6 +1399,13 @@ def _write_sweep_csv(results: list[dict[str, Any]], path: Path) -> None:
         "generator.real_nearest_real_mse",
         "generator.prototype_mse",
         "generator.prototype_nearest_accuracy",
+        "generator.dynamics_family",
+        "generator.horn_frequency",
+        "generator.horn_damping",
+        "generator.horn_nonlinearity",
+        "generator.horn_state_bound",
+        "generator.conditional",
+        "generator.label_phase_scale",
         "generator.conditioning_mode",
         "generator.coupling_profile",
         "generator.coupling_length_scale",
@@ -1257,6 +1424,18 @@ def _write_sweep_csv(results: list[dict[str, Any]], path: Path) -> None:
         "generator.feature_classifier.final_train_accuracy",
         "generator.feature_classifier.epochs",
         "generator.feature_classifier.feature_dim",
+        "generator.quality_classifier.final_eval_accuracy",
+        "generator.quality_classifier.final_eval_loss",
+        "generator.quality_classifier.final_train_accuracy",
+        "generator.quality_classifier.epochs",
+        "generator.quality_classifier.feature_dim",
+        "generator.quality_classifier_epochs",
+        "generator.quality_classifier_dim",
+        "generator.quality_classifier_depth",
+        "generator.classifier_label_accuracy",
+        "generator.classifier_label_confidence",
+        "generator.classifier_max_confidence",
+        "generator.classifier_entropy",
         "generator.drift_queue_size",
         "generator.drift_queue_num_pos",
         "generator.distributional_weight",
@@ -1265,6 +1444,7 @@ def _write_sweep_csv(results: list[dict[str, Any]], path: Path) -> None:
         "generator.resize_conv_upsamples",
         "generator.resize_conv_min_channels",
         "generator.success_diagnostics.total_params",
+        "generator.success_diagnostics.dynamics_family",
         "generator.success_diagnostics.decoder_mode",
         "generator.success_diagnostics.decoder_param_fraction",
         "generator.success_diagnostics.trainable_recurrent_param_fraction",
@@ -1282,6 +1462,8 @@ def _write_sweep_csv(results: list[dict[str, Any]], path: Path) -> None:
         "generator.success_diagnostics.phase_mean_abs_displacement",
         "generator.success_diagnostics.phase_final_order",
         "generator.success_diagnostics.phase_order_delta",
+        "generator.success_diagnostics.state_final_energy",
+        "generator.success_diagnostics.state_mean_abs_velocity_displacement",
         "generator.generated_mean",
         "generator.generated_std",
         "final_train_pixel_drift_loss",

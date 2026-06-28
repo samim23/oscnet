@@ -12,6 +12,7 @@ from oscnet.experiments.mnist_generator import (
     conditional_pixel_drift_loss,
     compute_class_prototypes,
     compute_generator_success_diagnostics,
+    compute_generator_quality_metrics,
     generator_distribution_loss,
     generator_loss,
     make_projection_matrix,
@@ -263,6 +264,30 @@ def test_generator_loss_combines_pixel_and_feature_drift():
     assert parts["feature_drift_loss"] > 0.0
 
 
+def test_generator_quality_metrics_can_use_classifier_labels():
+    real = jnp.linspace(0.0, 1.0, 6 * 28 * 28).reshape(6, 28 * 28)
+    generated = jnp.flip(real, axis=0)
+    labels = jnp.asarray([0, 1, 2, 0, 1, 2], dtype=jnp.int32)
+    classifier = MNISTFeatureClassifier(
+        feature_dim=8,
+        depth=1,
+        num_classes=3,
+        key=jax.random.PRNGKey(70),
+    )
+
+    metrics = compute_generator_quality_metrics(
+        real,
+        generated,
+        labels=labels,
+        classifier=classifier,
+    )
+
+    assert 0.0 <= metrics["classifier_label_accuracy"] <= 1.0
+    assert 0.0 <= metrics["classifier_label_confidence"] <= 1.0
+    assert 0.0 <= metrics["classifier_max_confidence"] <= 1.0
+    assert metrics["classifier_entropy"] >= 0.0
+
+
 def test_train_mnist_feature_classifier_smoke():
     images = jnp.linspace(0.0, 1.0, 12 * 28 * 28).reshape(12, 28 * 28)
     labels = jnp.asarray([0, 1, 2, 3] * 3, dtype=jnp.int32)
@@ -492,6 +517,64 @@ def test_resize_conv_generator_decodes_spatial_phase_seed():
     assert diagnostics["estimated_decoder_ops_per_sample"] > 0
 
 
+def test_horn_image_generator_samples_and_traces_state():
+    from oscnet.models import HORNImageGenerator
+
+    model = HORNImageGenerator(
+        num_oscillators=8,
+        image_shape=(8, 8),
+        decoder_hidden_dim=12,
+        decoder_depth=1,
+        steps=2,
+        num_classes=3,
+        conditioning_mode="phase_shift",
+        key=jax.random.PRNGKey(90),
+    )
+    labels = jnp.asarray([0, 1, 2], dtype=jnp.int32)
+    generated = model(jax.random.PRNGKey(91), 3, labels)
+    trace = model.collect_trace(jax.random.PRNGKey(92), 3, labels)
+    diagnostics = compute_generator_success_diagnostics(
+        model,
+        trace=trace,
+        sample_count=12,
+        total_train_seconds=2.0,
+    )
+
+    assert generated.shape == (3, 64)
+    assert bool(jnp.all(jnp.isfinite(generated)))
+    assert trace["initial_velocity"].shape == (3, 8)
+    assert trace["velocity_trajectory"].shape == (2, 3, 8)
+    assert diagnostics["dynamics_family"] == "horn"
+    assert diagnostics["state_final_energy"] >= 0.0
+
+
+def test_horn_resize_conv_generator_decodes_spatial_state_seed():
+    from oscnet.models import HORNImageGenerator
+
+    model = HORNImageGenerator(
+        num_oscillators=98,
+        image_shape=(28, 28),
+        decoder_mode="resize_conv",
+        resize_conv_min_channels=4,
+        steps=1,
+        key=jax.random.PRNGKey(93),
+    )
+    generated = model(jax.random.PRNGKey(94), 3)
+    trace = model.collect_trace(jax.random.PRNGKey(95), 3)
+    diagnostics = compute_generator_success_diagnostics(
+        model,
+        trace=trace,
+        sample_count=12,
+        total_train_seconds=2.0,
+    )
+
+    assert generated.shape == (3, 28 * 28)
+    assert model.resize_conv_seed_shape == (4, 7, 7)
+    assert diagnostics["dynamics_family"] == "horn"
+    assert diagnostics["decoder_mode"] == "resize_conv"
+    assert diagnostics["estimated_decoder_ops_per_sample"] > 0
+
+
 def test_mnist_generator_resize_conv_synthetic_training_smoke(tmp_path):
     run = AutoencoderExperimentConfig(
         name="mnist_generator_resize_conv_test",
@@ -528,6 +611,53 @@ def test_mnist_generator_resize_conv_synthetic_training_smoke(tmp_path):
     assert summary["generator"]["resize_conv_seed_size"] == 7
     assert diagnostics["decoder_mode"] == "resize_conv"
     assert diagnostics["decoder_params"] > 0
+    assert summary["final_eval_loss"] >= 0.0
+
+
+def test_mnist_generator_horn_synthetic_training_smoke(tmp_path):
+    run = AutoencoderExperimentConfig(
+        name="mnist_generator_horn_test",
+        output_dir=tmp_path / "mnist_generator_horn",
+        seed=83,
+        epochs=1,
+        batch_size=2,
+        learning_rate=1e-3,
+        checkpoint_every=1,
+        artifact_every=1,
+    )
+    config = MNISTGeneratorExperimentConfig(
+        run=run,
+        model_family="horn",
+        conditional=True,
+        num_classes=10,
+        conditioning_mode="phase_shift",
+        readout_mode="mean_relative",
+        decoder_mode="resize_conv",
+        resize_conv_min_channels=4,
+        num_oscillators=98,
+        decoder_hidden_dim=12,
+        decoder_depth=0,
+        steps=1,
+        num_projections=8,
+        quality_classifier_epochs=1,
+        quality_classifier_dim=8,
+        quality_classifier_depth=1,
+        eval_sample_count=2,
+        data_source="synthetic",
+        train_limit=4,
+        eval_limit=2,
+    )
+
+    result = run_mnist_generator_experiment(config)
+
+    with open(result.paths.metrics / "summary.json") as f:
+        summary = json.load(f)
+    diagnostics = summary["generator"]["success_diagnostics"]
+    assert summary["generator"]["dynamics_family"] == "horn"
+    assert summary["generator"]["quality_classifier"]["epochs"] == 1
+    assert "classifier_label_accuracy" in summary["generator"]
+    assert diagnostics["dynamics_family"] == "horn"
+    assert "state_final_energy" in diagnostics
     assert summary["final_eval_loss"] >= 0.0
 
 

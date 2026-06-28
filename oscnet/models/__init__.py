@@ -26,7 +26,7 @@ from .config import (
     WinfreePhaseAutoencoderConfig,
 )
 from .fractal import FractalHORNCell
-from .generative import KuramotoImageGenerator, KuramotoPhaseVAE
+from .generative import HORNImageGenerator, KuramotoImageGenerator, KuramotoPhaseVAE
 from .jepa import (
     ConvLSTMPatchJEPAPredictor,
     FeedForwardPatchJEPAPredictor,
@@ -150,6 +150,7 @@ __all__ = [
     "WinfreePriorRefinementPatchDenoiser",
     "WONNPatchAutoencoder",
     "FractalHORNCell",
+    "HORNImageGenerator",
     "KuramotoImageGenerator",
     "FeedForwardPatchJEPAPredictor",
     "RecurrentConvPatchJEPAPredictor",

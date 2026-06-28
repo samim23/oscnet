@@ -266,7 +266,7 @@ rate-phase for seeds 11 and 12. It writes a local comparison CSV to
 Run the Un-0-style implicit generator comparison:
 
 ```bash
-OSCNET_MODAL_MAX_CONTAINERS=3 modal run scripts/modal_mnist_generator.py \
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_generator.py \
   --sweep-preset mnist_generator_core
 ```
 
@@ -282,6 +282,30 @@ trainable recurrent parameter fraction, estimated recurrent operation fraction,
 sample throughput, and phase-trajectory movement/order proxies. These are
 digital-simulation diagnostics for attribution and efficiency comparison, not
 physical energy measurements.
+
+For generator runs where visual quality or class conditioning matters, add a
+small frozen classifier quality pass:
+
+```bash
+--quality-classifier-epochs 5
+```
+
+This trains a lightweight MNIST classifier on the run's training split and adds
+`classifier_label_accuracy`, `classifier_label_confidence`,
+`classifier_max_confidence`, and `classifier_entropy` to the summary/CSV. Use
+this when objective loss and visual sample quality disagree.
+
+For already-finished Modal runs, you can pull sample `.npz` artifacts and score
+them locally with the same classifier metric. Example artifact path:
+
+```bash
+modal volume get oscnet-runs \
+  /mnist_generator/<run-name>/artifacts/mnist_generator_samples_epoch_020.npz \
+  outputs/analysis/<name>.npz
+```
+
+The generator launcher defaults to one Modal container. Raise
+`OSCNET_MODAL_MAX_CONTAINERS` only when you intentionally want several GPUs.
 
 Run the simple conditional generator comparison:
 
@@ -435,7 +459,7 @@ OSCNET_MODAL_MAX_CONTAINERS=3 modal run scripts/modal_mnist_generator.py \
 Run the resize-conv generator with queue-backed pixel drift:
 
 ```bash
-OSCNET_MODAL_MAX_CONTAINERS=3 modal run scripts/modal_mnist_generator.py \
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_generator.py \
   --sweep-preset mnist_generator_resize_conv_pixel_drift_queue_core
 ```
 
@@ -447,8 +471,52 @@ using `--drift-queue-size 512 --drift-queue-num-pos 32`. Results write to
 Dry-run it first:
 
 ```bash
-OSCNET_MODAL_MAX_CONTAINERS=3 modal run scripts/modal_mnist_generator.py \
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_generator.py \
   --sweep-preset mnist_generator_resize_conv_pixel_drift_queue_core \
+  --print-only
+```
+
+Run the HORN-vs-Kuramoto resize-conv generator probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_horn_resize_conv_core
+```
+
+This compares trainable HORN, frozen HORN, HORN decoder-only, trainable
+Kuramoto, frozen Kuramoto, and Kuramoto decoder-only under the same conditional
+resize-conv pixel-drift setup. It is the cleanest immediate response to
+reports that homogeneous HORN dynamics outperform Kuramoto on image generation.
+Results write to
+`outputs/analysis/modal_mnist_generator_horn_resize_conv_core.csv`.
+
+Dry-run it first:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_horn_resize_conv_core \
+  --print-only
+```
+
+Run the lightweight HORN conditioning-attribution probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_horn_conditioning_attribution_probe
+```
+
+This keeps the HORN resize-conv generator setup fixed and varies label-phase
+conditioning strength while comparing trainable HORN, frozen HORN, and
+HORN decoder-only. It also enables `--quality-classifier-epochs 5`, so the CSV
+captures classifier-based semantic quality alongside pixel-drift loss. Results
+write to
+`outputs/analysis/modal_mnist_generator_horn_conditioning_attribution_probe.csv`.
+
+Dry-run it first:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_horn_conditioning_attribution_probe \
   --print-only
 ```
 

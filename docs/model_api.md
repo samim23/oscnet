@@ -242,7 +242,23 @@ and internally convert them to patch sequences.
   moment features for MNIST-scale probes. Generator experiment summaries include
   a `success_diagnostics` block with decoder/dynamics parameter fractions,
   estimated operation fractions, throughput, and phase-trajectory movement
-  proxies for attribution-focused comparison.
+  proxies for attribution-focused comparison. Set
+  `quality_classifier_epochs > 0` in the experiment config, or pass
+  `--quality-classifier-epochs`, to train a small frozen classifier for sample
+  label-accuracy/confidence metrics when pixel losses and visual quality
+  disagree.
+
+`HORNImageGenerator`
+: A second-order oscillator generator with explicit position and velocity
+  state. It shares the same conditioning modes, decoder modes, losses, and
+  experiment harness as `KuramotoImageGenerator`, but replaces phase-only
+  Kuramoto updates with a damped HORN-style oscillator:
+  position/velocity state is sampled as generative noise, recurrent coupling
+  supplies spring-like interaction, and the decoder reads bounded
+  `[position, velocity]` features. Use it through
+  `examples/image_mnist_kuramoto_generator.py --model-family horn` when testing
+  colleague-style HORN generator claims against Kuramoto, `frozen_horn`, and
+  `horn_decoder_only` controls.
 
 `KuramotoPhaseVAE`
 : A MNIST-native generative autoencoder that encodes images into a Gaussian

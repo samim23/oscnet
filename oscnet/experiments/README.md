@@ -31,7 +31,7 @@ For runnable commands, start with `examples/README.md`.
 | MNIST autoencoder | Reconstruct MNIST patches with reusable OscNet autoencoders and matched baselines. | `python examples/image_mnist_oscillatory_autoencoder.py --help` |
 | Audio wavelet autoencoder | Encode and reconstruct audio wavelet feature sequences with oscillatory dynamics. | `python examples/audio_wavelet_oscillatory_autoencoder.py --help` |
 | MNIST masked representation | Exploratory JEPA-lite benchmark for predicting hidden patch features with Winfree and recurrent controls. | `python examples/image_mnist_jepa.py --help` |
-| Kuramoto MNIST generator | Explore Un-0-style coupled-oscillator image generation objectives. | `python examples/image_mnist_kuramoto_generator.py --help` |
+| Oscillator MNIST generator | Explore coupled-oscillator image generation with Kuramoto and HORN dynamics. | `python examples/image_mnist_kuramoto_generator.py --help` |
 | MNIST phase VAE | A conventional paired VAE where the latent code passes through oscillator phase dynamics. | `python examples/image_mnist_phase_vae.py --help` |
 | MNIST phase-flow sampler | Treat the noisy image itself as a phase-rate oscillator field trained with rectified flow. | `python examples/image_mnist_phase_flow.py --help` |
 | MNIST shape-to-pixel renderer | Render pixels from a clamped signed-distance shape scaffold with phase-flow dynamics and recurrent controls. | `python examples/image_mnist_shape_pixel.py --help` |
@@ -86,8 +86,9 @@ block occlusion, or representation-prediction controls. This branch is useful
 for comparing recurrent and oscillatory predictors on partial-observation
 tasks.
 
-Use **Kuramoto MNIST generator** if you want the more speculative coupled
-oscillator generator branch.
+Use **Oscillator MNIST generator** if you want the more speculative coupled
+oscillator generator branch. Start with `--model-family kuramoto` or
+`--model-family horn`, and keep the frozen/decoder-only controls nearby.
 
 ## Python Usage
 

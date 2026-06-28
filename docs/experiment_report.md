@@ -4102,6 +4102,141 @@ Interpretation:
   scaffold is oracle, the renderer score is no longer meaningful evidence for
   oscillatory dynamics.
 
+## HORN Generator Probe
+
+A colleague shared preliminary CIFAR-10 evidence that a homogeneous HORN-style
+generator can beat a Kuramoto/Un-0-style oscillator generator under a similar
+latent generator framing. That is directly relevant because OscNet already had
+HORN cells historically, but the modern generator harness only exposed
+Kuramoto dynamics.
+
+Implemented response:
+
+- Added `HORNImageGenerator` as a reusable `oscnet.models` class.
+- Wired it into `oscnet.experiments.mnist_generator` as `model_family="horn"`,
+  with `frozen_horn` and `horn_decoder_only` controls.
+- Kept the same decoder modes, conditioning modes, losses, artifacts, and
+  success diagnostics as the Kuramoto generator, so comparisons are fair.
+- Added safe moment-loss gradients; the old `jnp.std` gradient could go NaN
+  when a generator initially emitted almost-constant images.
+- Added Modal preset `mnist_generator_horn_resize_conv_core`.
+
+This is a scaffold/probe, not yet a positive result. The right read is:
+HORN is now testable under the strongest current MNIST generator setup
+(`resize_conv` + queue-backed pixel drift) without creating one-off machinery.
+The first meaningful question is whether trainable HORN beats both
+`frozen_horn` and `horn_decoder_only`, and whether it improves over the matched
+Kuramoto rows. If it only beats Kuramoto but not its own frozen/decoder
+controls, it is not evidence for useful learned HORN dynamics.
+
+Modal result:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_horn_resize_conv_core
+```
+
+The initial sweep wrote:
+
+```text
+outputs/analysis/modal_mnist_generator_horn_resize_conv_core.csv
+outputs/analysis/modal_mnist_generator_horn_resize_conv_core.json
+```
+
+After the initial run, two missing matched `decoder_only` Kuramoto controls
+were run directly with the same settings; the Modal preset now includes those
+rows for future full sweeps.
+
+Two-seed mean metrics:
+
+| Variant | Best loss | Final eval | Prototype acc | Nearest-real MSE | Pixel mean MSE | Pixel std MSE | Diversity |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Kuramoto | 0.000811 | 0.000829 | 0.1074 | 0.0800 | 0.0090 | 0.0051 | 1.0560 |
+| Frozen Kuramoto | 0.000830 | 0.000875 | 0.0986 | 0.0874 | 0.0111 | 0.0058 | 1.1337 |
+| Kuramoto decoder-only | 0.000838 | 0.000871 | 0.0938 | 0.0842 | 0.0107 | 0.0053 | 1.0889 |
+| HORN | 0.001057 | 0.001060 | 1.0000 | 0.0504 | 0.0060 | 0.0036 | 1.1819 |
+| Frozen HORN | 0.001128 | 0.001131 | 0.9990 | 0.0552 | 0.0086 | 0.0042 | 1.1705 |
+| HORN decoder-only | 0.001227 | 0.001230 | 1.0000 | 0.0400 | 0.0054 | 0.0033 | 0.9436 |
+
+Interpretation:
+
+- HORN does show useful trainable dynamics inside its own family: trainable
+  HORN beats frozen HORN and HORN decoder-only on the pixel-drift objective.
+- It does not reproduce the colleague's claimed HORN-over-Kuramoto pattern on
+  this MNIST resize-conv pixel-drift setup. Kuramoto wins the objective, and
+  the matched Kuramoto controls are close to trainable Kuramoto.
+- HORN looks much better on prototype/class alignment and nearest-real MSE, but
+  HORN decoder-only already has those strengths. That makes the result a
+  state/readout/conditioning scaffold effect, not yet a learned HORN-dynamics
+  breakthrough.
+- The metric disagreement matters. Kuramoto optimizes the training objective
+  better but appears weakly class-conditional by prototype-nearest accuracy.
+  HORN is more class/prototype aligned but worse on the chosen drift objective.
+  Future generator comparisons should track both objective loss and semantic
+  class alignment, because either metric alone can tell the wrong story.
+
+Visual sample inspection sharpened that conclusion. Pulling sample grids from
+the Modal volume showed readable HORN digits and fragmented Kuramoto blobs for
+seed 11, despite Kuramoto's lower pixel-drift loss:
+
+```bash
+modal volume get oscnet-runs \
+  /mnist_generator/mnist_generator_horn_n196_resizeconv_steps16_train5000_seed11_20e/plots/mnist_generator_samples_epoch_020.png \
+  outputs/analysis/modal_mnist_generator_horn_probe_samples/horn_seed11.png
+modal volume get oscnet-runs \
+  /mnist_generator/mnist_generator_kuramoto_n196_resizeconv_steps16_train5000_seed11_20e/plots/mnist_generator_samples_epoch_020.png \
+  outputs/analysis/modal_mnist_generator_horn_probe_samples/kuramoto_seed11.png
+```
+
+This is a meaningful pivot: the generator objective is not yet aligned with
+human-visible digit quality. To make future sweeps less blind, the generator
+harness now supports optional classifier-based sample metrics via
+`--quality-classifier-epochs`. When enabled, summaries report
+`classifier_label_accuracy`, `classifier_label_confidence`,
+`classifier_max_confidence`, and `classifier_entropy` for generated samples.
+These metrics should sit beside pixel-drift loss, prototype accuracy, and
+visual grids in all serious generator comparisons.
+
+Follow-up semantic scoring confirmed the visual read. Generated sample arrays
+were pulled from the Modal volume and scored locally with one shared MNIST
+classifier trained for five epochs on the seed-11 split:
+
+```text
+outputs/analysis/modal_mnist_generator_horn_probe_quality_seed11.json
+```
+
+Classifier quality metrics on seed-11 generated samples:
+
+| Run | Classifier label acc | Label confidence | Max confidence | Entropy | Prototype acc | Nearest-real MSE |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| HORN | 0.9961 | 0.8125 | 0.8129 | 0.8738 | 1.0000 | 0.0516 |
+| HORN decoder-only | 0.9902 | 0.8160 | 0.8187 | 0.8504 | 1.0000 | 0.0396 |
+| Kuramoto | 0.1074 | 0.1071 | 0.5342 | 1.5053 | 0.1250 | 0.0782 |
+| Kuramoto decoder-only | 0.1094 | 0.1111 | 0.5102 | 1.5608 | 0.1191 | 0.0850 |
+
+Interpretation:
+
+- On semantic sample quality, HORN massively outperforms Kuramoto in this
+  conditional resize-conv generator setup, despite worse pixel-drift loss.
+- The effect is not primarily learned HORN recurrent dynamics: HORN
+  decoder-only is already excellent by classifier/prototype metrics. The HORN
+  position/velocity noise geometry plus resize-conv readout is a much better
+  conditional generator scaffold than Kuramoto phase noise in this setup.
+- This makes HORN worth keeping, but the immediate breakthrough path is not
+  "add more HORN steps." It is to design an objective/control suite where
+  semantic sample quality is first-class and then ask whether HORN dynamics can
+  improve diversity, robustness, efficiency, or sample refinement beyond the
+  already-strong HORN scaffold.
+
+Added follow-up Modal preset
+`mnist_generator_horn_conditioning_attribution_probe` for that next question.
+It keeps the resize-conv HORN setup fixed, runs one seed, varies
+`label_phase_scale`, and compares trainable HORN, frozen HORN, and
+HORN decoder-only with classifier-based semantic scoring enabled. This should
+answer whether the readable digits are mostly label conditioning/readout
+geometry, or whether learned HORN recurrence contributes once conditioning is
+weakened.
+
 ## Maintenance Notes
 
 - Put numerical benchmark summaries in this file and/or `outputs/analysis`.

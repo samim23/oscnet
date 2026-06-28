@@ -29,7 +29,7 @@ from oscnet.experiments.harness import (
     write_json,
 )
 from oscnet.experiments.mnist_autoencoder import load_mnist_data
-from oscnet.models import KuramotoImageGenerator
+from oscnet.models import HORNImageGenerator, KuramotoImageGenerator
 from oscnet.utils import save_equinox_checkpoint
 
 Array = jnp.ndarray
@@ -118,6 +118,10 @@ class MNISTGeneratorExperimentConfig:
     coupling_length_scale: float = 0.0
     coupling_floor: float = 0.0
     coupling_bias_strength: float = 0.0
+    horn_frequency: float = 1.0
+    horn_damping: float = 0.15
+    horn_nonlinearity: float = 0.05
+    horn_state_bound: float = 3.0
     train_recurrent_dynamics: Optional[bool] = None
     train_conditioning_dynamics: Optional[bool] = None
     conditional: bool = False
@@ -148,6 +152,11 @@ class MNISTGeneratorExperimentConfig:
     learned_feature_depth: int = 2
     learned_feature_learning_rate: float = 1e-3
     learned_feature_weight_decay: float = 1e-4
+    quality_classifier_epochs: int = 0
+    quality_classifier_dim: int = 128
+    quality_classifier_depth: int = 2
+    quality_classifier_learning_rate: float = 1e-3
+    quality_classifier_weight_decay: float = 1e-4
     drift_queue_size: int = 0
     drift_queue_num_pos: int = 0
     distributional_weight: float = 0.0
@@ -449,8 +458,8 @@ def distribution_moment_loss(real: Array, generated: Array) -> Array:
 
     real_mean = jnp.mean(real, axis=0)
     generated_mean = jnp.mean(generated, axis=0)
-    real_std = jnp.std(real, axis=0)
-    generated_std = jnp.std(generated, axis=0)
+    real_std = jnp.sqrt(jnp.var(real, axis=0) + 1e-8)
+    generated_std = jnp.sqrt(jnp.var(generated, axis=0) + 1e-8)
     return jnp.mean((real_mean - generated_mean) ** 2) + jnp.mean(
         (real_std - generated_std) ** 2
     )
@@ -975,21 +984,22 @@ def _tree_norm(tree: Any) -> Array:
 def build_mnist_generator_model(
     config: MNISTGeneratorExperimentConfig,
     key: jax.random.PRNGKey,
-) -> KuramotoImageGenerator:
+) -> eqx.Module:
     """Build the requested oscillator generator or control."""
 
-    if config.model_family == "kuramoto":
+    if config.model_family in ("kuramoto", "horn"):
         steps = config.steps
         train_dynamics = True
-    elif config.model_family == "decoder_only":
+    elif config.model_family in ("decoder_only", "horn_decoder_only"):
         steps = 0
         train_dynamics = False
-    elif config.model_family == "frozen_kuramoto":
+    elif config.model_family in ("frozen_kuramoto", "frozen_horn"):
         steps = config.steps
         train_dynamics = False
     else:
         raise ValueError(
-            "model_family must be 'kuramoto', 'decoder_only', or 'frozen_kuramoto'"
+            "model_family must be 'kuramoto', 'decoder_only', "
+            "'frozen_kuramoto', 'horn', 'horn_decoder_only', or 'frozen_horn'"
         )
     train_recurrent_dynamics = (
         train_dynamics
@@ -1002,42 +1012,57 @@ def build_mnist_generator_model(
         else bool(config.train_conditioning_dynamics)
     )
 
-    return KuramotoImageGenerator(
-        num_oscillators=config.num_oscillators,
-        decoder_hidden_dim=config.decoder_hidden_dim,
-        decoder_depth=config.decoder_depth,
-        steps=steps,
-        dt=config.dt,
-        coupling_strength=config.coupling_strength,
-        omega_scale=config.omega_scale,
-        coupling_init_scale=config.coupling_init_scale,
-        coupling_profile=config.coupling_profile,
-        coupling_length_scale=config.coupling_length_scale,
-        coupling_floor=config.coupling_floor,
-        coupling_bias_strength=config.coupling_bias_strength,
-        train_dynamics=train_dynamics,
-        train_recurrent_dynamics=train_recurrent_dynamics,
-        train_conditioning_dynamics=train_conditioning_dynamics,
-        num_classes=config.num_classes if config.conditional else 0,
-        label_phase_scale=config.label_phase_scale,
-        num_condition_oscillators=(
+    model_class = (
+        HORNImageGenerator
+        if config.model_family in ("horn", "horn_decoder_only", "frozen_horn")
+        else KuramotoImageGenerator
+    )
+    model_kwargs = {
+        "num_oscillators": config.num_oscillators,
+        "decoder_hidden_dim": config.decoder_hidden_dim,
+        "decoder_depth": config.decoder_depth,
+        "steps": steps,
+        "dt": config.dt,
+        "coupling_strength": config.coupling_strength,
+        "omega_scale": config.omega_scale,
+        "coupling_init_scale": config.coupling_init_scale,
+        "coupling_profile": config.coupling_profile,
+        "coupling_length_scale": config.coupling_length_scale,
+        "coupling_floor": config.coupling_floor,
+        "coupling_bias_strength": config.coupling_bias_strength,
+        "train_dynamics": train_dynamics,
+        "train_recurrent_dynamics": train_recurrent_dynamics,
+        "train_conditioning_dynamics": train_conditioning_dynamics,
+        "num_classes": config.num_classes if config.conditional else 0,
+        "label_phase_scale": config.label_phase_scale,
+        "num_condition_oscillators": (
             config.num_condition_oscillators if config.conditional else 0
         ),
-        conditioning_mode=config.conditioning_mode if config.conditional else "none",
-        readout_mode=config.readout_mode,
-        decoder_mode=config.decoder_mode,
-        spatial_basis_sigma=config.spatial_basis_sigma,
-        local_patch_size=config.local_patch_size,
-        resize_conv_seed_shape=(
+        "conditioning_mode": config.conditioning_mode if config.conditional else "none",
+        "readout_mode": config.readout_mode,
+        "decoder_mode": config.decoder_mode,
+        "spatial_basis_sigma": config.spatial_basis_sigma,
+        "local_patch_size": config.local_patch_size,
+        "resize_conv_seed_shape": (
             config.resize_conv_seed_size,
             config.resize_conv_seed_size,
         ),
-        resize_conv_upsamples=config.resize_conv_upsamples,
-        resize_conv_min_channels=config.resize_conv_min_channels,
-        output_activation=config.output_activation,
-        output_bias_init=config.output_bias_init,
-        key=key,
-    )
+        "resize_conv_upsamples": config.resize_conv_upsamples,
+        "resize_conv_min_channels": config.resize_conv_min_channels,
+        "output_activation": config.output_activation,
+        "output_bias_init": config.output_bias_init,
+        "key": key,
+    }
+    if model_class is HORNImageGenerator:
+        model_kwargs.update(
+            {
+                "horn_frequency": config.horn_frequency,
+                "horn_damping": config.horn_damping,
+                "horn_nonlinearity": config.horn_nonlinearity,
+                "horn_state_bound": config.horn_state_bound,
+            }
+        )
+    return model_class(**model_kwargs)
 
 
 @eqx.filter_jit
@@ -1287,6 +1312,7 @@ def compute_generator_quality_metrics(
     *,
     labels: Optional[Array] = None,
     prototypes: Optional[Array] = None,
+    classifier: Optional[MNISTFeatureClassifier] = None,
 ) -> Dict[str, float]:
     """Compute lightweight distribution and diversity diagnostics."""
 
@@ -1333,6 +1359,31 @@ def compute_generator_quality_metrics(
                 ),
             }
         )
+    if labels is not None and classifier is not None:
+        labels_jnp = labels[: gen.shape[0]].astype(jnp.int32)
+        logits = classifier(jnp.asarray(clipped, dtype=jnp.float32))
+        probabilities = jax.nn.softmax(logits, axis=-1)
+        predicted = jnp.argmax(probabilities, axis=-1)
+        intended_probability = probabilities[
+            jnp.arange(labels_jnp.shape[0]),
+            labels_jnp,
+        ]
+        entropy = -jnp.sum(
+            probabilities * jnp.log(jnp.maximum(probabilities, 1e-8)),
+            axis=-1,
+        )
+        metrics.update(
+            {
+                "classifier_label_accuracy": float(
+                    jnp.mean((predicted == labels_jnp).astype(jnp.float32))
+                ),
+                "classifier_label_confidence": float(jnp.mean(intended_probability)),
+                "classifier_max_confidence": float(
+                    jnp.mean(jnp.max(probabilities, axis=-1))
+                ),
+                "classifier_entropy": float(jnp.mean(entropy)),
+            }
+        )
     return metrics
 
 
@@ -1343,7 +1394,7 @@ def _array_size(value: Optional[Array]) -> int:
 
 
 def compute_generator_success_diagnostics(
-    model: KuramotoImageGenerator,
+    model: eqx.Module,
     *,
     trace: Optional[Dict[str, Array]] = None,
     sample_count: int = 0,
@@ -1390,6 +1441,7 @@ def compute_generator_success_diagnostics(
         trainable_main_recurrent_params + trainable_conditioning_params
     )
     trainable_total_params = int(decoder_params + trainable_recurrent_params)
+    dynamics_family = str(getattr(model, "dynamics_family", "kuramoto"))
     n = int(model.num_oscillators)
     coupling_profile = np.asarray(model.coupling_profile_matrix(), dtype=np.float32)
     effective_coupling = np.asarray(model.coupling, dtype=np.float32) * coupling_profile
@@ -1472,6 +1524,7 @@ def compute_generator_success_diagnostics(
         "trainable_main_recurrent_params": trainable_main_recurrent_params,
         "trainable_conditioning_params": trainable_conditioning_params,
         "trainable_recurrent_params": trainable_recurrent_params,
+        "dynamics_family": dynamics_family,
         "decoder_param_fraction": (
             float(decoder_params / total_params) if total_params > 0 else 0.0
         ),
@@ -1536,6 +1589,15 @@ def compute_generator_success_diagnostics(
         else:
             diagnostics["phase_step_velocity_mean"] = 0.0
             diagnostics["phase_order_delta"] = 0.0
+        if "initial_velocity" in trace and "final_velocity" in trace:
+            initial_velocity = np.asarray(trace["initial_velocity"], dtype=np.float32)
+            final_velocity = np.asarray(trace["final_velocity"], dtype=np.float32)
+            diagnostics["state_mean_abs_velocity_displacement"] = float(
+                np.mean(np.abs(final_velocity - initial_velocity))
+            )
+            diagnostics["state_final_energy"] = float(
+                np.mean(final**2 + final_velocity**2)
+            )
 
     return diagnostics
 
@@ -1620,6 +1682,10 @@ def _checkpoint_hyperparams(config: MNISTGeneratorExperimentConfig) -> Dict[str,
         "coupling_length_scale": config.coupling_length_scale,
         "coupling_floor": config.coupling_floor,
         "coupling_bias_strength": config.coupling_bias_strength,
+        "horn_frequency": config.horn_frequency,
+        "horn_damping": config.horn_damping,
+        "horn_nonlinearity": config.horn_nonlinearity,
+        "horn_state_bound": config.horn_state_bound,
         "train_recurrent_dynamics": config.train_recurrent_dynamics,
         "train_conditioning_dynamics": config.train_conditioning_dynamics,
         "conditional": config.conditional,
@@ -1647,6 +1713,11 @@ def _checkpoint_hyperparams(config: MNISTGeneratorExperimentConfig) -> Dict[str,
         "learned_feature_depth": config.learned_feature_depth,
         "learned_feature_learning_rate": config.learned_feature_learning_rate,
         "learned_feature_weight_decay": config.learned_feature_weight_decay,
+        "quality_classifier_epochs": config.quality_classifier_epochs,
+        "quality_classifier_dim": config.quality_classifier_dim,
+        "quality_classifier_depth": config.quality_classifier_depth,
+        "quality_classifier_learning_rate": config.quality_classifier_learning_rate,
+        "quality_classifier_weight_decay": config.quality_classifier_weight_decay,
         "drift_queue_size": config.drift_queue_size,
         "drift_queue_num_pos": config.drift_queue_num_pos,
         "distributional_weight": config.distributional_weight,
@@ -1704,6 +1775,8 @@ def run_mnist_generator_experiment(
     key, model_key, projection_key, feature_key = jax.random.split(key, 4)
     feature_model: Optional[MNISTFeatureClassifier] = None
     feature_classifier_metrics: Dict[str, Any] = {}
+    quality_classifier_model: Optional[MNISTFeatureClassifier] = None
+    quality_classifier_metrics: Dict[str, Any] = {}
     if config.feature_drift_mode == "learned":
         logger.info(
             "training learned feature classifier epochs=%s feature_dim=%s",
@@ -1733,6 +1806,40 @@ def run_mnist_generator_experiment(
             "feature_classifier eval_acc=%.4f eval_loss=%.4f",
             feature_classifier_metrics["final_eval_accuracy"],
             feature_classifier_metrics["final_eval_loss"],
+        )
+        quality_classifier_model = feature_model
+        quality_classifier_metrics = feature_classifier_metrics
+    if config.quality_classifier_epochs > 0 and quality_classifier_model is None:
+        logger.info(
+            "training quality classifier epochs=%s feature_dim=%s",
+            config.quality_classifier_epochs,
+            config.quality_classifier_dim,
+        )
+        quality_classifier_model, quality_classifier_metrics = (
+            train_mnist_feature_classifier(
+                train_images,
+                train_labels,
+                eval_images,
+                eval_labels,
+                key=feature_key,
+                num_classes=config.num_classes,
+                feature_dim=config.quality_classifier_dim,
+                depth=config.quality_classifier_depth,
+                epochs=config.quality_classifier_epochs,
+                batch_size=config.run.batch_size,
+                learning_rate=config.quality_classifier_learning_rate,
+                weight_decay=config.quality_classifier_weight_decay,
+                max_grad_norm=config.run.max_grad_norm,
+            )
+        )
+        write_json(
+            paths.metrics / "quality_classifier.json",
+            quality_classifier_metrics,
+        )
+        logger.info(
+            "quality_classifier eval_acc=%.4f eval_loss=%.4f",
+            quality_classifier_metrics["final_eval_accuracy"],
+            quality_classifier_metrics["final_eval_loss"],
         )
     model = build_mnist_generator_model(config, model_key)
     drift_queue: Optional[MNISTDriftQueue] = None
@@ -2045,6 +2152,7 @@ def run_mnist_generator_experiment(
         final_generated,
         labels=eval_labels[:eval_count] if config.conditional else None,
         prototypes=prototypes,
+        classifier=quality_classifier_model,
     )
     diagnostic_count = min(
         eval_count,
@@ -2086,6 +2194,10 @@ def run_mnist_generator_experiment(
             "feature_drift_weight": config.feature_drift_weight,
             "feature_drift_mode": config.feature_drift_mode,
             "feature_classifier": feature_classifier_metrics,
+            "quality_classifier": quality_classifier_metrics,
+            "quality_classifier_epochs": config.quality_classifier_epochs,
+            "quality_classifier_dim": config.quality_classifier_dim,
+            "quality_classifier_depth": config.quality_classifier_depth,
             "drift_queue_size": config.drift_queue_size,
             "drift_queue_num_pos": config.drift_queue_num_pos,
             "drift_queue_final_counts": (
@@ -2098,10 +2210,16 @@ def run_mnist_generator_experiment(
             "drift_temperatures": list(config.drift_temperatures),
             "distributional_not_paired_reconstruction": True,
             "conditional": config.conditional,
+            "label_phase_scale": config.label_phase_scale,
             "coupling_profile": config.coupling_profile,
             "coupling_length_scale": config.coupling_length_scale,
             "coupling_floor": config.coupling_floor,
             "coupling_bias_strength": config.coupling_bias_strength,
+            "dynamics_family": str(getattr(model, "dynamics_family", "kuramoto")),
+            "horn_frequency": config.horn_frequency,
+            "horn_damping": config.horn_damping,
+            "horn_nonlinearity": config.horn_nonlinearity,
+            "horn_state_bound": config.horn_state_bound,
             "train_recurrent_dynamics": model.train_recurrent_dynamics,
             "train_conditioning_dynamics": model.train_conditioning_dynamics,
             "conditioning_mode": config.conditioning_mode,
@@ -2155,7 +2273,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--eval-every", type=int, default=1)
     parser.add_argument(
         "--model-family",
-        choices=["kuramoto", "decoder_only", "frozen_kuramoto"],
+        choices=[
+            "kuramoto",
+            "decoder_only",
+            "frozen_kuramoto",
+            "horn",
+            "horn_decoder_only",
+            "frozen_horn",
+        ],
         default="kuramoto",
     )
     parser.add_argument("--num-oscillators", type=int, default=64)
@@ -2174,6 +2299,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--coupling-length-scale", type=float, default=0.0)
     parser.add_argument("--coupling-floor", type=float, default=0.0)
     parser.add_argument("--coupling-bias-strength", type=float, default=0.0)
+    parser.add_argument("--horn-frequency", type=float, default=1.0)
+    parser.add_argument("--horn-damping", type=float, default=0.15)
+    parser.add_argument("--horn-nonlinearity", type=float, default=0.05)
+    parser.add_argument("--horn-state-bound", type=float, default=3.0)
     parser.add_argument(
         "--train-recurrent-dynamics",
         action=argparse.BooleanOptionalAction,
@@ -2240,6 +2369,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--learned-feature-depth", type=int, default=2)
     parser.add_argument("--learned-feature-learning-rate", type=float, default=1e-3)
     parser.add_argument("--learned-feature-weight-decay", type=float, default=1e-4)
+    parser.add_argument("--quality-classifier-epochs", type=int, default=0)
+    parser.add_argument("--quality-classifier-dim", type=int, default=128)
+    parser.add_argument("--quality-classifier-depth", type=int, default=2)
+    parser.add_argument("--quality-classifier-learning-rate", type=float, default=1e-3)
+    parser.add_argument("--quality-classifier-weight-decay", type=float, default=1e-4)
     parser.add_argument("--drift-queue-size", type=int, default=0)
     parser.add_argument("--drift-queue-num-pos", type=int, default=0)
     parser.add_argument("--distributional-weight", type=float, default=0.0)
@@ -2291,6 +2425,10 @@ def config_from_args(args: argparse.Namespace) -> MNISTGeneratorExperimentConfig
         coupling_length_scale=args.coupling_length_scale,
         coupling_floor=args.coupling_floor,
         coupling_bias_strength=args.coupling_bias_strength,
+        horn_frequency=args.horn_frequency,
+        horn_damping=args.horn_damping,
+        horn_nonlinearity=args.horn_nonlinearity,
+        horn_state_bound=args.horn_state_bound,
         train_recurrent_dynamics=args.train_recurrent_dynamics,
         train_conditioning_dynamics=args.train_conditioning_dynamics,
         conditional=args.conditional,
@@ -2321,6 +2459,11 @@ def config_from_args(args: argparse.Namespace) -> MNISTGeneratorExperimentConfig
         learned_feature_depth=args.learned_feature_depth,
         learned_feature_learning_rate=args.learned_feature_learning_rate,
         learned_feature_weight_decay=args.learned_feature_weight_decay,
+        quality_classifier_epochs=args.quality_classifier_epochs,
+        quality_classifier_dim=args.quality_classifier_dim,
+        quality_classifier_depth=args.quality_classifier_depth,
+        quality_classifier_learning_rate=args.quality_classifier_learning_rate,
+        quality_classifier_weight_decay=args.quality_classifier_weight_decay,
         drift_queue_size=args.drift_queue_size,
         drift_queue_num_pos=args.drift_queue_num_pos,
         distributional_weight=args.distributional_weight,

@@ -33,7 +33,7 @@ Runs write checkpoints, plots, metrics, traces, and samples under `outputs/`.
 | `image_mnist_oscillatory_autoencoder.py` | MNIST patch autoencoder reference benchmark. |
 | `audio_wavelet_oscillatory_autoencoder.py` | Audio wavelet sequence autoencoder benchmark. |
 | `image_mnist_jepa.py` | MNIST masked-representation prediction. |
-| `image_mnist_kuramoto_generator.py` | Coupled-oscillator MNIST generator branch. |
+| `image_mnist_kuramoto_generator.py` | Coupled-oscillator MNIST generator branch with Kuramoto and HORN dynamics. |
 | `image_mnist_phase_vae.py` | MNIST phase VAE generative baseline. |
 | `image_mnist_phase_flow.py` | MNIST phase-rate rectified-flow sampler. |
 | `image_mnist_shape_pixel.py` | Two-stage signed-distance shape-to-pixel renderer. |
@@ -179,6 +179,20 @@ Small phase VAE run:
 ```bash
 python examples/image_mnist_phase_vae.py \
   --data-source synthetic \
+  --epochs 1 \
+  --train-limit 8 \
+  --eval-limit 4
+```
+
+Small HORN generator run:
+
+```bash
+python examples/image_mnist_kuramoto_generator.py \
+  --data-source synthetic \
+  --model-family horn \
+  --decoder-mode resize_conv \
+  --num-oscillators 98 \
+  --resize-conv-min-channels 4 \
   --epochs 1 \
   --train-limit 8 \
   --eval-limit 4
