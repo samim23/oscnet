@@ -90,6 +90,7 @@ def build_mnist_phase_flow_model(
 ) -> PhaseFlowModel:
     """Build the requested phase-flow model or matched control."""
 
+    value_channels = phase_flow_target_channels(config.target_representation)
     if config.model_family == "phase_flow":
         steps = config.steps
         train_dynamics = True
@@ -101,6 +102,7 @@ def build_mnist_phase_flow_model(
         train_dynamics = False
     elif config.model_family == "coarse_phase_flow":
         return CoarseGlobalPhaseRateFlowField(
+            value_channels=value_channels,
             field_channels=config.field_channels,
             steps=config.steps,
             kernel_size=config.kernel_size,
@@ -119,6 +121,7 @@ def build_mnist_phase_flow_model(
         )
     elif config.model_family == "recurrent_conv_flow":
         return RecurrentConvFlowField(
+            value_channels=value_channels,
             field_channels=config.field_channels,
             steps=config.steps,
             kernel_size=config.kernel_size,
@@ -139,6 +142,7 @@ def build_mnist_phase_flow_model(
             "or 'recurrent_conv_flow'"
         )
     return PhaseRateFlowField(
+        value_channels=value_channels,
         field_channels=config.field_channels,
         steps=steps,
         kernel_size=config.kernel_size,
@@ -177,6 +181,7 @@ def _checkpoint_hyperparams(config: MNISTPhaseFlowExperimentConfig) -> Dict[str,
         "sample_steps": config.sample_steps,
         "sample_method": config.sample_method,
         "target_representation": config.target_representation,
+        "target_channels": phase_flow_target_channels(config.target_representation),
     }
 
 
@@ -295,6 +300,25 @@ def signed_distance_targets(
     return jnp.clip(target.reshape(batch_size, 28 * 28), 0.0, 1.0)
 
 
+def phase_flow_target_channels(representation: str) -> int:
+    """Return how many visible value channels a target representation uses."""
+
+    if representation in {"pixels", "sobel_edges", "signed_distance"}:
+        return 1
+    if representation == "pixels_signed_distance":
+        return 2
+    raise ValueError(
+        "target_representation must be 'pixels', 'sobel_edges', "
+        "'signed_distance', or 'pixels_signed_distance'"
+    )
+
+
+def _stack_phase_flow_channels(*channels: Array) -> Array:
+    batch_size = channels[0].shape[0]
+    grids = [channel.reshape(batch_size, 28, 28) for channel in channels]
+    return jnp.stack(grids, axis=-1).reshape(batch_size, 28 * 28 * len(channels))
+
+
 def prepare_phase_flow_targets(images: Array, representation: str) -> Array:
     """Prepare the image-domain target used by phase-flow training."""
 
@@ -304,10 +328,22 @@ def prepare_phase_flow_targets(images: Array, representation: str) -> Array:
         return sobel_edge_targets(images)
     if representation == "signed_distance":
         return signed_distance_targets(images)
-    raise ValueError(
-        "target_representation must be 'pixels', 'sobel_edges', "
-        "or 'signed_distance'"
-    )
+    if representation == "pixels_signed_distance":
+        return _stack_phase_flow_channels(images, signed_distance_targets(images))
+    phase_flow_target_channels(representation)
+    raise AssertionError("unreachable")
+
+
+def primary_phase_flow_channel(images: Array, value_channels: int) -> Array:
+    """Extract the pixel/primary channel from flat phase-flow tensors."""
+
+    if value_channels == 1:
+        return images
+    if value_channels < 1:
+        raise ValueError("value_channels must be positive")
+    batch_size = images.shape[0]
+    grid = images.reshape(batch_size, 28, 28, int(value_channels))
+    return grid[..., 0].reshape(batch_size, 28 * 28)
 
 
 def _mean_pool_flat_images(images: Array, grid_size: int) -> Array:
@@ -406,7 +442,10 @@ def phase_flow_loss(
     velocity_loss = jnp.mean((velocity - target_velocity) ** 2)
     clean_prediction = noisy + (1.0 - t[:, None]) * velocity
     clean_loss = jnp.mean((clean_prediction - images) ** 2)
-    shape_loss = closure_loss(clean_prediction, images)
+    shape_loss = closure_loss(
+        primary_phase_flow_channel(clean_prediction, model.value_channels),
+        primary_phase_flow_channel(images, model.value_channels),
+    )
     total = (
         velocity_loss
         + float(clean_loss_weight) * clean_loss
@@ -627,11 +666,21 @@ def _sample_phase_flow_heun(
 def compute_phase_flow_quality_metrics(
     real_images: Array,
     samples: Array,
+    *,
+    value_channels: int = 1,
 ) -> Dict[str, float]:
     """Compute lightweight sample diagnostics."""
 
-    real = np.asarray(real_images, dtype=np.float32).reshape(real_images.shape[0], -1)
-    gen = np.asarray(samples, dtype=np.float32).reshape(samples.shape[0], -1)
+    real_primary = primary_phase_flow_channel(real_images, value_channels)
+    sample_primary = primary_phase_flow_channel(samples, value_channels)
+    real = np.asarray(real_primary, dtype=np.float32).reshape(
+        real_primary.shape[0],
+        -1,
+    )
+    gen = np.asarray(sample_primary, dtype=np.float32).reshape(
+        sample_primary.shape[0],
+        -1,
+    )
     real_for_gen = real[: gen.shape[0]]
     pairwise = np.mean((gen[:, None, :] - real_for_gen[None, :, :]) ** 2, axis=-1)
     nearest_real_mse = np.min(pairwise, axis=1)
@@ -792,6 +841,10 @@ def save_phase_flow_artifacts(
         batch_size=batch_size,
     )
 
+    real_primary = primary_phase_flow_channel(real, model.value_channels)
+    noisy_primary = primary_phase_flow_channel(noisy, model.value_channels)
+    denoised_primary = primary_phase_flow_channel(denoised, model.value_channels)
+    samples_primary = primary_phase_flow_channel(samples, model.value_channels)
     np.savez(
         paths.artifacts / f"mnist_phase_flow_epoch_{epoch:03d}.npz",
         real=np.asarray(real),
@@ -805,17 +858,20 @@ def save_phase_flow_artifacts(
         paths.traces / f"mnist_phase_flow_trace_epoch_{epoch:03d}.npz",
         **{name: np.asarray(value) for name, value in trace.items()},
     )
-    _save_image_grid(real[: min(count, 64)], paths.artifacts / f"real_epoch_{epoch:03d}.png")
     _save_image_grid(
-        jnp.clip(noisy[: min(count, 64)], 0.0, 1.0),
+        real_primary[: min(count, 64)],
+        paths.artifacts / f"real_epoch_{epoch:03d}.png",
+    )
+    _save_image_grid(
+        jnp.clip(noisy_primary[: min(count, 64)], 0.0, 1.0),
         paths.artifacts / f"noisy_epoch_{epoch:03d}.png",
     )
     _save_image_grid(
-        denoised[: min(count, 64)],
+        denoised_primary[: min(count, 64)],
         paths.artifacts / f"denoised_epoch_{epoch:03d}.png",
     )
     _save_image_grid(
-        samples[: min(count, 64)],
+        samples_primary[: min(count, 64)],
         paths.artifacts / f"samples_epoch_{epoch:03d}.png",
     )
 
@@ -1012,7 +1068,11 @@ def run_mnist_phase_flow_experiment(
         labels=sample_labels,
         batch_size=config.run.batch_size,
     )
-    quality = compute_phase_flow_quality_metrics(eval_images[:count], samples)
+    quality = compute_phase_flow_quality_metrics(
+        eval_images[:count],
+        samples,
+        value_channels=model.value_channels,
+    )
     trace_noise = jax.random.normal(
         jax.random.fold_in(key, 30_002),
         eval_images[: min(count, config.run.batch_size)].shape,
@@ -1057,6 +1117,7 @@ def run_mnist_phase_flow_experiment(
         "phase_flow": {
             "model_family": config.model_family,
             "field_channels": int(model.field_channels),
+            "target_channels": int(model.value_channels),
             "steps": int(model.steps),
             "train_dynamics": bool(model.train_dynamics),
             "conditional": bool(config.conditional),
@@ -1141,7 +1202,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--sample-method", choices=["euler", "heun"], default="euler")
     parser.add_argument(
         "--target-representation",
-        choices=["pixels", "sobel_edges", "signed_distance"],
+        choices=[
+            "pixels",
+            "sobel_edges",
+            "signed_distance",
+            "pixels_signed_distance",
+        ],
         default="pixels",
     )
     parser.add_argument("--data-source", choices=["idx", "synthetic", "tfds"], default="idx")

@@ -3294,6 +3294,58 @@ Interpretation:
   promising shape fields back into crisp pixels or to train a two-head model
   that predicts both signed-distance shape and pixel occupancy.
 
+Two-channel pixel/shape phase-flow probe:
+
+The phase-flow models now support multi-channel visible fields through
+`value_channels`. The MNIST phase-flow experiment exposes this with
+`target_representation="pixels_signed_distance"` /
+`--target-representation pixels_signed_distance`: channel 0 is the original
+MNIST pixel occupancy target, and channel 1 is the auxiliary signed-distance
+shape field. The model samples both channels jointly, while PNG artifacts and
+sample-quality metrics use channel 0 so the question remains pixel-generation
+quality, not just shape-field quality.
+
+Run:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_phase_flow.py \
+  --sweep-preset mnist_phase_flow_pixel_shape_probe
+```
+
+Result:
+
+```text
+outputs/analysis/modal_mnist_phase_flow_pixel_shape_probe.csv
+outputs/analysis/modal_mnist_phase_flow_samples/
+```
+
+| model | best eval loss | velocity loss | clean loss | nearest-real MSE | active frac | components | largest frac |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| coarse/global phase-flow | 0.121527 | 0.116685 | 0.026188 | 0.712745 | 1.000000 | 1.000000 | 1.000000 |
+| recurrent-conv flow | 0.134196 | 0.126871 | 0.032589 | 0.712768 | 1.000000 | 1.000000 | 1.000000 |
+| real MNIST pixels | n/a | n/a | n/a | 0.059272 | 0.143973 | 1.015625 | 0.995226 |
+
+Interpretation:
+
+- This is a mixed/negative sample result. The coarse/global oscillator still
+  beats the recurrent-conv control on the supervised flow objective and
+  denoising endpoint loss, so the auxiliary shape channel is trainable and the
+  oscillator remains the better local field model.
+- Unconditional channel-0 sampling collapses to nearly all-white images for
+  both models (`sample_mean ~= 1.0`, `sample_active_fraction=1.0`). The
+  generated samples are therefore unusable as MNIST pixels despite the better
+  training/eval losses.
+- The denoising artifacts remain digit-like, so the failure is not simply
+  "two channels cannot be learned." It is a sampling/prior mismatch: the
+  coupled pixel/shape field can denoise from mid-trajectory evidence, but the
+  noise-to-data integration drifts into the saturated high-pixel attractor.
+- Next useful direction: keep multi-channel visible fields, but fix the
+  sampling geometry. Candidates are centered/logit target coordinates,
+  per-channel sampling priors, endpoint regularization on unconditional
+  samples, or a staged sampler where the signed-distance channel settles first
+  and gates pixel occupancy instead of being integrated as an equal visible
+  channel from Gaussian noise.
+
 ## Maintenance Notes
 
 - Put numerical benchmark summaries in this file and/or `outputs/analysis`.

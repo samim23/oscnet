@@ -57,6 +57,9 @@ SWEEP_CSVS = {
     "mnist_phase_flow_signed_distance_probe": Path(
         "outputs/analysis/modal_mnist_phase_flow_signed_distance_probe.csv"
     ),
+    "mnist_phase_flow_pixel_shape_probe": Path(
+        "outputs/analysis/modal_mnist_phase_flow_pixel_shape_probe.csv"
+    ),
 }
 
 REMOTE_PACKAGES = [
@@ -437,6 +440,10 @@ def _mnist_phase_flow_signed_distance_probe_sweep() -> list[tuple[list[str], str
     return _mnist_phase_flow_target_probe_sweep("signed_distance")
 
 
+def _mnist_phase_flow_pixel_shape_probe_sweep() -> list[tuple[list[str], str]]:
+    return _mnist_phase_flow_target_probe_sweep("pixels_signed_distance")
+
+
 def _sweep_entries(preset: str) -> list[tuple[list[str], str]]:
     if preset == "mnist_phase_flow_core":
         return _mnist_phase_flow_core_sweep()
@@ -456,6 +463,8 @@ def _sweep_entries(preset: str) -> list[tuple[list[str], str]]:
         return _mnist_phase_flow_edge_probe_sweep()
     if preset == "mnist_phase_flow_signed_distance_probe":
         return _mnist_phase_flow_signed_distance_probe_sweep()
+    if preset == "mnist_phase_flow_pixel_shape_probe":
+        return _mnist_phase_flow_pixel_shape_probe_sweep()
     raise ValueError("unknown sweep preset")
 
 
@@ -477,6 +486,7 @@ def _write_sweep_csv(results: list[dict[str, Any]], path: Path) -> None:
         "phase_flow.clean_loss_weight",
         "phase_flow.closure_loss_weight",
         "phase_flow.target_representation",
+        "phase_flow.target_channels",
         "phase_flow.sample_steps",
         "phase_flow.sample_method",
         "phase_flow.sample_mean",

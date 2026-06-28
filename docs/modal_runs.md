@@ -790,6 +790,23 @@ outputs/analysis/modal_mnist_phase_flow_signed_distance_probe.csv
 outputs/analysis/modal_mnist_phase_flow_samples/
 ```
 
+Run the two-channel pixel/shape target probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_phase_flow.py \
+  --sweep-preset mnist_phase_flow_pixel_shape_probe
+```
+
+This adds `--target-representation pixels_signed_distance`, where channel 0 is
+pixel occupancy and channel 1 is the auxiliary signed-distance shape field. The
+PNG artifacts show channel 0, so the run directly tests whether the shape field
+improves pixel generation. It writes:
+
+```text
+outputs/analysis/modal_mnist_phase_flow_pixel_shape_probe.csv
+outputs/analysis/modal_mnist_phase_flow_samples/
+```
+
 To rerun the full four-way attribution matrix in one request:
 
 ```bash

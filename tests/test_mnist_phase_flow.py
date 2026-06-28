@@ -7,8 +7,10 @@ from oscnet.experiments.harness import AutoencoderExperimentConfig
 from oscnet.experiments.mnist_phase_flow import (
     MNISTPhaseFlowExperimentConfig,
     closure_loss,
+    phase_flow_target_channels,
     phase_flow_loss,
     prepare_phase_flow_targets,
+    primary_phase_flow_channel,
     run_mnist_phase_flow_experiment,
     sample_phase_flow_images,
     signed_distance_targets,
@@ -43,6 +45,34 @@ def test_phase_rate_flow_field_predicts_and_samples_shapes():
     assert samples.shape == (4, 28 * 28)
     assert trace["theta_trajectory"].shape == (2, 2, 28, 28, 3)
     assert trace["rate_trajectory"].shape == (2, 2, 28, 28, 3)
+    assert jnp.all(samples >= 0.0)
+    assert jnp.all(samples <= 1.0)
+
+
+def test_phase_rate_flow_field_supports_two_value_channels():
+    model = PhaseRateFlowField(
+        value_channels=2,
+        field_channels=3,
+        steps=2,
+        key=jax.random.PRNGKey(41),
+    )
+    images = jnp.linspace(-1.0, 1.0, 2 * 28 * 28 * 2).reshape(2, 28 * 28 * 2)
+    labels = jnp.asarray([1, 7], dtype=jnp.int32)
+    t = jnp.asarray([0.25, 0.75])
+
+    velocity, trace = model(images, t, labels, return_trace=True)
+    samples = model.sample(
+        jax.random.PRNGKey(42),
+        4,
+        labels=jnp.asarray([0, 1, 2, 3], dtype=jnp.int32),
+        outer_steps=3,
+    )
+
+    assert model.value_channels == 2
+    assert model.image_dim == 28 * 28 * 2
+    assert velocity.shape == images.shape
+    assert samples.shape == (4, 28 * 28 * 2)
+    assert trace["theta_trajectory"].shape == (2, 2, 28, 28, 3)
     assert jnp.all(samples >= 0.0)
     assert jnp.all(samples <= 1.0)
 
@@ -133,6 +163,23 @@ def test_signed_distance_targets_are_smooth_shape_fields():
     assert target_grid[0, 14, 14] > target_grid[0, 8, 14]
     assert target_grid[0, 8, 14] > target_grid[0, 0, 0]
     assert jnp.allclose(targets, prepared)
+
+
+def test_pixels_signed_distance_targets_keep_pixel_channel_primary():
+    images = jnp.zeros((2, 28 * 28))
+    images = images.at[:, 8:20].set(1.0)
+
+    targets = prepare_phase_flow_targets(images, "pixels_signed_distance")
+    target_grid = targets.reshape(2, 28, 28, 2)
+
+    assert phase_flow_target_channels("pixels_signed_distance") == 2
+    assert targets.shape == (2, 28 * 28 * 2)
+    assert jnp.allclose(target_grid[..., 0].reshape(2, 28 * 28), images)
+    assert jnp.allclose(
+        target_grid[..., 1].reshape(2, 28 * 28),
+        signed_distance_targets(images),
+    )
+    assert jnp.allclose(primary_phase_flow_channel(targets, 2), images)
 
 
 def test_phase_flow_loss_includes_optional_closure_term():
@@ -307,7 +354,7 @@ def test_mnist_phase_flow_synthetic_training_smoke(tmp_path):
         field_channels=2,
         steps=1,
         closure_loss_weight=0.5,
-        target_representation="sobel_edges",
+        target_representation="pixels_signed_distance",
         eval_sample_count=2,
         sample_steps=2,
         data_source="synthetic",
@@ -326,7 +373,8 @@ def test_mnist_phase_flow_synthetic_training_smoke(tmp_path):
     assert summary["phase_flow"]["steps"] == 1
     assert summary["phase_flow"]["sample_method"] == "euler"
     assert summary["phase_flow"]["closure_loss_weight"] == 0.5
-    assert summary["phase_flow"]["target_representation"] == "sobel_edges"
+    assert summary["phase_flow"]["target_representation"] == "pixels_signed_distance"
+    assert summary["phase_flow"]["target_channels"] == 2
     assert summary["final_eval_closure_loss"] >= 0.0
     assert summary["final_eval_loss"] >= 0.0
     assert summary["phase_flow"]["sample_diversity_ratio"] >= 0.0

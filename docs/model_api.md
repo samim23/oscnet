@@ -290,7 +290,11 @@ and internally convert them to patch sequences.
   whether whole-shape binding pressure helps phase-flow samples close into
   coherent digits. Set `target_representation="sobel_edges"` or
   `"signed_distance"` to train the same visible oscillator field on contour or
-  smooth shape-field targets rather than raw pixels.
+  smooth shape-field targets rather than raw pixels. Set
+  `target_representation="pixels_signed_distance"` to train a two-channel
+  visible field: pixel occupancy in channel 0 and a smooth signed-distance
+  shape target in channel 1. The underlying phase-flow models expose
+  `value_channels` for these multi-channel visible-field experiments.
 
 `RecurrentConvFlowField`
 : A matched non-oscillatory recurrent-flow control for `PhaseRateFlowField`.

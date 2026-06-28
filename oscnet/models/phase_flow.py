@@ -113,6 +113,7 @@ class PhaseRateFlowField(eqx.Module):
 
     image_shape: Tuple[int, int] = eqx.field(static=True)
     image_dim: int = eqx.field(static=True)
+    value_channels: int = eqx.field(static=True)
     field_channels: int = eqx.field(static=True)
     steps: int = eqx.field(static=True)
     kernel_size: int = eqx.field(static=True)
@@ -128,6 +129,7 @@ class PhaseRateFlowField(eqx.Module):
         self,
         *,
         image_shape: Tuple[int, int] = (28, 28),
+        value_channels: int = 1,
         field_channels: int = 8,
         steps: int = 8,
         kernel_size: int = 3,
@@ -144,6 +146,8 @@ class PhaseRateFlowField(eqx.Module):
     ):
         if field_channels < 1:
             raise ValueError("field_channels must be positive")
+        if value_channels < 1:
+            raise ValueError("value_channels must be positive")
         if steps < 0:
             raise ValueError("steps must be non-negative")
         if kernel_size < 1 or kernel_size % 2 == 0:
@@ -160,7 +164,8 @@ class PhaseRateFlowField(eqx.Module):
         )
 
         self.image_shape = tuple(int(size) for size in image_shape)
-        self.image_dim = int(height * width)
+        self.value_channels = int(value_channels)
+        self.image_dim = int(height * width * self.value_channels)
         self.field_channels = int(field_channels)
         self.steps = int(steps)
         self.kernel_size = int(kernel_size)
@@ -172,14 +177,22 @@ class PhaseRateFlowField(eqx.Module):
         self.num_classes = int(num_classes)
         self.position_features = bool(position_features)
 
-        input_dim = 10 if self.position_features else 4
+        input_dim = (
+            self.value_channels + 9
+            if self.position_features
+            else self.value_channels + 3
+        )
         self.input_projection = eqx.nn.Linear(
             input_dim,
             2 * field_channels,
             key=keys[0],
         )
         self.time_to_omega = eqx.nn.Linear(3, field_channels, key=keys[1])
-        self.readout = eqx.nn.Linear(3 * field_channels, 1, key=keys[2])
+        self.readout = eqx.nn.Linear(
+            3 * field_channels,
+            self.value_channels,
+            key=keys[2],
+        )
         self.omega = (
             jax.random.normal(keys[3], (field_channels,)) * float(omega_scale)
         )
@@ -239,7 +252,7 @@ class PhaseRateFlowField(eqx.Module):
 
         batch_size = images.shape[0]
         height, width = self.image_shape
-        image_grid = images.reshape(batch_size, height, width, 1)
+        image_grid = images.reshape(batch_size, height, width, self.value_channels)
         time_features = self._time_features(t)
         time_grid = jnp.broadcast_to(
             time_features[:, None, None, :],
@@ -523,6 +536,7 @@ class CoarseGlobalPhaseRateFlowField(eqx.Module):
 
     image_shape: Tuple[int, int] = eqx.field(static=True)
     image_dim: int = eqx.field(static=True)
+    value_channels: int = eqx.field(static=True)
     field_channels: int = eqx.field(static=True)
     steps: int = eqx.field(static=True)
     kernel_size: int = eqx.field(static=True)
@@ -540,6 +554,7 @@ class CoarseGlobalPhaseRateFlowField(eqx.Module):
         self,
         *,
         image_shape: Tuple[int, int] = (28, 28),
+        value_channels: int = 1,
         field_channels: int = 8,
         steps: int = 8,
         kernel_size: int = 3,
@@ -558,6 +573,8 @@ class CoarseGlobalPhaseRateFlowField(eqx.Module):
     ):
         if field_channels < 1:
             raise ValueError("field_channels must be positive")
+        if value_channels < 1:
+            raise ValueError("value_channels must be positive")
         if steps < 0:
             raise ValueError("steps must be non-negative")
         if kernel_size < 1 or kernel_size % 2 == 0:
@@ -576,7 +593,8 @@ class CoarseGlobalPhaseRateFlowField(eqx.Module):
         )
 
         self.image_shape = tuple(int(size) for size in image_shape)
-        self.image_dim = int(height * width)
+        self.value_channels = int(value_channels)
+        self.image_dim = int(height * width * self.value_channels)
         self.field_channels = int(field_channels)
         self.steps = int(steps)
         self.kernel_size = int(kernel_size)
@@ -592,6 +610,7 @@ class CoarseGlobalPhaseRateFlowField(eqx.Module):
 
         self.fine = PhaseRateFlowField(
             image_shape=image_shape,
+            value_channels=self.value_channels,
             field_channels=field_channels,
             steps=steps,
             kernel_size=kernel_size,
@@ -606,7 +625,11 @@ class CoarseGlobalPhaseRateFlowField(eqx.Module):
             position_features=position_features,
             key=keys[0],
         )
-        input_dim = 10 if self.position_features else 4
+        input_dim = (
+            self.value_channels + 9
+            if self.position_features
+            else self.value_channels + 3
+        )
         self.coarse_projection = eqx.nn.Linear(
             input_dim,
             2 * field_channels,
@@ -666,7 +689,7 @@ class CoarseGlobalPhaseRateFlowField(eqx.Module):
 
         batch_size = images.shape[0]
         height, width = self.image_shape
-        image_grid = images.reshape(batch_size, height, width, 1)
+        image_grid = images.reshape(batch_size, height, width, self.value_channels)
         coarse_image = _mean_pool_to_grid(image_grid, self.coarse_grid_size)
         time_features = self._time_features(t)
         time_grid = jnp.broadcast_to(
@@ -1078,6 +1101,7 @@ class RecurrentConvFlowField(eqx.Module):
 
     image_shape: Tuple[int, int] = eqx.field(static=True)
     image_dim: int = eqx.field(static=True)
+    value_channels: int = eqx.field(static=True)
     field_channels: int = eqx.field(static=True)
     steps: int = eqx.field(static=True)
     kernel_size: int = eqx.field(static=True)
@@ -1093,6 +1117,7 @@ class RecurrentConvFlowField(eqx.Module):
         self,
         *,
         image_shape: Tuple[int, int] = (28, 28),
+        value_channels: int = 1,
         field_channels: int = 8,
         steps: int = 8,
         kernel_size: int = 3,
@@ -1108,6 +1133,8 @@ class RecurrentConvFlowField(eqx.Module):
     ):
         if field_channels < 1:
             raise ValueError("field_channels must be positive")
+        if value_channels < 1:
+            raise ValueError("value_channels must be positive")
         if steps < 0:
             raise ValueError("steps must be non-negative")
         if kernel_size < 1 or kernel_size % 2 == 0:
@@ -1124,7 +1151,8 @@ class RecurrentConvFlowField(eqx.Module):
         )
 
         self.image_shape = tuple(int(size) for size in image_shape)
-        self.image_dim = int(height * width)
+        self.value_channels = int(value_channels)
+        self.image_dim = int(height * width * self.value_channels)
         self.field_channels = int(field_channels)
         self.steps = int(steps)
         self.kernel_size = int(kernel_size)
@@ -1136,14 +1164,18 @@ class RecurrentConvFlowField(eqx.Module):
         self.num_classes = int(num_classes)
         self.position_features = bool(position_features)
 
-        input_dim = 10 if self.position_features else 4
+        input_dim = (
+            self.value_channels + 9
+            if self.position_features
+            else self.value_channels + 3
+        )
         self.input_projection = eqx.nn.Linear(
             input_dim,
             2 * field_channels,
             key=keys[0],
         )
         self.time_to_hidden = eqx.nn.Linear(3, field_channels, key=keys[1])
-        self.readout = eqx.nn.Linear(field_channels, 1, key=keys[2])
+        self.readout = eqx.nn.Linear(field_channels, self.value_channels, key=keys[2])
         self.hidden_kernel = (
             jax.random.normal(
                 keys[3],
@@ -1192,7 +1224,7 @@ class RecurrentConvFlowField(eqx.Module):
 
         batch_size = images.shape[0]
         height, width = self.image_shape
-        image_grid = images.reshape(batch_size, height, width, 1)
+        image_grid = images.reshape(batch_size, height, width, self.value_channels)
         time_features = self._time_features(t)
         time_grid = jnp.broadcast_to(
             time_features[:, None, None, :],

@@ -47,7 +47,10 @@ without much drama.
 Use **MNIST phase-flow** if you want the most direct "oscillators as the
 generative medium" experiment. Set `--target-representation sobel_edges` for
 contour maps or `--target-representation signed_distance` for smooth shape
-fields instead of raw pixels.
+fields instead of raw pixels. Use
+`--target-representation pixels_signed_distance` to train a two-channel visible
+field where channel 0 is pixel occupancy and channel 1 is an auxiliary smooth
+shape field.
 
 Use **MNIST masked representation** if you care about masked image recovery,
 block occlusion, or representation-prediction controls. This branch is useful
