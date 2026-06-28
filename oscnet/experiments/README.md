@@ -40,8 +40,8 @@ Why it is first in the queue:
 
 - It is the strongest current OscNet-native generator result.
 - It uses a sparse local second-order HORN field, not a dense all-to-all toy.
-- It beats matched frozen, decoder-only, and state-MLP controls on semantic
-  sample quality and diversity.
+- It beats frozen, decoder-only, and one-step controls on semantic sample
+  quality, and it preserves higher diversity than the matched StateMLP control.
 
 What to keep honest:
 
@@ -60,9 +60,32 @@ What to keep honest:
   variant. It increases HORN damping, keeps the strict route, and improves
   nearest-real proximity without using extra distributional loss. The
   recommended preset currently points at these settings.
+- `sparse_horn_mnist_dynamics_quality_dist001`,
+  `sparse_horn_mnist_dynamics_quality_dist0025`, and
+  `sparse_horn_mnist_dynamics_quality_dist005` test whether the damping gain
+  compounds with the small distributional regularizer. The current read keeps
+  `sparse_horn_mnist_dynamics_quality` as the default; the distributional
+  variants are secondary probes.
+- `sparse_horn_mnist_recommended_no_main_coupling`,
+  `sparse_horn_mnist_recommended_frozen_recurrent`,
+  `sparse_horn_mnist_recommended_frozen_conditioning`,
+  `sparse_horn_mnist_recommended_frozen`,
+  `sparse_horn_mnist_recommended_decoder_only`, and
+  `sparse_horn_mnist_recommended_step1` are attribution controls for the
+  recommended route. Current ablations say the sparse HORN substrate,
+  multi-step settling, and learned conditioning drive are essential; freezing
+  recurrent HORN parameters is much less damaging than removing coupling or
+  freezing conditioning.
 - `sparse_horn_mnist_step1` is a useful shortcut control for the older route.
 - `sparse_horn_mnist_state_mlp_class_coupling_strong` is the matched
   non-oscillatory control for that stricter route.
+- `sparse_horn_mnist_state_mlp_class_coupling_strength8` matches the latest
+  HORN class-drive strength in the non-oscillatory transition control.
+- `sparse_horn_mnist_state_mlp_class_coupling_strength8_dist005`,
+  `sparse_horn_mnist_state_mlp_class_coupling_strength8_dist01`, and
+  `sparse_horn_mnist_state_mlp_class_coupling_strength8_dist01_class` are the
+  fairer strength-8 diversity controls. So far they improve StateMLP
+  pixel-proximity metrics but do not recover HORN-like diversity.
 - `sparse_horn_mnist_state_mlp_class_coupling_strong_dist005`,
   `sparse_horn_mnist_state_mlp_class_coupling_strong_dist01`, and
   `sparse_horn_mnist_state_mlp_class_coupling_strong_dist01_class` are
@@ -107,10 +130,16 @@ Use `sparse_horn_mnist_strict` when probing the semantic/diversity reference
 without extra damping. Use `sparse_horn_mnist_quality` when you want the same
 route with a small quality/proximity regularizer. Use
 `sparse_horn_mnist_dynamics_quality` when testing whether the improvement can
-come from oscillator dynamics rather than the loss. Compare against
-`sparse_horn_mnist_state_mlp_class_coupling_strong` plus the
-`state_mlp_class_coupling_strong_dist*` presets when testing whether the
-diversity/quality frontier is HORN-specific.
+come from oscillator dynamics rather than the loss. Use the
+`dynamics_quality_dist*` presets to test whether those two quality directions
+compound. Compare against
+`sparse_horn_mnist_state_mlp_class_coupling_strong`,
+`sparse_horn_mnist_state_mlp_class_coupling_strength8`, plus the
+`state_mlp_class_coupling_strength8_dist*` presets when testing whether the
+diversity/quality frontier is HORN-specific. The latest StateMLP strength-8
+controls match or nearly match HORN on generated-label accuracy and win
+nearest-real MSE, but still have lower diversity; the HORN claim is therefore a
+diversity/settling claim, not a raw pixel-proximity claim.
 
 Use **MNIST phase-flow** if you want the most direct "oscillators as the
 generative medium" experiment. Set `--target-representation sobel_edges` for

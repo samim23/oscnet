@@ -131,9 +131,22 @@ def test_sparse_horn_mnist_control_presets_share_recipe():
         "sparse_horn_mnist_strict": "horn",
         "sparse_horn_mnist_quality": "horn",
         "sparse_horn_mnist_dynamics_quality": "horn",
+        "sparse_horn_mnist_dynamics_quality_dist001": "horn",
+        "sparse_horn_mnist_dynamics_quality_dist0025": "horn",
+        "sparse_horn_mnist_dynamics_quality_dist005": "horn",
+        "sparse_horn_mnist_recommended_no_main_coupling": "horn",
+        "sparse_horn_mnist_recommended_frozen_recurrent": "horn",
+        "sparse_horn_mnist_recommended_frozen_conditioning": "horn",
+        "sparse_horn_mnist_recommended_frozen": "frozen_horn",
+        "sparse_horn_mnist_recommended_decoder_only": "horn_decoder_only",
+        "sparse_horn_mnist_recommended_step1": "horn",
         "sparse_horn_mnist_class_coupling_strong_frozen": "frozen_horn",
         "sparse_horn_mnist_class_coupling_strong_decoder_only": "horn_decoder_only",
         "sparse_horn_mnist_state_mlp_class_coupling_strong": "state_mlp",
+        "sparse_horn_mnist_state_mlp_class_coupling_strength8": "state_mlp",
+        "sparse_horn_mnist_state_mlp_class_coupling_strength8_dist005": "state_mlp",
+        "sparse_horn_mnist_state_mlp_class_coupling_strength8_dist01": "state_mlp",
+        "sparse_horn_mnist_state_mlp_class_coupling_strength8_dist01_class": "state_mlp",
         "sparse_horn_mnist_state_mlp_class_coupling_strong_dist005": "state_mlp",
         "sparse_horn_mnist_state_mlp_class_coupling_strong_dist01": "state_mlp",
         "sparse_horn_mnist_state_mlp_class_coupling_strong_dist01_class": "state_mlp",
@@ -218,6 +231,65 @@ def test_sparse_horn_mnist_control_presets_share_recipe():
         assert parsed.conditioning_strength == 8.0
         assert parsed.horn_damping == 0.30
         assert parsed.distributional_weight == 0.0
+
+    dynamics_quality_dist = config_from_args(
+        parse_args(["--preset", "sparse_horn_mnist_dynamics_quality_dist0025"])
+    )
+    assert dynamics_quality_dist.conditioning_strength == 8.0
+    assert dynamics_quality_dist.horn_damping == 0.30
+    assert dynamics_quality_dist.distributional_weight == 0.025
+
+    no_main_coupling = config_from_args(
+        parse_args(["--preset", "sparse_horn_mnist_recommended_no_main_coupling"])
+    )
+    assert no_main_coupling.coupling_strength == 0.0
+    assert no_main_coupling.conditioning_mode == "class_coupling"
+    assert no_main_coupling.conditioning_strength == 8.0
+
+    frozen_recurrent = config_from_args(
+        parse_args(["--preset", "sparse_horn_mnist_recommended_frozen_recurrent"])
+    )
+    assert frozen_recurrent.train_recurrent_dynamics is False
+    assert frozen_recurrent.train_conditioning_dynamics is True
+
+    frozen_conditioning = config_from_args(
+        parse_args(["--preset", "sparse_horn_mnist_recommended_frozen_conditioning"])
+    )
+    assert frozen_conditioning.train_recurrent_dynamics is True
+    assert frozen_conditioning.train_conditioning_dynamics is False
+
+    recommended_decoder = config_from_args(
+        parse_args(["--preset", "sparse_horn_mnist_recommended_decoder_only"])
+    )
+    assert recommended_decoder.model_family == "horn_decoder_only"
+    assert recommended_decoder.train_settling_steps == ()
+
+    recommended_step1 = config_from_args(
+        parse_args(["--preset", "sparse_horn_mnist_recommended_step1"])
+    )
+    assert recommended_step1.steps == 1
+    assert recommended_step1.train_settling_steps == (1,)
+
+    state_mlp_strength8 = config_from_args(
+        parse_args(
+            ["--preset", "sparse_horn_mnist_state_mlp_class_coupling_strength8"]
+        )
+    )
+    assert state_mlp_strength8.model_family == "state_mlp"
+    assert state_mlp_strength8.conditioning_strength == 8.0
+
+    state_mlp_strength8_dist = config_from_args(
+        parse_args(
+            [
+                "--preset",
+                "sparse_horn_mnist_state_mlp_class_coupling_strength8_dist01_class",
+            ]
+        )
+    )
+    assert state_mlp_strength8_dist.model_family == "state_mlp"
+    assert state_mlp_strength8_dist.conditioning_strength == 8.0
+    assert state_mlp_strength8_dist.distributional_weight == 0.1
+    assert state_mlp_strength8_dist.class_moment_weight == 1.0
 
     state_mlp_dist = config_from_args(
         parse_args(

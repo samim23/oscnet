@@ -57,11 +57,13 @@ cleaner harness.
 
 The strongest result so far is the sparse local HORN MNIST generator. It is not
 a conventional latent autoencoder: random oscillator position/velocity state is
-settled by learned second-order HORN dynamics and then read out by a small
-resize-conv decoder. Across the latest replicated low-data generator probe,
-the sparse local HORN model beats a matched non-oscillatory state-MLP control
-on semantic sample quality and diversity, while using only about 3.7% of
-possible oscillator couplings.
+settled by second-order HORN dynamics and then read out by a small resize-conv
+decoder. Across the latest replicated low-data generator probes, the sparse
+local HORN model beats frozen, decoder-only, no-main-coupling, and one-step
+controls on semantic generation. Against the strongest matched StateMLP
+control, HORN's current edge is diversity/settling behavior; StateMLP still
+wins raw pixel proximity. The HORN route uses only about 3.7% of possible
+oscillator couplings.
 
 The strongest masked-completion direction is also not a conventional latent
 autoencoder. It is a conditional spatial field/refinement model, strongest when
@@ -85,7 +87,8 @@ feedforward prior.
 Current repo-wide research read: HORN is the best OscNet-native generator
 branch; Winfree/rate-phase remains the best direct masked-completion branch.
 Neither should be presented as a universal ONN victory, but the HORN generator
-is the cleanest positive dynamics-attribution result in the repo right now.
+is the cleanest positive settling/dynamics-attribution result in the repo right
+now.
 The current local entrypoint for that branch is
 `python examples/image_mnist_generator.py`, which defaults to
 `sparse_horn_mnist_recommended`. Friendly aliases keep the current HORN lessons
@@ -96,7 +99,9 @@ from getting rediscovered by accident:
 quality variant. Matched local controls now live as sibling presets:
 `sparse_horn_mnist_frozen`, `sparse_horn_mnist_decoder_only`,
 `sparse_horn_mnist_state_mlp`, `sparse_horn_mnist_state_mlp_frozen`,
-`sparse_horn_mnist_state_mlp_decoder_only`, and `sparse_horn_mnist_step1`.
+`sparse_horn_mnist_state_mlp_decoder_only`,
+`sparse_horn_mnist_state_mlp_class_coupling_strength8`, and
+`sparse_horn_mnist_step1`.
 
 ## Repo Pattern Established
 
@@ -5164,6 +5169,167 @@ Interpretation:
   default via `sparse_horn_mnist_recommended`. The next probe should combine
   damping `.30` with small distributional pressure and/or explore a narrower
   damping curve, rather than changing frequency.
+
+Sparse local HORN damping + distributional pressure probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_sparse_horn_damping_distributional_probe
+```
+
+The probe wrote:
+
+```text
+outputs/analysis/modal_mnist_generator_sparse_horn_damping_distributional_probe.csv
+outputs/analysis/modal_mnist_generator_sparse_horn_damping_distributional_probe.json
+```
+
+This tested whether the two best quality directions compound: higher HORN
+damping plus small distributional pressure. The sweep kept the stronger
+generated-label evaluator (`quality_classifier_train_limit=5000`,
+`quality_classifier_epochs=10`) and repeated seeds 11/12/13.
+
+Three-seed compact probe:
+
+| Variant | Dist weight | Damping | Generated acc | Best acc | Step 0 | Step 16 | Step 32 | Diversity | Best diversity | Nearest-real MSE | Best nearest-real MSE | Mean MSE | Std MSE | State energy |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| HORN strict | 0.0000 | 0.1500 | 1.0000 | 1.0000 | 0.0931 | 0.9980 | 1.0000 | 1.1397 | 1.1366 | 0.0543 | 0.0444 | 0.0124 | 0.0067 | 0.0291 |
+| HORN dist .025 | 0.0250 | 0.1500 | 0.9980 | 0.9987 | 0.1061 | 0.9824 | 0.9987 | 1.1260 | 1.2593 | 0.0539 | 0.0498 | 0.0092 | 0.0058 | 0.0243 |
+| HORN damp .30 | 0.0000 | 0.3000 | 1.0000 | 1.0000 | 0.0944 | 0.9974 | 1.0000 | 1.1080 | 1.1048 | 0.0523 | 0.0402 | 0.0126 | 0.0062 | 0.0197 |
+| HORN damp .30 + dist .01 | 0.0100 | 0.3000 | 1.0000 | 1.0000 | 0.0970 | 0.9902 | 1.0000 | 1.1317 | 1.2469 | 0.0535 | 0.0440 | 0.0108 | 0.0061 | 0.0180 |
+| HORN damp .30 + dist .025 | 0.0250 | 0.3000 | 0.9987 | 0.9974 | 0.0990 | 0.9870 | 0.9974 | 1.1244 | 1.2673 | 0.0528 | 0.0436 | 0.0091 | 0.0056 | 0.0162 |
+| HORN damp .30 + dist .05 | 0.0500 | 0.3000 | 0.9876 | 0.9883 | 0.1016 | 0.9616 | 0.9876 | 1.1139 | 1.2392 | 0.0519 | 0.0432 | 0.0073 | 0.0048 | 0.0143 |
+
+Interpretation:
+
+- Damping `.30` remains the best default. It preserves perfect generated-label
+  accuracy, improves nearest-real MSE over strict HORN (`0.0523` vs `0.0543`),
+  gives the best best-step nearest-real MSE (`0.0402`), and lowers state
+  energy without changing the loss.
+- Small distributional pressure on top of damping does not clearly compound.
+  `dist .01` keeps perfect generated-label accuracy and recovers some diversity
+  (`1.1317`), but loses the damping-only nearest-real advantage (`0.0535`).
+  `dist .025` improves mean/std errors and best diversity but slightly lowers
+  generated-label accuracy. `dist .05` gives the lowest final nearest-real MSE
+  (`0.0519`) but drops generated-label accuracy below the target range
+  (`0.9876`).
+- Updated research read: keep `sparse_horn_mnist_recommended` pointed at
+  `sparse_horn_mnist_dynamics_quality`. Use
+  `sparse_horn_mnist_dynamics_quality_dist001` only when diversity recovery is
+  more important than nearest-real proximity. The next decisive question is now
+  attribution, not another quality-weight sweep.
+
+Recommended-route attribution probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_sparse_horn_recommended_ablation_probe
+```
+
+The probe wrote:
+
+```text
+outputs/analysis/modal_mnist_generator_sparse_horn_recommended_ablation_probe.csv
+outputs/analysis/modal_mnist_generator_sparse_horn_recommended_ablation_probe.json
+```
+
+This audited the recommended route against no-main-coupling,
+frozen-recurrent, frozen-conditioning, frozen-all, decoder-only, one-step, and
+a StateMLP control with the same strength-8 class drive. Metrics below are
+three-seed means from seeds 11/12/13. The quality judge's own held-out accuracy
+was `0.9344` for every row, so it is omitted from the compact table.
+
+| Variant | Generated acc | Best acc | Step 0 | Step 16 | Step 32 | Confidence | Diversity | Best diversity | Nearest-real MSE | Best nearest-real MSE | Mean MSE | Std MSE | State energy |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Recommended HORN | 1.0000 | 1.0000 | 0.0944 | 0.9974 | 1.0000 | 0.9034 | 1.1079 | 1.1048 | 0.0523 | 0.0402 | 0.0126 | 0.0062 | 0.0197 |
+| No main coupling | 0.0814 | 0.0885 | 0.0846 | 0.0820 | 0.0801 | 0.0861 | 0.2471 | 0.3911 | 0.0401 | 0.0374 | 0.0132 | 0.0417 | 0.0038 |
+| Frozen recurrent | 1.0000 | 1.0000 | 0.0951 | 0.9974 | 1.0000 | 0.9031 | 1.1233 | 1.1207 | 0.0531 | 0.0409 | 0.0127 | 0.0063 | 0.0180 |
+| Frozen conditioning | 0.0833 | 0.0885 | 0.0840 | 0.0840 | 0.0788 | 0.0865 | 0.2317 | 0.3702 | 0.0380 | 0.0354 | 0.0132 | 0.0427 | 0.0038 |
+| Frozen all | 0.0820 | 0.0892 | 0.0840 | 0.0872 | 0.0794 | 0.0864 | 0.2241 | 0.3603 | 0.0397 | 0.0373 | 0.0131 | 0.0433 | 0.0038 |
+| Decoder only | 0.0801 | 0.0872 | 0.0807 | 0.0781 | 0.0781 | 0.0853 | 0.3184 | 0.3171 | 0.0434 | 0.0348 | 0.0129 | 0.0370 | 0.0102 |
+| One step | 0.1810 | 0.1608 | 0.0853 |  |  | 0.1568 | 0.7606 | 0.7581 | 0.0675 | 0.0662 | 0.0144 | 0.0262 | 0.0099 |
+| StateMLP strength8 | 1.0000 | 1.0000 | 0.0983 | 1.0000 | 1.0000 | 0.9125 | 0.7657 | 0.7720 | 0.0344 | 0.0251 | 0.0064 | 0.0077 | 5.9080 |
+
+Interpretation:
+
+- The current HORN win is **not** primarily a win for learned main-pool
+  recurrent weights. Freezing the recurrent HORN parameters keeps performance
+  essentially unchanged and slightly improves diversity (`1.1233` vs
+  `1.1079`).
+- Main-pool coupling still matters as an active substrate. Removing main
+  coupling collapses generated-label accuracy to chance (`0.0814`) and destroys
+  diversity (`0.2471`), even though nearest-real MSE looks deceptively good
+  because the outputs become low-variance/prototype-like.
+- Learned conditioning dynamics are essential. Frozen conditioning, frozen all,
+  and decoder-only all sit near chance generated-label accuracy.
+- Settling is essential. One-step HORN is better than chance but far below the
+  full route (`0.1810` vs `1.0000`) and has the worst nearest-real MSE
+  (`0.0675`).
+- StateMLP strength-8 remains the strongest conventional quality/proximity
+  control: perfect generated-label accuracy and much better nearest-real MSE
+  (`0.0344`). Its tradeoff is diversity (`0.7657` vs HORN's `1.1079`) and much
+  higher state energy. This keeps the honest claim narrow: HORN currently wins
+  on the diversity/settling story, not on raw pixel proximity.
+
+Updated research read: the recommended HORN route should be described as a
+**sparse coupled HORN substrate driven by learned class-conditioning dynamics**.
+The recurrent oscillator substrate and multi-step settling are doing real work,
+but the trained recurrent weights themselves are not the differentiator in the
+current recipe. The next serious scientific step is either:
+
+- push HORN quality/proximity without losing diversity, or
+- give the StateMLP control an equally explicit diversity objective and see
+  whether it can match HORN's diversity without losing its proximity advantage.
+
+Strength-8 StateMLP diversity control:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_sparse_horn_state_mlp_strength8_diversity_probe
+```
+
+The probe wrote:
+
+```text
+outputs/analysis/modal_mnist_generator_sparse_horn_state_mlp_strength8_diversity_probe.csv
+outputs/analysis/modal_mnist_generator_sparse_horn_state_mlp_strength8_diversity_probe.json
+```
+
+This repeated the StateMLP diversity-control idea with the same strength-8
+conditioning used by `sparse_horn_mnist_recommended`, plus the same stronger
+generated-label evaluator as the latest HORN sweeps.
+
+Three-seed compact probe:
+
+| Variant | Generated acc | Best acc | Step 0 | Step 16 | Step 32 | Step 64 | Confidence | Diversity | Best diversity | Nearest-real MSE | Best nearest-real MSE | Mean MSE | Std MSE | State energy | Samples/sec |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Recommended HORN | 1.0000 | 1.0000 | 0.0944 | 0.9974 | 1.0000 | 0.9915 | 0.9034 | 1.1080 | 1.1048 | 0.0523 | 0.0402 | 0.0126 | 0.0062 | 0.0197 | 822.625 |
+| StateMLP strength8 | 1.0000 | 1.0000 | 0.0983 | 1.0000 | 1.0000 | 1.0000 | 0.9127 | 0.7561 | 0.7653 | 0.0340 | 0.0250 | 0.0062 | 0.0079 | 5.8698 | 928.431 |
+| StateMLP s8 dist .05 | 1.0000 | 1.0000 | 0.1003 | 1.0000 | 1.0000 | 1.0000 | 0.9114 | 0.7568 | 0.7696 | 0.0326 | 0.0249 | 0.0043 | 0.0066 | 6.0196 | 717.872 |
+| StateMLP s8 dist .10 | 0.9551 | 0.9551 | 0.0977 | 0.9551 | 0.9551 | 0.9551 | 0.8686 | 0.7572 | 0.7645 | 0.0344 | 0.0253 | 0.0033 | 0.0060 | 6.1405 | 690.007 |
+| StateMLP s8 dist .10 + class | 1.0000 | 1.0000 | 0.0957 | 1.0000 | 1.0000 | 1.0000 | 0.9079 | 0.7152 | 0.7285 | 0.0329 | 0.0260 | 0.0035 | 0.0074 | 6.4930 | 677.679 |
+
+Interpretation:
+
+- The fairer strength-8 StateMLP diversity controls do **not** erase HORN's
+  diversity edge. StateMLP stays around `0.72-0.77` diversity ratio, while
+  recommended HORN stays at `1.108`.
+- Distributional pressure improves StateMLP pixel proximity and mean/std
+  matching, but does not produce HORN-like output diversity. At `0.10` it also
+  hurts generated-label accuracy (`0.9551`) unless class-moment pressure is
+  added.
+- The conventional control still wins raw proximity by a large margin
+  (`nearest-real MSE 0.0326-0.0344` vs HORN `0.0523`), so the HORN result is
+  not a blanket image-quality win.
+- The HORN claim is now better supported and more precise: a sparse coupled
+  second-order oscillator substrate gives a better semantic/diversity settling
+  frontier than the matched small StateMLP transition, while StateMLP remains
+  the pixel-proximity control to beat.
+
+Updated next move: if chasing quality, improve the HORN decoder/readout or
+calibration while keeping diversity above `1.0`. If chasing attribution, probe
+why frozen recurrent HORN works so well: fixed sparse HORN substrate versus
+learned conditioning drive versus decoder adaptation.
 
 ## Maintenance Notes
 

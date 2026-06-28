@@ -154,6 +154,18 @@ SWEEP_CSVS = {
         "outputs/analysis/"
         "modal_mnist_generator_sparse_horn_dynamics_quality_probe.csv"
     ),
+    "mnist_generator_sparse_horn_damping_distributional_probe": Path(
+        "outputs/analysis/"
+        "modal_mnist_generator_sparse_horn_damping_distributional_probe.csv"
+    ),
+    "mnist_generator_sparse_horn_recommended_ablation_probe": Path(
+        "outputs/analysis/"
+        "modal_mnist_generator_sparse_horn_recommended_ablation_probe.csv"
+    ),
+    "mnist_generator_sparse_horn_state_mlp_strength8_diversity_probe": Path(
+        "outputs/analysis/"
+        "modal_mnist_generator_sparse_horn_state_mlp_strength8_diversity_probe.csv"
+    ),
 }
 
 REMOTE_PACKAGES = [
@@ -2178,6 +2190,50 @@ def _mnist_generator_sparse_horn_state_mlp_diversity_probe_sweep() -> list[
     return entries
 
 
+def _mnist_generator_sparse_horn_state_mlp_strength8_diversity_probe_sweep() -> list[
+    tuple[list[str], str]
+]:
+    """Test whether strength-8 StateMLP can recover HORN-like diversity."""
+
+    entries = []
+    variants = [
+        ("horn_recommended", "sparse_horn_mnist_recommended"),
+        ("state_mlp_strength8", "sparse_horn_mnist_state_mlp_class_coupling_strength8"),
+        (
+            "state_mlp_strength8_dist005",
+            "sparse_horn_mnist_state_mlp_class_coupling_strength8_dist005",
+        ),
+        (
+            "state_mlp_strength8_dist01",
+            "sparse_horn_mnist_state_mlp_class_coupling_strength8_dist01",
+        ),
+        (
+            "state_mlp_strength8_dist01_class",
+            "sparse_horn_mnist_state_mlp_class_coupling_strength8_dist01_class",
+        ),
+    ]
+    classifier_args = (
+        "--quality-classifier-train-limit 5000 "
+        "--quality-classifier-eval-limit 2000 "
+        "--quality-classifier-epochs 10 "
+        "--quality-classifier-dim 256 "
+        "--quality-classifier-depth 3"
+    )
+    for seed in (11, 12, 13):
+        for variant_suffix, local_preset in variants:
+            run_name = (
+                "mnist_generator_sparse_horn_state_mlp_strength8_diversity_"
+                f"{variant_suffix}_n196_resizeconv_train500_seed{seed}_20e"
+            )
+            args = shlex.split(
+                f"--seed {seed} --preset {local_preset} {classifier_args}"
+            )
+            output_dir = VOLUME_MOUNT / "mnist_generator" / run_name
+            args = _with_default_arg(args, "--output-dir", output_dir)
+            entries.append((args, run_name))
+    return entries
+
+
 def _mnist_generator_sparse_horn_distributional_probe_sweep() -> list[
     tuple[list[str], str]
 ]:
@@ -2274,6 +2330,86 @@ def _mnist_generator_sparse_horn_dynamics_quality_probe_sweep() -> list[
     return entries
 
 
+def _mnist_generator_sparse_horn_damping_distributional_probe_sweep() -> list[
+    tuple[list[str], str]
+]:
+    """Test whether damping and small distributional pressure compound."""
+
+    entries = []
+    variants = [
+        ("strict", "sparse_horn_mnist_strict"),
+        ("quality_dist0025", "sparse_horn_mnist_quality"),
+        ("damp030", "sparse_horn_mnist_dynamics_quality"),
+        ("damp030_dist001", "sparse_horn_mnist_dynamics_quality_dist001"),
+        ("damp030_dist0025", "sparse_horn_mnist_dynamics_quality_dist0025"),
+        ("damp030_dist005", "sparse_horn_mnist_dynamics_quality_dist005"),
+    ]
+    classifier_args = (
+        "--quality-classifier-train-limit 5000 "
+        "--quality-classifier-eval-limit 2000 "
+        "--quality-classifier-epochs 10 "
+        "--quality-classifier-dim 256 "
+        "--quality-classifier-depth 3"
+    )
+    for seed in (11, 12, 13):
+        for variant_suffix, local_preset in variants:
+            run_name = (
+                "mnist_generator_sparse_horn_damping_distributional_"
+                f"{variant_suffix}_n196_resizeconv_train500_seed{seed}_20e"
+            )
+            args = shlex.split(
+                f"--seed {seed} --preset {local_preset} {classifier_args}"
+            )
+            output_dir = VOLUME_MOUNT / "mnist_generator" / run_name
+            args = _with_default_arg(args, "--output-dir", output_dir)
+            entries.append((args, run_name))
+    return entries
+
+
+def _mnist_generator_sparse_horn_recommended_ablation_probe_sweep() -> list[
+    tuple[list[str], str]
+]:
+    """Ablate the recommended HORN route without changing the readout/loss."""
+
+    entries = []
+    variants = [
+        ("recommended", "sparse_horn_mnist_recommended"),
+        ("no_main_coupling", "sparse_horn_mnist_recommended_no_main_coupling"),
+        ("frozen_recurrent", "sparse_horn_mnist_recommended_frozen_recurrent"),
+        (
+            "frozen_conditioning",
+            "sparse_horn_mnist_recommended_frozen_conditioning",
+        ),
+        ("frozen_all", "sparse_horn_mnist_recommended_frozen"),
+        ("decoder_only", "sparse_horn_mnist_recommended_decoder_only"),
+        ("step1", "sparse_horn_mnist_recommended_step1"),
+        (
+            "state_mlp_strength8",
+            "sparse_horn_mnist_state_mlp_class_coupling_strength8",
+        ),
+    ]
+    classifier_args = (
+        "--quality-classifier-train-limit 5000 "
+        "--quality-classifier-eval-limit 2000 "
+        "--quality-classifier-epochs 10 "
+        "--quality-classifier-dim 256 "
+        "--quality-classifier-depth 3"
+    )
+    for seed in (11, 12, 13):
+        for variant_suffix, local_preset in variants:
+            run_name = (
+                "mnist_generator_sparse_horn_recommended_ablation_"
+                f"{variant_suffix}_n196_resizeconv_train500_seed{seed}_20e"
+            )
+            args = shlex.split(
+                f"--seed {seed} --preset {local_preset} {classifier_args}"
+            )
+            output_dir = VOLUME_MOUNT / "mnist_generator" / run_name
+            args = _with_default_arg(args, "--output-dir", output_dir)
+            entries.append((args, run_name))
+    return entries
+
+
 def _sweep_entries(preset: str) -> list[tuple[list[str], str]]:
     if preset == "mnist_generator_core":
         return _mnist_generator_core_sweep()
@@ -2347,6 +2483,12 @@ def _sweep_entries(preset: str) -> list[tuple[list[str], str]]:
         return _mnist_generator_sparse_horn_quality_classifier_audit_sweep()
     if preset == "mnist_generator_sparse_horn_dynamics_quality_probe":
         return _mnist_generator_sparse_horn_dynamics_quality_probe_sweep()
+    if preset == "mnist_generator_sparse_horn_damping_distributional_probe":
+        return _mnist_generator_sparse_horn_damping_distributional_probe_sweep()
+    if preset == "mnist_generator_sparse_horn_recommended_ablation_probe":
+        return _mnist_generator_sparse_horn_recommended_ablation_probe_sweep()
+    if preset == "mnist_generator_sparse_horn_state_mlp_strength8_diversity_probe":
+        return _mnist_generator_sparse_horn_state_mlp_strength8_diversity_probe_sweep()
     raise ValueError("unknown sweep preset")
 
 

@@ -86,6 +86,10 @@ Useful HORN generator aliases:
   quality/proximity regularizer.
 - `sparse_horn_mnist_dynamics_quality`: strict route with higher HORN damping;
   currently the same settings as the recommended preset.
+- `sparse_horn_mnist_dynamics_quality_dist0025`: tests whether the higher
+  damping setting compounds with the small distributional regularizer. The
+  latest sweep kept the default on `sparse_horn_mnist_dynamics_quality`;
+  distributional variants are probes, not the recommended first run.
 - `sparse_horn_mnist`: older polished recipe with a direct label
   initialization route, kept for comparison and backward-compatible commands.
 
@@ -95,7 +99,14 @@ To probe the stricter route and its controls explicitly:
 python examples/image_mnist_generator.py --preset sparse_horn_mnist_strict
 python examples/image_mnist_generator.py --preset sparse_horn_mnist_quality
 python examples/image_mnist_generator.py --preset sparse_horn_mnist_dynamics_quality
+python examples/image_mnist_generator.py --preset sparse_horn_mnist_dynamics_quality_dist0025
+python examples/image_mnist_generator.py --preset sparse_horn_mnist_recommended_no_main_coupling
+python examples/image_mnist_generator.py --preset sparse_horn_mnist_recommended_frozen_recurrent
+python examples/image_mnist_generator.py --preset sparse_horn_mnist_recommended_frozen_conditioning
 python examples/image_mnist_generator.py --preset sparse_horn_mnist_state_mlp_class_coupling_strong
+python examples/image_mnist_generator.py --preset sparse_horn_mnist_state_mlp_class_coupling_strength8
+python examples/image_mnist_generator.py --preset sparse_horn_mnist_state_mlp_class_coupling_strength8_dist005
+python examples/image_mnist_generator.py --preset sparse_horn_mnist_state_mlp_class_coupling_strength8_dist01_class
 python examples/image_mnist_generator.py --preset sparse_horn_mnist_state_mlp_class_coupling_strong_dist005
 ```
 
@@ -103,6 +114,15 @@ The strict HORN route starts near chance before settling and reaches readable,
 varied digits after recurrent dynamics. The StateMLP presets are
 non-oscillatory controls; their `dist*` variants test whether a conventional
 transition can recover the same diversity with extra distributional pressure.
+The recommended ablation presets test whether the result depends on main-pool
+coupling, learned recurrent parameters, or learned conditioning parameters.
+The current read is that the sparse HORN substrate, multi-step settling, and
+learned conditioning drive matter most: frozen recurrent HORN remains strong,
+while no-main-coupling, frozen-conditioning, decoder-only, and one-step controls
+fall away. The matched StateMLP can still win pixel proximity, so use it when
+checking whether a HORN gain is genuinely dynamical rather than a generator
+shortcut. The strength-8 StateMLP distributional controls improve pixel
+proximity but have not recovered HORN-like diversity in the current sweeps.
 
 ## Example Menu
 
