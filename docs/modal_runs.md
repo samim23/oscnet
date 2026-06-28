@@ -563,6 +563,27 @@ OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_generator.py \
   --print-only
 ```
 
+Run the low-data HORN-vs-state-MLP sample-efficiency probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_horn_state_mlp_low_data_probe
+```
+
+This repeats the label-zero generator setup with only
+`--train-limit 500`, comparing trainable HORN against the matched trainable
+state-MLP control on seeds 11, 12, and 13. Use it to test whether HORN's
+oscillator bias helps when the data budget is smaller. Results write to
+`outputs/analysis/modal_mnist_generator_horn_state_mlp_low_data_probe.csv`.
+
+Dry-run it first:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_horn_state_mlp_low_data_probe \
+  --print-only
+```
+
 Run the resize-conv generator with Un-0-style dynamic conditioning oscillators:
 
 ```bash
