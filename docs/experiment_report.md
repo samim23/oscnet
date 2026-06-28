@@ -4549,6 +4549,53 @@ serious controls should test whether this survives multiple seeds and whether
 structured/local/low-rank HORN coupling can keep the same stability without
 full dense all-to-all coupling.
 
+Structured-coupling probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_horn_structured_coupling_probe
+```
+
+The probe wrote:
+
+```text
+outputs/analysis/modal_mnist_generator_horn_structured_coupling_probe.csv
+outputs/analysis/modal_mnist_generator_horn_structured_coupling_probe.json
+outputs/analysis/modal_mnist_generator_horn_structured_coupling_samples/
+```
+
+This keeps the low-data, variable-depth HORN setup fixed and replaces dense
+coupling with a soft spatial distance-decay profile. It is not true sparse
+hardware routing yet; every off-diagonal connection is still present, but most
+long-range interactions are strongly down-weighted.
+
+Seed 11 comparison against the dense variable-depth baseline:
+
+| HORN coupling | Profile mean | Final eval | Final classifier acc | Step-16 acc | Step-32 acc | Step-16 diversity | Step-32 diversity |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Dense | 1.0000 | 0.001141 | 0.9902 | 0.9883 | 0.8965 | 1.3237 | 1.5943 |
+| Distance decay, length 0.35, floor 0.02 | 0.1394 | 0.001142 | 0.9922 | 0.9863 | 0.8848 | 1.3186 | 1.6228 |
+| Distance decay, length 0.60, floor 0.02 | 0.3064 | 0.001142 | 0.9922 | 0.9883 | 0.8848 | 1.3196 | 1.6200 |
+
+Interpretation:
+
+- The variable-depth HORN result does not require uniform dense coupling. Both
+  distance-decay profiles preserve readable samples and essentially match the
+  dense step-16 result.
+- Step-32 stability is slightly lower than dense but still dramatically better
+  than single-depth training. The profile with mean 0.1394 is especially
+  interesting: it keeps almost all quality while strongly biasing interaction
+  toward local neighborhoods.
+- This is a meaningful physical-plausibility improvement, but not the final
+  hardware story. The next structured control should make coupling actually
+  sparse, low-rank, or local-plus-global instead of merely soft-decayed
+  all-to-all.
+
+Updated research read after structured coupling: the strongest HORN recipe is
+now **variable-depth HORN with spatially biased coupling**. It preserves the
+positive generator metrics while moving away from the least plausible dense
+all-to-all assumption.
+
 ## Maintenance Notes
 
 - Put numerical benchmark summaries in this file and/or `outputs/analysis`.

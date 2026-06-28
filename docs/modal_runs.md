@@ -628,6 +628,28 @@ OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_generator.py \
   --print-only
 ```
 
+Run the HORN structured-coupling probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_horn_structured_coupling_probe
+```
+
+This keeps the low-data, variable-depth HORN generator setup fixed and compares
+two soft spatial distance-decay coupling profiles. It is the first
+physical-plausibility check after the dense HORN result: can a local-biased
+coupling field preserve the step-16/step-32 quality of dense all-to-all HORN?
+Results write to
+`outputs/analysis/modal_mnist_generator_horn_structured_coupling_probe.csv`.
+
+Dry-run it first:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_horn_structured_coupling_probe \
+  --print-only
+```
+
 Run the resize-conv generator with Un-0-style dynamic conditioning oscillators:
 
 ```bash

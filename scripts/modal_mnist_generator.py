@@ -108,6 +108,10 @@ SWEEP_CSVS = {
     "mnist_generator_horn_settling_train_probe": Path(
         "outputs/analysis/modal_mnist_generator_horn_settling_train_probe.csv"
     ),
+    "mnist_generator_horn_structured_coupling_probe": Path(
+        "outputs/analysis/"
+        "modal_mnist_generator_horn_structured_coupling_probe.csv"
+    ),
 }
 
 REMOTE_PACKAGES = [
@@ -1716,6 +1720,89 @@ def _mnist_generator_horn_settling_train_probe_sweep() -> list[tuple[list[str], 
     return entries
 
 
+def _mnist_generator_horn_structured_coupling_probe_sweep() -> list[
+    tuple[list[str], str]
+]:
+    entries = []
+    variants = [
+        (
+            "decay_l035_f002",
+            [
+                "--coupling-profile distance_decay",
+                "--coupling-length-scale 0.35",
+                "--coupling-floor 0.02",
+            ],
+        ),
+        (
+            "decay_l060_f002",
+            [
+                "--coupling-profile distance_decay",
+                "--coupling-length-scale 0.60",
+                "--coupling-floor 0.02",
+            ],
+        ),
+    ]
+    common = [
+        "--model-family horn",
+        "--conditional",
+        "--label-phase-scale 0.0",
+        "--conditioning-mode phase_shift",
+        "--readout-mode mean_relative",
+        "--decoder-mode resize_conv",
+        "--resize-conv-seed-size 7",
+        "--resize-conv-upsamples 2",
+        "--resize-conv-min-channels 8",
+        "--loss-mode pixel_drift",
+        "--pixel-drift-weight 1.0",
+        "--feature-drift-weight 0.0",
+        "--distributional-weight 0.0",
+        "--drift-gamma 0.2",
+        "--drift-temperatures 0.02,0.05,0.2",
+        "--drift-queue-size 512",
+        "--drift-queue-num-pos 32",
+        "--class-moment-weight 0.0",
+        "--prototype-weight 0.0",
+        "--epochs 20",
+        "--train-limit 500",
+        "--eval-limit 1000",
+        "--eval-sample-count 512",
+        "--batch-size 128",
+        "--num-oscillators 196",
+        "--decoder-hidden-dim 256",
+        "--decoder-depth 0",
+        "--steps 16",
+        "--train-settling-steps 8,16,32",
+        "--settling-steps 0,1,2,4,8,16,32",
+        "--dt 0.1",
+        "--coupling-strength 1.0",
+        "--omega-scale 0.1",
+        "--coupling-init-scale 0.05",
+        "--horn-frequency 1.0",
+        "--horn-damping 0.15",
+        "--horn-nonlinearity 0.05",
+        "--horn-state-bound 3.0",
+        "--num-projections 256",
+        "--moment-weight 0.1",
+        "--pixel-marginal-weight 1.0",
+        "--quality-classifier-epochs 5",
+        "--quality-classifier-dim 128",
+        "--quality-classifier-depth 2",
+        "--output-bias-init -2.0",
+        "--artifact-every 20",
+        "--checkpoint-every 20",
+    ]
+    for variant_suffix, variant_args in variants:
+        run_name = (
+            "mnist_generator_horn_structured_coupling_"
+            f"{variant_suffix}_n196_resizeconv_steps16_train500_seed11_20e"
+        )
+        args = shlex.split(" ".join(["--seed 11", *common, *variant_args]))
+        output_dir = VOLUME_MOUNT / "mnist_generator" / run_name
+        args = _with_default_arg(args, "--output-dir", output_dir)
+        entries.append((args, run_name))
+    return entries
+
+
 def _sweep_entries(preset: str) -> list[tuple[list[str], str]]:
     if preset == "mnist_generator_core":
         return _mnist_generator_core_sweep()
@@ -1763,6 +1850,8 @@ def _sweep_entries(preset: str) -> list[tuple[list[str], str]]:
         return _mnist_generator_horn_state_mlp_settling_probe_sweep()
     if preset == "mnist_generator_horn_settling_train_probe":
         return _mnist_generator_horn_settling_train_probe_sweep()
+    if preset == "mnist_generator_horn_structured_coupling_probe":
+        return _mnist_generator_horn_structured_coupling_probe_sweep()
     raise ValueError("unknown sweep preset")
 
 
