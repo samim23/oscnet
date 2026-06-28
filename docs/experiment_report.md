@@ -4296,6 +4296,50 @@ repeat the label-scale attribution probe across at least two more seeds and
 compare against a matched non-oscillatory latent-state generator before making
 larger claims.
 
+Replication result:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_horn_label0_replication_probe
+```
+
+The replication wrote:
+
+```text
+outputs/analysis/modal_mnist_generator_horn_label0_replication_probe.csv
+outputs/analysis/modal_mnist_generator_horn_label0_replication_probe.json
+outputs/analysis/modal_mnist_generator_horn_label0_replication_samples/
+```
+
+This repeated only the key condition, `label_phase_scale=0.0`, on fresh seeds
+12 and 13. Combined with seed 11 from the attribution probe:
+
+| Variant | Seeds | Mean final eval | Mean classifier label acc | Mean prototype acc | Mean diversity |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Trainable HORN | 3 | 0.000936 | 1.0000 | 1.0000 | 1.3079 |
+| Frozen HORN | 3 | 0.001282 | 0.0898 | 0.0983 | 0.4868 |
+| HORN decoder-only | 3 | 0.001254 | 0.0944 | 0.1100 | 0.5348 |
+
+This is the first replicated, control-separated generator result where
+learned oscillatory recurrence is not a cosmetic add-on. With no explicit
+label phase shift at sampling time, trainable HORN consistently produces
+clean class-structured MNIST grids, while the matched frozen and decoder-only
+controls collapse to near-chance class alignment. The sample montage confirms
+the metrics: the trainable HORN grids contain readable digits for all three
+seeds; the controls are mostly blurred texture fragments.
+
+The claim should still stay precise. This is not an unconditional generator,
+because the pixel-drift objective is class-conditioned during training. The
+positive result is narrower and stronger: **within a class-conditioned
+oscillator generator, trainable HORN recurrence can internalize and express
+class structure that the same HORN state/readout scaffold cannot express when
+the recurrence is frozen or removed.**
+
+Next control: add a matched non-oscillatory latent-state generator with the
+same resize-conv readout and parameter budget. If HORN beats that under
+label-zero conditioning, the result becomes an ONN-native architectural win,
+not only a recurrence-vs-no-recurrence win inside the HORN family.
+
 ## Maintenance Notes
 
 - Put numerical benchmark summaries in this file and/or `outputs/analysis`.
