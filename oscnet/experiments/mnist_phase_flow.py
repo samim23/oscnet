@@ -222,6 +222,79 @@ def sobel_edge_targets(images: Array, *, eps: float = 1e-6) -> Array:
     return jnp.clip(magnitude.reshape(batch_size, 28 * 28), 0.0, 1.0)
 
 
+def _max_pool_same(images: Array) -> Array:
+    return jax.lax.reduce_window(
+        images,
+        jnp.asarray(-jnp.inf, dtype=images.dtype),
+        jax.lax.max,
+        window_dimensions=(1, 3, 3, 1),
+        window_strides=(1, 1, 1, 1),
+        padding="SAME",
+    )
+
+
+def signed_distance_targets(
+    images: Array,
+    *,
+    threshold: float = 0.2,
+    max_radius: int = 8,
+    scale: float = 3.0,
+) -> Array:
+    """Convert flat MNIST images to smooth approximate signed-distance fields.
+
+    The transform uses repeated 3x3 dilation to estimate Chebyshev-distance
+    bands to foreground and background. It returns a one-channel field in
+    ``[0, 1]`` where digit interiors are high, exteriors are low, and the
+    boundary is smooth instead of a hard binary edge.
+    """
+
+    if max_radius < 1:
+        raise ValueError("max_radius must be positive")
+    if scale <= 0.0:
+        raise ValueError("scale must be positive")
+
+    images = jnp.asarray(images)
+    batch_size = images.shape[0]
+    grid = images.reshape(batch_size, 28, 28, 1)
+    foreground = (grid > float(threshold)).astype(images.dtype)
+    background = 1.0 - foreground
+
+    foreground_reach = foreground
+    background_reach = background
+    distance_to_foreground = jnp.zeros_like(foreground)
+    distance_to_background = jnp.zeros_like(foreground)
+    unresolved_foreground = 1.0 - foreground
+    unresolved_background = foreground
+
+    for radius in range(1, int(max_radius) + 1):
+        foreground_reach = _max_pool_same(foreground_reach)
+        background_reach = _max_pool_same(background_reach)
+        reached_foreground = (foreground_reach > 0.0).astype(images.dtype)
+        reached_background = (background_reach > 0.0).astype(images.dtype)
+        newly_foreground = reached_foreground * unresolved_foreground
+        newly_background = reached_background * unresolved_background
+
+        distance_to_foreground = (
+            distance_to_foreground + newly_foreground * float(radius)
+        )
+        distance_to_background = (
+            distance_to_background + newly_background * float(radius)
+        )
+        unresolved_foreground = unresolved_foreground * (1.0 - newly_foreground)
+        unresolved_background = unresolved_background * (1.0 - newly_background)
+
+    fallback_distance = float(max_radius + 1)
+    distance_to_foreground = (
+        distance_to_foreground + unresolved_foreground * fallback_distance
+    )
+    distance_to_background = (
+        distance_to_background + unresolved_background * fallback_distance
+    )
+    signed_distance = distance_to_background - distance_to_foreground
+    target = 0.5 + 0.5 * jnp.tanh(signed_distance / float(scale))
+    return jnp.clip(target.reshape(batch_size, 28 * 28), 0.0, 1.0)
+
+
 def prepare_phase_flow_targets(images: Array, representation: str) -> Array:
     """Prepare the image-domain target used by phase-flow training."""
 
@@ -229,7 +302,12 @@ def prepare_phase_flow_targets(images: Array, representation: str) -> Array:
         return images
     if representation == "sobel_edges":
         return sobel_edge_targets(images)
-    raise ValueError("target_representation must be 'pixels' or 'sobel_edges'")
+    if representation == "signed_distance":
+        return signed_distance_targets(images)
+    raise ValueError(
+        "target_representation must be 'pixels', 'sobel_edges', "
+        "or 'signed_distance'"
+    )
 
 
 def _mean_pool_flat_images(images: Array, grid_size: int) -> Array:
@@ -1063,7 +1141,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--sample-method", choices=["euler", "heun"], default="euler")
     parser.add_argument(
         "--target-representation",
-        choices=["pixels", "sobel_edges"],
+        choices=["pixels", "sobel_edges", "signed_distance"],
         default="pixels",
     )
     parser.add_argument("--data-source", choices=["idx", "synthetic", "tfds"], default="idx")

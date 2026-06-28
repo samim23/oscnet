@@ -45,8 +45,9 @@ Use **MNIST phase VAE** if you want a simple generative model that should train
 without much drama.
 
 Use **MNIST phase-flow** if you want the most direct "oscillators as the
-generative medium" experiment. Set `--target-representation sobel_edges` to
-test the same dynamics on contour maps instead of raw pixels.
+generative medium" experiment. Set `--target-representation sobel_edges` for
+contour maps or `--target-representation signed_distance` for smooth shape
+fields instead of raw pixels.
 
 Use **MNIST masked representation** if you care about masked image recovery,
 block occlusion, or representation-prediction controls. This branch is useful

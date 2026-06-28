@@ -54,6 +54,9 @@ SWEEP_CSVS = {
     "mnist_phase_flow_edge_probe": Path(
         "outputs/analysis/modal_mnist_phase_flow_edge_probe.csv"
     ),
+    "mnist_phase_flow_signed_distance_probe": Path(
+        "outputs/analysis/modal_mnist_phase_flow_signed_distance_probe.csv"
+    ),
 }
 
 REMOTE_PACKAGES = [
@@ -375,7 +378,9 @@ def _mnist_phase_flow_coarse_closure_probe_sweep() -> list[tuple[list[str], str]
     return entries
 
 
-def _mnist_phase_flow_edge_probe_sweep() -> list[tuple[list[str], str]]:
+def _mnist_phase_flow_target_probe_sweep(
+    target_representation: str,
+) -> list[tuple[list[str], str]]:
     common = [
         "--data-source idx",
         "--epochs 20",
@@ -398,7 +403,7 @@ def _mnist_phase_flow_edge_probe_sweep() -> list[tuple[list[str], str]]:
         "--conditional",
         "--clean-loss-weight 0.25",
         "--closure-loss-weight 0.0",
-        "--target-representation sobel_edges",
+        f"--target-representation {target_representation}",
         "--sample-steps 16",
         "--sample-method euler",
         "--learning-rate 0.001",
@@ -414,7 +419,7 @@ def _mnist_phase_flow_edge_probe_sweep() -> list[tuple[list[str], str]]:
     for seed in (31,):
         for suffix, variant_args in variants:
             run_name = (
-                "mnist_phase_flow_sobel_edges_"
+                f"mnist_phase_flow_{target_representation}_"
                 f"{suffix}_c8_steps8_seed{seed}_20e"
             )
             args = shlex.split(" ".join([f"--seed {seed}", *common, *variant_args]))
@@ -422,6 +427,14 @@ def _mnist_phase_flow_edge_probe_sweep() -> list[tuple[list[str], str]]:
             args = _with_default_arg(args, "--output-dir", output_dir)
             entries.append((args, run_name))
     return entries
+
+
+def _mnist_phase_flow_edge_probe_sweep() -> list[tuple[list[str], str]]:
+    return _mnist_phase_flow_target_probe_sweep("sobel_edges")
+
+
+def _mnist_phase_flow_signed_distance_probe_sweep() -> list[tuple[list[str], str]]:
+    return _mnist_phase_flow_target_probe_sweep("signed_distance")
 
 
 def _sweep_entries(preset: str) -> list[tuple[list[str], str]]:
@@ -441,6 +454,8 @@ def _sweep_entries(preset: str) -> list[tuple[list[str], str]]:
         return _mnist_phase_flow_coarse_closure_probe_sweep()
     if preset == "mnist_phase_flow_edge_probe":
         return _mnist_phase_flow_edge_probe_sweep()
+    if preset == "mnist_phase_flow_signed_distance_probe":
+        return _mnist_phase_flow_signed_distance_probe_sweep()
     raise ValueError("unknown sweep preset")
 
 

@@ -3246,6 +3246,54 @@ Interpretation:
   stronger contour representation, such as signed distance, skeleton, or
   orientation-vector fields, plus the same frozen/no-dynamics controls.
 
+Signed-distance phase-flow probe:
+
+The MNIST phase-flow experiment now also supports
+`target_representation="signed_distance"` /
+`--target-representation signed_distance`. This converts MNIST images into an
+approximate JAX-native signed-distance shape field using repeated 3x3 dilation
+bands. It stays one-channel and uses the same phase-flow models, but gives the
+oscillator field a smoother whole-shape target than raw pixels or Sobel edges.
+
+Run:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_phase_flow.py \
+  --sweep-preset mnist_phase_flow_signed_distance_probe
+```
+
+This compares coarse/global phase-flow against the matched recurrent-conv flow
+control on the same smooth shape-field target.
+
+Result:
+
+```text
+outputs/analysis/modal_mnist_phase_flow_signed_distance_probe.csv
+outputs/analysis/modal_mnist_phase_flow_samples/
+```
+
+| model | best eval loss | velocity loss | clean loss | nearest-real MSE | active frac | components | largest frac |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| coarse/global phase-flow | 0.097380 | 0.097323 | 0.016397 | 0.024025 | 0.264848 | 1.437500 | 0.952806 |
+| recurrent-conv flow | 0.118595 | 0.115930 | 0.023067 | 0.033544 | 0.215721 | 3.453125 | 0.757076 |
+| real signed-distance MNIST | n/a | n/a | n/a | 0.017730 | 0.395010 | 1.000000 | 1.000000 |
+
+Interpretation:
+
+- This strengthens the contour-domain hypothesis. The coarse/global oscillator
+  beats the recurrent-conv control on best objective, final velocity loss,
+  final clean loss, nearest-real MSE, pixel mean matching, active foreground
+  mass, connected-component count, and largest-component fraction.
+- The samples are still not solved MNIST digits. They look like soft digit
+  fields or partial glyphs rather than crisp generated images. But the failure
+  mode is meaningfully better than the recurrent-conv control: fewer islands,
+  more continuous mass, and higher largest-component fraction.
+- This suggests the current ONN branch is strongest when the generated object
+  is represented as a smooth spatial field. The next high-value probe is not
+  another generic decoder trick; it is an ONN-native way to convert these
+  promising shape fields back into crisp pixels or to train a two-head model
+  that predicts both signed-distance shape and pixel occupancy.
+
 ## Maintenance Notes
 
 - Put numerical benchmark summaries in this file and/or `outputs/analysis`.

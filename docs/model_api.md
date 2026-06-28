@@ -288,9 +288,9 @@ and internally convert them to patch sequences.
   `closure_loss_weight > 0` or pass `--closure-loss-weight` to add a
   train-time low-frequency endpoint loss at `14x14` and `7x7`, which probes
   whether whole-shape binding pressure helps phase-flow samples close into
-  coherent digits. Set `target_representation="sobel_edges"` or pass
-  `--target-representation sobel_edges` to train the same visible oscillator
-  field on normalized Sobel contour maps rather than raw pixels.
+  coherent digits. Set `target_representation="sobel_edges"` or
+  `"signed_distance"` to train the same visible oscillator field on contour or
+  smooth shape-field targets rather than raw pixels.
 
 `RecurrentConvFlowField`
 : A matched non-oscillatory recurrent-flow control for `PhaseRateFlowField`.

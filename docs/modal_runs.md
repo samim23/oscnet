@@ -774,6 +774,22 @@ outputs/analysis/modal_mnist_phase_flow_edge_probe.csv
 outputs/analysis/modal_mnist_phase_flow_samples/
 ```
 
+Run the signed-distance target probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_phase_flow.py \
+  --sweep-preset mnist_phase_flow_signed_distance_probe
+```
+
+This adds `--target-representation signed_distance`, an approximate
+JAX-native smooth shape-field target, and compares the coarse/global
+phase-flow model against the matched recurrent-conv flow control. It writes:
+
+```text
+outputs/analysis/modal_mnist_phase_flow_signed_distance_probe.csv
+outputs/analysis/modal_mnist_phase_flow_samples/
+```
+
 To rerun the full four-way attribution matrix in one request:
 
 ```bash

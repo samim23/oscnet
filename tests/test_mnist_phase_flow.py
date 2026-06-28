@@ -11,6 +11,7 @@ from oscnet.experiments.mnist_phase_flow import (
     prepare_phase_flow_targets,
     run_mnist_phase_flow_experiment,
     sample_phase_flow_images,
+    signed_distance_targets,
     sobel_edge_targets,
 )
 from oscnet.models import (
@@ -114,6 +115,24 @@ def test_sobel_edge_targets_are_normalized_contour_maps():
     assert jnp.min(edges) >= 0.0
     assert jnp.mean(edges) > 0.0
     assert jnp.allclose(edges, prepared_edges)
+
+
+def test_signed_distance_targets_are_smooth_shape_fields():
+    image_grid = jnp.zeros((1, 28, 28))
+    image_grid = image_grid.at[:, 9:19, 9:19].set(1.0)
+    images = image_grid.reshape(1, 28 * 28)
+
+    targets = signed_distance_targets(images)
+    prepared = prepare_phase_flow_targets(images, "signed_distance")
+    target_grid = targets.reshape(1, 28, 28)
+
+    assert targets.shape == images.shape
+    assert prepared.shape == images.shape
+    assert jnp.max(targets) <= 1.0
+    assert jnp.min(targets) >= 0.0
+    assert target_grid[0, 14, 14] > target_grid[0, 8, 14]
+    assert target_grid[0, 8, 14] > target_grid[0, 0, 0]
+    assert jnp.allclose(targets, prepared)
 
 
 def test_phase_flow_loss_includes_optional_closure_term():
