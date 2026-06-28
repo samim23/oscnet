@@ -67,6 +67,7 @@ class MNISTPhaseFlowExperimentConfig:
     eval_sample_count: int = 64
     sample_steps: int = 16
     sample_method: str = "euler"
+    target_representation: str = "pixels"
     data_source: str = "idx"
     train_limit: Optional[int] = 10_000
     eval_limit: Optional[int] = 1_000
@@ -175,7 +176,60 @@ def _checkpoint_hyperparams(config: MNISTPhaseFlowExperimentConfig) -> Dict[str,
         "closure_loss_weight": config.closure_loss_weight,
         "sample_steps": config.sample_steps,
         "sample_method": config.sample_method,
+        "target_representation": config.target_representation,
     }
+
+
+def sobel_edge_targets(images: Array, *, eps: float = 1e-6) -> Array:
+    """Convert flat MNIST images to normalized Sobel edge-magnitude maps."""
+
+    images = jnp.asarray(images)
+    batch_size = images.shape[0]
+    image_grid = images.reshape(batch_size, 28, 28, 1)
+    sobel_x = jnp.asarray(
+        [
+            [-1.0, 0.0, 1.0],
+            [-2.0, 0.0, 2.0],
+            [-1.0, 0.0, 1.0],
+        ],
+        dtype=images.dtype,
+    ).reshape(3, 3, 1, 1)
+    sobel_y = jnp.asarray(
+        [
+            [-1.0, -2.0, -1.0],
+            [0.0, 0.0, 0.0],
+            [1.0, 2.0, 1.0],
+        ],
+        dtype=images.dtype,
+    ).reshape(3, 3, 1, 1)
+    grad_x = jax.lax.conv_general_dilated(
+        image_grid,
+        sobel_x,
+        window_strides=(1, 1),
+        padding="SAME",
+        dimension_numbers=("NHWC", "HWIO", "NHWC"),
+    )
+    grad_y = jax.lax.conv_general_dilated(
+        image_grid,
+        sobel_y,
+        window_strides=(1, 1),
+        padding="SAME",
+        dimension_numbers=("NHWC", "HWIO", "NHWC"),
+    )
+    magnitude = jnp.sqrt(grad_x**2 + grad_y**2 + float(eps))
+    scale = jnp.max(magnitude, axis=(1, 2, 3), keepdims=True)
+    magnitude = magnitude / (scale + float(eps))
+    return jnp.clip(magnitude.reshape(batch_size, 28 * 28), 0.0, 1.0)
+
+
+def prepare_phase_flow_targets(images: Array, representation: str) -> Array:
+    """Prepare the image-domain target used by phase-flow training."""
+
+    if representation == "pixels":
+        return images
+    if representation == "sobel_edges":
+        return sobel_edge_targets(images)
+    raise ValueError("target_representation must be 'pixels' or 'sobel_edges'")
 
 
 def _mean_pool_flat_images(images: Array, grid_size: int) -> Array:
@@ -701,6 +755,14 @@ def run_mnist_phase_flow_experiment(
         eval_limit=config.eval_limit,
         seed=config.run.seed,
     )
+    train_images = prepare_phase_flow_targets(
+        train_images,
+        config.target_representation,
+    )
+    eval_images = prepare_phase_flow_targets(
+        eval_images,
+        config.target_representation,
+    )
 
     key = jax.random.PRNGKey(config.run.seed)
     model_key = jax.random.fold_in(key, 1)
@@ -923,6 +985,7 @@ def run_mnist_phase_flow_experiment(
             "position_features": bool(config.position_features),
             "clean_loss_weight": float(config.clean_loss_weight),
             "closure_loss_weight": float(config.closure_loss_weight),
+            "target_representation": config.target_representation,
             "sample_steps": int(config.sample_steps),
             "sample_method": config.sample_method,
             "coarse_grid_size": (
@@ -998,6 +1061,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--eval-sample-count", type=int, default=64)
     parser.add_argument("--sample-steps", type=int, default=16)
     parser.add_argument("--sample-method", choices=["euler", "heun"], default="euler")
+    parser.add_argument(
+        "--target-representation",
+        choices=["pixels", "sobel_edges"],
+        default="pixels",
+    )
     parser.add_argument("--data-source", choices=["idx", "synthetic", "tfds"], default="idx")
     parser.add_argument("--train-limit", type=int, default=10_000)
     parser.add_argument("--eval-limit", type=int, default=1_000)
@@ -1042,6 +1110,7 @@ def main() -> None:
         eval_sample_count=args.eval_sample_count,
         sample_steps=args.sample_steps,
         sample_method=args.sample_method,
+        target_representation=args.target_representation,
         data_source=args.data_source,
         train_limit=args.train_limit,
         eval_limit=args.eval_limit,

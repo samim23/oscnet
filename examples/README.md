@@ -62,6 +62,18 @@ python examples/image_mnist_phase_flow.py \
   --eval-sample-count 4
 ```
 
+Contour-domain phase-flow run:
+
+```bash
+python examples/image_mnist_phase_flow.py \
+  --data-source synthetic \
+  --target-representation sobel_edges \
+  --epochs 1 \
+  --field-channels 2 \
+  --steps 1 \
+  --eval-sample-count 4
+```
+
 Small phase VAE run:
 
 ```bash

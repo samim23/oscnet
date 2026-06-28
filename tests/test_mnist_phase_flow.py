@@ -8,8 +8,10 @@ from oscnet.experiments.mnist_phase_flow import (
     MNISTPhaseFlowExperimentConfig,
     closure_loss,
     phase_flow_loss,
+    prepare_phase_flow_targets,
     run_mnist_phase_flow_experiment,
     sample_phase_flow_images,
+    sobel_edge_targets,
 )
 from oscnet.models import (
     CoarseGlobalPhaseRateFlowField,
@@ -95,6 +97,23 @@ def test_closure_loss_rewards_matching_coarse_digit_envelope():
 
     assert matching_loss == 0.0
     assert shifted_loss > matching_loss
+
+
+def test_sobel_edge_targets_are_normalized_contour_maps():
+    images = jnp.zeros((2, 28 * 28))
+    images = images.at[:, 8:20].set(1.0)
+
+    edges = sobel_edge_targets(images)
+    pixels = prepare_phase_flow_targets(images, "pixels")
+    prepared_edges = prepare_phase_flow_targets(images, "sobel_edges")
+
+    assert pixels is images
+    assert edges.shape == images.shape
+    assert prepared_edges.shape == images.shape
+    assert jnp.max(edges) <= 1.0
+    assert jnp.min(edges) >= 0.0
+    assert jnp.mean(edges) > 0.0
+    assert jnp.allclose(edges, prepared_edges)
 
 
 def test_phase_flow_loss_includes_optional_closure_term():
@@ -269,6 +288,7 @@ def test_mnist_phase_flow_synthetic_training_smoke(tmp_path):
         field_channels=2,
         steps=1,
         closure_loss_weight=0.5,
+        target_representation="sobel_edges",
         eval_sample_count=2,
         sample_steps=2,
         data_source="synthetic",
@@ -287,6 +307,7 @@ def test_mnist_phase_flow_synthetic_training_smoke(tmp_path):
     assert summary["phase_flow"]["steps"] == 1
     assert summary["phase_flow"]["sample_method"] == "euler"
     assert summary["phase_flow"]["closure_loss_weight"] == 0.5
+    assert summary["phase_flow"]["target_representation"] == "sobel_edges"
     assert summary["final_eval_closure_loss"] >= 0.0
     assert summary["final_eval_loss"] >= 0.0
     assert summary["phase_flow"]["sample_diversity_ratio"] >= 0.0

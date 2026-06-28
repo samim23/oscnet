@@ -3196,6 +3196,56 @@ or a trajectory-level coherence objective. The result we want is not just lower
 MSE; it is fewer components and higher largest-component fraction without the
 samples becoming blurry blobs.
 
+Contour-domain phase-flow probe:
+
+The MNIST phase-flow experiment now supports
+`target_representation="sobel_edges"` / `--target-representation sobel_edges`.
+This converts MNIST images into normalized Sobel edge-magnitude maps before
+training the rectified-flow field. It is the first minimal test of the
+hypothesis that oscillator fields may be better matched to contour/coherence
+targets than to raw pixel mass.
+
+Run:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_phase_flow.py \
+  --sweep-preset mnist_phase_flow_edge_probe
+```
+
+This compares coarse/global phase-flow against the matched recurrent-conv flow
+control on the same Sobel-edge target.
+
+Result:
+
+```text
+outputs/analysis/modal_mnist_phase_flow_edge_probe.csv
+outputs/analysis/modal_mnist_phase_flow_samples/
+```
+
+| model | best eval loss | velocity loss | clean loss | nearest-real MSE | active frac | components | largest frac |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| coarse/global phase-flow | 0.173173 | 0.163982 | 0.036765 | 0.079351 | 0.239357 | 2.750000 | 0.897632 |
+| recurrent-conv flow | 0.195775 | 0.186719 | 0.045180 | 0.077924 | 0.123884 | 3.609375 | 0.672176 |
+| real Sobel MNIST | n/a | n/a | n/a | 0.064611 | 0.230628 | 1.015625 | 0.999408 |
+
+Interpretation:
+
+- This is the most encouraging result after the raw-pixel phase-flow branch.
+  The coarse/global oscillator field beats the matched recurrent-conv control
+  on flow objective, clean endpoint loss, pixel mean/std matching, active
+  foreground mass, connected-component count, and largest-component fraction.
+- The recurrent-conv control has slightly better nearest-real MSE
+  (`0.077924` versus `0.079351`), but it also underdraws the edge field
+  (`active_fraction=0.123884` versus real `0.230628`) and fragments more. This
+  makes nearest-real MSE a weak primary metric for this target.
+- Qualitatively, neither model is a solved digit generator. The oscillator edge
+  samples are still rough, but they are visibly denser and more connected than
+  the recurrent-conv samples.
+- This supports the hypothesis that oscillator fields may be better matched to
+  contour/coherence targets than to raw pixel mass. The next useful step is a
+  stronger contour representation, such as signed distance, skeleton, or
+  orientation-vector fields, plus the same frozen/no-dynamics controls.
+
 ## Maintenance Notes
 
 - Put numerical benchmark summaries in this file and/or `outputs/analysis`.

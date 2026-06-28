@@ -51,6 +51,9 @@ SWEEP_CSVS = {
     "mnist_phase_flow_coarse_closure_probe": Path(
         "outputs/analysis/modal_mnist_phase_flow_coarse_closure_probe.csv"
     ),
+    "mnist_phase_flow_edge_probe": Path(
+        "outputs/analysis/modal_mnist_phase_flow_edge_probe.csv"
+    ),
 }
 
 REMOTE_PACKAGES = [
@@ -372,6 +375,55 @@ def _mnist_phase_flow_coarse_closure_probe_sweep() -> list[tuple[list[str], str]
     return entries
 
 
+def _mnist_phase_flow_edge_probe_sweep() -> list[tuple[list[str], str]]:
+    common = [
+        "--data-source idx",
+        "--epochs 20",
+        "--train-limit 10000",
+        "--eval-limit 1000",
+        "--eval-sample-count 64",
+        "--batch-size 128",
+        "--field-channels 8",
+        "--steps 8",
+        "--kernel-size 3",
+        "--dt 0.15",
+        "--coupling-strength 1.0",
+        "--rate-update 0.5",
+        "--input-drive-strength 0.5",
+        "--global-coupling-strength 0.5",
+        "--coarse-grid-size 4",
+        "--omega-scale 0.2",
+        "--kernel-init-scale 0.05",
+        "--no-position-features",
+        "--conditional",
+        "--clean-loss-weight 0.25",
+        "--closure-loss-weight 0.0",
+        "--target-representation sobel_edges",
+        "--sample-steps 16",
+        "--sample-method euler",
+        "--learning-rate 0.001",
+        "--weight-decay 0.0001",
+        "--checkpoint-every 20",
+        "--artifact-every 20",
+    ]
+    variants = [
+        ("coarse_phase_flow", ["--model-family coarse_phase_flow"]),
+        ("recurrent_conv_flow", ["--model-family recurrent_conv_flow"]),
+    ]
+    entries = []
+    for seed in (31,):
+        for suffix, variant_args in variants:
+            run_name = (
+                "mnist_phase_flow_sobel_edges_"
+                f"{suffix}_c8_steps8_seed{seed}_20e"
+            )
+            args = shlex.split(" ".join([f"--seed {seed}", *common, *variant_args]))
+            output_dir = VOLUME_MOUNT / "mnist_phase_flow" / run_name
+            args = _with_default_arg(args, "--output-dir", output_dir)
+            entries.append((args, run_name))
+    return entries
+
+
 def _sweep_entries(preset: str) -> list[tuple[list[str], str]]:
     if preset == "mnist_phase_flow_core":
         return _mnist_phase_flow_core_sweep()
@@ -387,6 +439,8 @@ def _sweep_entries(preset: str) -> list[tuple[list[str], str]]:
         return _mnist_phase_flow_coarse_position_probe_sweep()
     if preset == "mnist_phase_flow_coarse_closure_probe":
         return _mnist_phase_flow_coarse_closure_probe_sweep()
+    if preset == "mnist_phase_flow_edge_probe":
+        return _mnist_phase_flow_edge_probe_sweep()
     raise ValueError("unknown sweep preset")
 
 
@@ -407,6 +461,7 @@ def _write_sweep_csv(results: list[dict[str, Any]], path: Path) -> None:
         "phase_flow.position_features",
         "phase_flow.clean_loss_weight",
         "phase_flow.closure_loss_weight",
+        "phase_flow.target_representation",
         "phase_flow.sample_steps",
         "phase_flow.sample_method",
         "phase_flow.sample_mean",
@@ -526,6 +581,7 @@ def run_mnist_phase_flow_remote(
         eval_sample_count=args.eval_sample_count,
         sample_steps=args.sample_steps,
         sample_method=args.sample_method,
+        target_representation=args.target_representation,
         data_source=args.data_source,
         train_limit=args.train_limit,
         eval_limit=args.eval_limit,
