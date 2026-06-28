@@ -36,6 +36,12 @@ SWEEP_CSVS = {
     "mnist_shape_pixel_basin_probe": Path(
         "outputs/analysis/modal_mnist_shape_pixel_basin_probe.csv"
     ),
+    "mnist_shape_pixel_shape_condition_probe": Path(
+        "outputs/analysis/modal_mnist_shape_pixel_shape_condition_probe.csv"
+    ),
+    "mnist_shape_pixel_shape_gated_probe": Path(
+        "outputs/analysis/modal_mnist_shape_pixel_shape_gated_probe.csv"
+    ),
 }
 
 REMOTE_PACKAGES = [
@@ -93,6 +99,8 @@ def _summary_metric(summary: dict[str, Any], dotted_key: str) -> Any:
 def _mnist_shape_pixel_core_sweep(
     *,
     include_basin: bool = False,
+    include_shape_condition_probe: bool = False,
+    sample_readout_mode: str = "primary",
 ) -> list[tuple[list[str], str]]:
     common = [
         "--data-source idx",
@@ -119,6 +127,7 @@ def _mnist_shape_pixel_core_sweep(
         "--closure-loss-weight 0.0",
         "--sample-steps 16",
         "--sample-method euler",
+        f"--sample-readout-mode {sample_readout_mode}",
         "--clamp-shape",
         "--learning-rate 0.001",
         "--weight-decay 0.0001",
@@ -127,16 +136,20 @@ def _mnist_shape_pixel_core_sweep(
     ]
     if include_basin:
         common.append("--basin-t-values 0.1,0.25,0.5,0.75,0.9")
+    if include_shape_condition_probe:
+        common.append("--shape-condition-t-values 0.1,0.5,0.9")
+        common.append("--shape-condition-noise-modes uniform,salt_pepper,zeros")
     variants = [
         ("coarse_phase_flow", ["--model-family coarse_phase_flow"]),
         ("phase_flow", ["--model-family phase_flow"]),
         ("no_dynamics", ["--model-family phase_flow_no_dynamics"]),
         ("recurrent_conv_flow", ["--model-family recurrent_conv_flow"]),
     ]
+    readout_suffix = "" if sample_readout_mode == "primary" else f"_{sample_readout_mode}"
     entries = []
     for seed in (31, 32):
         for suffix, model_args in variants:
-            run_name = f"mnist_shape_pixel_{suffix}_seed{seed}_20e"
+            run_name = f"mnist_shape_pixel_{suffix}{readout_suffix}_seed{seed}_20e"
             args = shlex.split(" ".join([f"--seed {seed}", *common, *model_args]))
             output_dir = VOLUME_MOUNT / "mnist_shape_pixel" / run_name
             args = _with_default_arg(args, "--output-dir", output_dir)
@@ -149,6 +162,13 @@ def _sweep_entries(preset: str) -> list[tuple[list[str], str]]:
         return _mnist_shape_pixel_core_sweep()
     if preset == "mnist_shape_pixel_basin_probe":
         return _mnist_shape_pixel_core_sweep(include_basin=True)
+    if preset == "mnist_shape_pixel_shape_condition_probe":
+        return _mnist_shape_pixel_core_sweep(include_shape_condition_probe=True)
+    if preset == "mnist_shape_pixel_shape_gated_probe":
+        return _mnist_shape_pixel_core_sweep(
+            include_shape_condition_probe=True,
+            sample_readout_mode="shape_gated",
+        )
     raise ValueError("unknown sweep preset")
 
 
@@ -174,7 +194,10 @@ def _write_sweep_csv(results: list[dict[str, Any]], path: Path) -> None:
         "shape_pixel.closure_loss_weight",
         "shape_pixel.sample_steps",
         "shape_pixel.sample_method",
+        "shape_pixel.sample_readout_mode",
         "shape_pixel.basin_t_values",
+        "shape_pixel.shape_condition_t_values",
+        "shape_pixel.shape_condition_noise_modes",
         "shape_pixel.clamp_shape",
         "shape_pixel.paired_sample_mse",
         "shape_pixel.sample_mean",
@@ -218,6 +241,42 @@ def _write_sweep_csv(results: list[dict[str, Any]], path: Path) -> None:
         "shape_pixel.basin.t0_900.paired_mse_improvement_fraction",
         "shape_pixel.basin.t0_900.sample_active_fraction",
         "shape_pixel.basin.t0_900.sample_mean",
+        "shape_pixel.shape_condition_probe.uniform.t0_100.condition_paired_mse",
+        "shape_pixel.shape_condition_probe.uniform.t0_100.paired_sample_mse",
+        "shape_pixel.shape_condition_probe.uniform.t0_100.sample_nearest_real_mse",
+        "shape_pixel.shape_condition_probe.uniform.t0_100.sample_active_fraction",
+        "shape_pixel.shape_condition_probe.uniform.t0_500.condition_paired_mse",
+        "shape_pixel.shape_condition_probe.uniform.t0_500.paired_sample_mse",
+        "shape_pixel.shape_condition_probe.uniform.t0_500.sample_nearest_real_mse",
+        "shape_pixel.shape_condition_probe.uniform.t0_500.sample_active_fraction",
+        "shape_pixel.shape_condition_probe.uniform.t0_900.condition_paired_mse",
+        "shape_pixel.shape_condition_probe.uniform.t0_900.paired_sample_mse",
+        "shape_pixel.shape_condition_probe.uniform.t0_900.sample_nearest_real_mse",
+        "shape_pixel.shape_condition_probe.uniform.t0_900.sample_active_fraction",
+        "shape_pixel.shape_condition_probe.salt_pepper.t0_100.condition_paired_mse",
+        "shape_pixel.shape_condition_probe.salt_pepper.t0_100.paired_sample_mse",
+        "shape_pixel.shape_condition_probe.salt_pepper.t0_100.sample_nearest_real_mse",
+        "shape_pixel.shape_condition_probe.salt_pepper.t0_100.sample_active_fraction",
+        "shape_pixel.shape_condition_probe.salt_pepper.t0_500.condition_paired_mse",
+        "shape_pixel.shape_condition_probe.salt_pepper.t0_500.paired_sample_mse",
+        "shape_pixel.shape_condition_probe.salt_pepper.t0_500.sample_nearest_real_mse",
+        "shape_pixel.shape_condition_probe.salt_pepper.t0_500.sample_active_fraction",
+        "shape_pixel.shape_condition_probe.salt_pepper.t0_900.condition_paired_mse",
+        "shape_pixel.shape_condition_probe.salt_pepper.t0_900.paired_sample_mse",
+        "shape_pixel.shape_condition_probe.salt_pepper.t0_900.sample_nearest_real_mse",
+        "shape_pixel.shape_condition_probe.salt_pepper.t0_900.sample_active_fraction",
+        "shape_pixel.shape_condition_probe.zeros.t0_100.condition_paired_mse",
+        "shape_pixel.shape_condition_probe.zeros.t0_100.paired_sample_mse",
+        "shape_pixel.shape_condition_probe.zeros.t0_100.sample_nearest_real_mse",
+        "shape_pixel.shape_condition_probe.zeros.t0_100.sample_active_fraction",
+        "shape_pixel.shape_condition_probe.zeros.t0_500.condition_paired_mse",
+        "shape_pixel.shape_condition_probe.zeros.t0_500.paired_sample_mse",
+        "shape_pixel.shape_condition_probe.zeros.t0_500.sample_nearest_real_mse",
+        "shape_pixel.shape_condition_probe.zeros.t0_500.sample_active_fraction",
+        "shape_pixel.shape_condition_probe.zeros.t0_900.condition_paired_mse",
+        "shape_pixel.shape_condition_probe.zeros.t0_900.paired_sample_mse",
+        "shape_pixel.shape_condition_probe.zeros.t0_900.sample_nearest_real_mse",
+        "shape_pixel.shape_condition_probe.zeros.t0_900.sample_active_fraction",
         "train_seconds",
     ]
     fieldnames = ["run", "root", *metric_names]
@@ -318,7 +377,10 @@ def run_mnist_shape_pixel_remote(
         eval_sample_count=args.eval_sample_count,
         sample_steps=args.sample_steps,
         sample_method=args.sample_method,
+        sample_readout_mode=args.sample_readout_mode,
         basin_t_values=args.basin_t_values,
+        shape_condition_t_values=args.shape_condition_t_values,
+        shape_condition_noise_modes=args.shape_condition_noise_modes,
         clamp_shape=args.clamp_shape,
         data_source=args.data_source,
         train_limit=args.train_limit,

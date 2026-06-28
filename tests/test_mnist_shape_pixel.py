@@ -6,8 +6,11 @@ import jax.numpy as jnp
 from oscnet.experiments.harness import AutoencoderExperimentConfig
 from oscnet.experiments.mnist_shape_pixel import (
     MNISTShapePixelExperimentConfig,
+    apply_shape_pixel_readout,
     build_mnist_shape_pixel_model,
+    compute_shape_condition_probe_metrics,
     compute_shape_pixel_basin_metrics,
+    corrupt_shape_conditions,
     make_shape_pixel_flow_batch,
     run_mnist_shape_pixel_experiment,
     sample_shape_pixel_from_chord,
@@ -28,6 +31,32 @@ def test_shape_pixel_channel_stack_round_trips():
     assert state.shape == (2, 28 * 28 * 2)
     assert jnp.allclose(restored_pixels, pixels)
     assert jnp.allclose(restored_shapes, shapes)
+
+
+def test_shape_pixel_shape_gated_readout_uses_shape_scaffold():
+    pixels = jnp.ones((2, 28 * 28))
+    dark_shape = jnp.zeros_like(pixels)
+    bright_shape = jnp.ones_like(pixels)
+
+    primary = apply_shape_pixel_readout(
+        pixels,
+        dark_shape,
+        sample_readout_mode="primary",
+    )
+    dark_gated = apply_shape_pixel_readout(
+        pixels,
+        dark_shape,
+        sample_readout_mode="shape_gated",
+    )
+    bright_gated = apply_shape_pixel_readout(
+        pixels,
+        bright_shape,
+        sample_readout_mode="shape_gated",
+    )
+
+    assert jnp.allclose(primary, pixels)
+    assert float(jnp.mean(dark_gated)) < 0.1
+    assert float(jnp.mean(bright_gated)) > 0.9
 
 
 def test_shape_pixel_flow_batch_keeps_shape_condition_static():
@@ -172,6 +201,47 @@ def test_shape_pixel_basin_probe_measures_chord_completion():
     assert metrics["t0_500"]["paired_mse"] >= 0.0
 
 
+def test_shape_condition_probe_measures_imperfect_scaffolds():
+    config = MNISTShapePixelExperimentConfig(
+        run=AutoencoderExperimentConfig(name="shape_condition_probe_test"),
+        model_family="recurrent_conv_flow",
+        field_channels=2,
+        steps=1,
+    )
+    model = build_mnist_shape_pixel_model(config, jax.random.PRNGKey(11))
+    pixels = jnp.linspace(0.0, 1.0, 4 * 28 * 28).reshape(4, 28 * 28)
+    shapes = 1.0 - pixels
+    labels = jnp.asarray([0, 1, 2, 3], dtype=jnp.int32)
+
+    corrupted = corrupt_shape_conditions(
+        shapes,
+        key=jax.random.PRNGKey(12),
+        start_t=0.5,
+        noise_mode="uniform",
+    )
+    metrics = compute_shape_condition_probe_metrics(
+        model,
+        pixels,
+        shapes,
+        labels,
+        key=jax.random.PRNGKey(13),
+        t_values=(0.5,),
+        noise_modes=("uniform",),
+        sample_steps=2,
+        sample_method="euler",
+        batch_size=2,
+        clamp_shape=True,
+    )
+
+    assert corrupted.shape == shapes.shape
+    assert jnp.all(corrupted >= 0.0)
+    assert jnp.all(corrupted <= 1.0)
+    assert "uniform" in metrics
+    assert "t0_500" in metrics["uniform"]
+    assert metrics["uniform"]["t0_500"]["condition_paired_mse"] >= 0.0
+    assert metrics["uniform"]["t0_500"]["paired_sample_mse"] >= 0.0
+
+
 def test_mnist_shape_pixel_synthetic_training_smoke(tmp_path):
     run = AutoencoderExperimentConfig(
         name="mnist_shape_pixel_test",
@@ -191,6 +261,8 @@ def test_mnist_shape_pixel_synthetic_training_smoke(tmp_path):
         eval_sample_count=2,
         sample_steps=2,
         basin_t_values=(0.5,),
+        shape_condition_t_values=(0.5,),
+        shape_condition_noise_modes=("uniform",),
         data_source="synthetic",
         train_limit=4,
         eval_limit=2,
@@ -206,6 +278,9 @@ def test_mnist_shape_pixel_synthetic_training_smoke(tmp_path):
     assert summary["shape_pixel"]["model_family"] == "phase_flow"
     assert summary["shape_pixel"]["value_channels"] == 2
     assert summary["shape_pixel"]["clamp_shape"] is True
+    assert summary["shape_pixel"]["sample_readout_mode"] == "primary"
     assert summary["shape_pixel"]["paired_sample_mse"] >= 0.0
     assert "t0_500" in summary["shape_pixel"]["basin"]
+    assert "uniform" in summary["shape_pixel"]["shape_condition_probe"]
+    assert "t0_500" in summary["shape_pixel"]["shape_condition_probe"]["uniform"]
     assert summary["final_eval_clean_loss"] >= 0.0

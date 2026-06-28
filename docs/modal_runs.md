@@ -916,6 +916,42 @@ outputs/analysis/modal_mnist_shape_pixel_basin_probe.json
 outputs/analysis/modal_mnist_shape_pixel_samples/
 ```
 
+Run the shape-to-pixel scaffold robustness probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_shape_pixel.py \
+  --sweep-preset mnist_shape_pixel_shape_condition_probe
+```
+
+This repeats the shape-to-pixel core sweep and adds
+`--shape-condition-t-values 0.1,0.5,0.9` with
+`--shape-condition-noise-modes uniform,salt_pepper,zeros`, measuring whether the
+renderer still produces useful pixels when the signed-distance scaffold is
+imperfect rather than oracle-clean. It writes:
+
+```text
+outputs/analysis/modal_mnist_shape_pixel_shape_condition_probe.csv
+outputs/analysis/modal_mnist_shape_pixel_shape_condition_probe.json
+outputs/analysis/modal_mnist_shape_pixel_samples/
+```
+
+Run the shape-gated shape-to-pixel probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_shape_pixel.py \
+  --sweep-preset mnist_shape_pixel_shape_gated_probe
+```
+
+This is the same scaffold robustness sweep, but adds
+`--sample-readout-mode shape_gated` so the clamped signed-distance scaffold acts
+as an explicit soft amplitude gate on the sampled pixel channel. It writes:
+
+```text
+outputs/analysis/modal_mnist_shape_pixel_shape_gated_probe.csv
+outputs/analysis/modal_mnist_shape_pixel_shape_gated_probe.json
+outputs/analysis/modal_mnist_shape_pixel_samples/
+```
+
 Run the locked multi-seed shape-gated audit:
 
 ```bash

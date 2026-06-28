@@ -47,6 +47,8 @@ from oscnet.experiments.mnist_phase_flow import (
     closure_loss,
     compute_phase_flow_quality_metrics,
     parse_basin_t_values,
+    parse_noise_modes,
+    phase_flow_noise_endpoint,
     signed_distance_targets,
 )
 from oscnet.models import (
@@ -90,7 +92,10 @@ class MNISTShapePixelExperimentConfig:
     eval_sample_count: int = 64
     sample_steps: int = 16
     sample_method: str = "euler"
+    sample_readout_mode: str = "primary"
     basin_t_values: Tuple[float, ...] = ()
+    shape_condition_t_values: Tuple[float, ...] = ()
+    shape_condition_noise_modes: Tuple[str, ...] = ()
     clamp_shape: bool = True
     data_source: str = "idx"
     train_limit: Optional[int] = 10_000
@@ -188,7 +193,12 @@ def _checkpoint_hyperparams(config: MNISTShapePixelExperimentConfig) -> Dict[str
         "closure_loss_weight": config.closure_loss_weight,
         "sample_steps": config.sample_steps,
         "sample_method": config.sample_method,
+        "sample_readout_mode": config.sample_readout_mode,
         "basin_t_values": [float(value) for value in config.basin_t_values],
+        "shape_condition_t_values": [
+            float(value) for value in config.shape_condition_t_values
+        ],
+        "shape_condition_noise_modes": list(config.shape_condition_noise_modes),
         "clamp_shape": config.clamp_shape,
         "value_channels": 2,
     }
@@ -219,6 +229,23 @@ def replace_shape_channel(state: Array, shapes: Array) -> Array:
 
     pixels, _ = split_pixel_shape_channels(state)
     return stack_pixel_shape_channels(pixels, shapes)
+
+
+def apply_shape_pixel_readout(
+    pixels: Array,
+    shapes: Array,
+    *,
+    sample_readout_mode: str,
+) -> Array:
+    """Return the pixel image used for renderer sample metrics/artifacts."""
+
+    pixels = jnp.clip(pixels, 0.0, 1.0)
+    if sample_readout_mode == "primary":
+        return pixels
+    if sample_readout_mode == "shape_gated":
+        gate = jax.nn.sigmoid(8.0 * (jnp.clip(shapes, 0.0, 1.0) - 0.35))
+        return jnp.clip(pixels * gate, 0.0, 1.0)
+    raise ValueError("sample_readout_mode must be 'primary' or 'shape_gated'")
 
 
 def iter_shape_pixel_batches(
@@ -465,6 +492,7 @@ def sample_shape_pixel_images(
     sample_method: str,
     labels: Optional[Array],
     batch_size: int,
+    sample_readout_mode: str = "primary",
     clamp_shape: bool = True,
     clip_pixels: bool = True,
 ) -> Array:
@@ -492,6 +520,7 @@ def sample_shape_pixel_images(
             key=batch_key,
             sample_steps=sample_steps,
             sample_method=sample_method,
+            sample_readout_mode=sample_readout_mode,
             labels=current_labels,
             clamp_shape=clamp_shape,
             clip_pixels=clip_pixels,
@@ -513,6 +542,7 @@ def _sample_shape_pixel_batch(
     labels: Optional[Array],
     clamp_shape: bool,
     clip_pixels: bool,
+    sample_readout_mode: str,
 ) -> Array:
     sample_count = int(shapes.shape[0])
     pixels = jax.random.normal(key, shapes.shape)
@@ -558,7 +588,11 @@ def _sample_shape_pixel_batch(
     state, _ = jax.lax.scan(scan_fn, state, steps)
     pixels, _ = split_pixel_shape_channels(state)
     if clip_pixels:
-        return jnp.clip(pixels, 0.0, 1.0)
+        return apply_shape_pixel_readout(
+            pixels,
+            shapes,
+            sample_readout_mode=sample_readout_mode,
+        )
     return pixels
 
 
@@ -573,6 +607,7 @@ def sample_shape_pixel_from_chord(
     sample_method: str,
     labels: Optional[Array],
     batch_size: int,
+    sample_readout_mode: str = "primary",
     clamp_shape: bool = True,
     clip_pixels: bool = True,
 ) -> Array:
@@ -586,6 +621,7 @@ def sample_shape_pixel_from_chord(
         start_t=start_t,
         sample_steps=sample_steps,
         sample_method=sample_method,
+        sample_readout_mode=sample_readout_mode,
         labels=labels,
         batch_size=batch_size,
         clamp_shape=clamp_shape,
@@ -605,6 +641,7 @@ def _sample_shape_pixel_from_chord_with_initial(
     sample_method: str,
     labels: Optional[Array],
     batch_size: int,
+    sample_readout_mode: str = "primary",
     clamp_shape: bool = True,
     clip_pixels: bool = True,
 ) -> Tuple[Array, Array]:
@@ -642,6 +679,7 @@ def _sample_shape_pixel_from_chord_with_initial(
             start_t=start_t,
             sample_steps=sample_steps,
             sample_method=sample_method,
+            sample_readout_mode=sample_readout_mode,
             clamp_shape=clamp_shape,
             clip_pixels=clip_pixels,
         )
@@ -662,6 +700,7 @@ def _sample_shape_pixel_from_state(
     start_t: float,
     sample_steps: int,
     sample_method: str,
+    sample_readout_mode: str,
     clamp_shape: bool,
     clip_pixels: bool,
 ) -> Array:
@@ -717,7 +756,11 @@ def _sample_shape_pixel_from_state(
     state, _ = jax.lax.scan(scan_fn, state, steps)
     pixels, _ = split_pixel_shape_channels(state)
     if clip_pixels:
-        return jnp.clip(pixels, 0.0, 1.0)
+        return apply_shape_pixel_readout(
+            pixels,
+            shapes,
+            sample_readout_mode=sample_readout_mode,
+        )
     return pixels
 
 
@@ -733,6 +776,7 @@ def compute_shape_pixel_basin_metrics(
     sample_method: str,
     batch_size: int,
     clamp_shape: bool,
+    sample_readout_mode: str = "primary",
     artifact_dir: Optional[Path] = None,
 ) -> Dict[str, Dict[str, float]]:
     """Measure how far from real pixels a fixed-shape renderer can recover."""
@@ -748,6 +792,7 @@ def compute_shape_pixel_basin_metrics(
             start_t=start_t,
             sample_steps=sample_steps,
             sample_method=sample_method,
+            sample_readout_mode=sample_readout_mode,
             labels=labels,
             batch_size=batch_size,
             clamp_shape=clamp_shape,
@@ -774,6 +819,90 @@ def compute_shape_pixel_basin_metrics(
                 samples[: min(samples.shape[0], 64)],
                 artifact_dir / f"basin_{key_name}_samples.png",
             )
+    return results
+
+
+def corrupt_shape_conditions(
+    shapes: Array,
+    *,
+    key: jax.random.PRNGKey,
+    start_t: float,
+    noise_mode: str,
+    clip: bool = True,
+) -> Array:
+    """Return imperfect shape scaffolds on a noise-to-shape chord."""
+
+    start_t = float(start_t)
+    if start_t < 0.0 or start_t >= 1.0:
+        raise ValueError("start_t must satisfy 0 <= start_t < 1")
+    noise = phase_flow_noise_endpoint(key, shapes, noise_mode)
+    corrupted = (1.0 - start_t) * noise + start_t * shapes
+    if clip:
+        return jnp.clip(corrupted, 0.0, 1.0)
+    return corrupted
+
+
+def compute_shape_condition_probe_metrics(
+    model: ShapePixelModel,
+    pixels: Array,
+    shapes: Array,
+    labels: Optional[Array],
+    *,
+    key: jax.random.PRNGKey,
+    t_values: Tuple[float, ...],
+    noise_modes: Tuple[str, ...],
+    sample_steps: int,
+    sample_method: str,
+    batch_size: int,
+    clamp_shape: bool,
+    sample_readout_mode: str = "primary",
+    artifact_dir: Optional[Path] = None,
+) -> Dict[str, Dict[str, Dict[str, float]]]:
+    """Measure renderer quality when the shape scaffold is imperfect."""
+
+    results: Dict[str, Dict[str, Dict[str, float]]] = {}
+    for mode_index, noise_mode in enumerate(noise_modes):
+        mode_results: Dict[str, Dict[str, float]] = {}
+        for t_index, start_t in enumerate(t_values):
+            probe_key = jax.random.fold_in(jax.random.fold_in(key, mode_index), t_index)
+            corrupted_shapes = corrupt_shape_conditions(
+                shapes,
+                key=probe_key,
+                start_t=float(start_t),
+                noise_mode=noise_mode,
+                clip=True,
+            )
+            samples = sample_shape_pixel_images(
+                model,
+                corrupted_shapes,
+                key=jax.random.fold_in(probe_key, 10_000),
+                sample_steps=sample_steps,
+                sample_method=sample_method,
+                sample_readout_mode=sample_readout_mode,
+                labels=labels,
+                batch_size=batch_size,
+                clamp_shape=clamp_shape,
+                clip_pixels=True,
+            )
+            metrics = compute_phase_flow_quality_metrics(pixels, samples)
+            metrics["condition_paired_mse"] = float(
+                jnp.mean((corrupted_shapes - shapes) ** 2)
+            )
+            metrics["paired_sample_mse"] = float(jnp.mean((samples - pixels) ** 2))
+            metrics["start_t"] = float(start_t)
+            key_name = basin_t_key(float(start_t))
+            mode_results[key_name] = metrics
+            if artifact_dir is not None:
+                prefix = f"shape_condition_{noise_mode}_{key_name}"
+                _save_image_grid(
+                    corrupted_shapes[: min(corrupted_shapes.shape[0], 64)],
+                    artifact_dir / f"{prefix}_condition.png",
+                )
+                _save_image_grid(
+                    samples[: min(samples.shape[0], 64)],
+                    artifact_dir / f"{prefix}_samples.png",
+                )
+        results[str(noise_mode)] = mode_results
     return results
 
 
@@ -822,6 +951,7 @@ def save_shape_pixel_artifacts(
     sample_count: int,
     sample_steps: int,
     sample_method: str,
+    sample_readout_mode: str,
     batch_size: int,
     conditional: bool,
     num_classes: int,
@@ -853,6 +983,7 @@ def save_shape_pixel_artifacts(
         key=sample_key,
         sample_steps=sample_steps,
         sample_method=sample_method,
+        sample_readout_mode=sample_readout_mode,
         labels=sample_labels,
         batch_size=batch_size,
         clamp_shape=clamp_shape,
@@ -1055,6 +1186,7 @@ def run_mnist_shape_pixel_experiment(
                 sample_count=config.eval_sample_count,
                 sample_steps=config.sample_steps,
                 sample_method=config.sample_method,
+                sample_readout_mode=config.sample_readout_mode,
                 batch_size=config.run.batch_size,
                 conditional=config.conditional,
                 num_classes=config.num_classes,
@@ -1108,6 +1240,7 @@ def run_mnist_shape_pixel_experiment(
         key=jax.random.fold_in(key, 30_001),
         sample_steps=config.sample_steps,
         sample_method=config.sample_method,
+        sample_readout_mode=config.sample_readout_mode,
         labels=sample_labels,
         batch_size=config.run.batch_size,
         clamp_shape=config.clamp_shape,
@@ -1127,6 +1260,25 @@ def run_mnist_shape_pixel_experiment(
             t_values=config.basin_t_values,
             sample_steps=config.sample_steps,
             sample_method=config.sample_method,
+            sample_readout_mode=config.sample_readout_mode,
+            batch_size=config.run.batch_size,
+            clamp_shape=config.clamp_shape,
+            artifact_dir=paths.artifacts,
+        )
+    shape_condition_probe: Dict[str, Dict[str, Dict[str, float]]] = {}
+    if config.shape_condition_t_values and config.shape_condition_noise_modes:
+        probe_labels = eval_labels[:count] if config.conditional else None
+        shape_condition_probe = compute_shape_condition_probe_metrics(
+            model,
+            eval_pixels[:count],
+            eval_shapes[:count],
+            probe_labels,
+            key=jax.random.fold_in(key, 30_004),
+            t_values=config.shape_condition_t_values,
+            noise_modes=config.shape_condition_noise_modes,
+            sample_steps=config.sample_steps,
+            sample_method=config.sample_method,
+            sample_readout_mode=config.sample_readout_mode,
             batch_size=config.run.batch_size,
             clamp_shape=config.clamp_shape,
             artifact_dir=paths.artifacts,
@@ -1185,8 +1337,14 @@ def run_mnist_shape_pixel_experiment(
             "closure_loss_weight": float(config.closure_loss_weight),
             "sample_steps": int(config.sample_steps),
             "sample_method": config.sample_method,
+            "sample_readout_mode": config.sample_readout_mode,
             "basin_t_values": [float(value) for value in config.basin_t_values],
             "basin": basin_metrics,
+            "shape_condition_t_values": [
+                float(value) for value in config.shape_condition_t_values
+            ],
+            "shape_condition_noise_modes": list(config.shape_condition_noise_modes),
+            "shape_condition_probe": shape_condition_probe,
             "clamp_shape": bool(config.clamp_shape),
             "paired_sample_mse": paired_sample_mse,
             "coarse_grid_size": (
@@ -1268,12 +1426,41 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--sample-steps", type=int, default=16)
     parser.add_argument("--sample-method", choices=["euler", "heun"], default="euler")
     parser.add_argument(
+        "--sample-readout-mode",
+        choices=["primary", "shape_gated"],
+        default="primary",
+        help=(
+            "Readout used for sample metrics/artifacts. 'primary' uses the raw "
+            "pixel channel; 'shape_gated' multiplies it by a smooth gate from "
+            "the clamped signed-distance scaffold."
+        ),
+    )
+    parser.add_argument(
         "--basin-t-values",
         type=parse_basin_t_values,
         default=(),
         help=(
             "Comma-separated chord start times for renderer basin diagnostics, "
             "for example '0.1,0.25,0.5,0.75,0.9'."
+        ),
+    )
+    parser.add_argument(
+        "--shape-condition-t-values",
+        type=parse_basin_t_values,
+        default=(),
+        help=(
+            "Comma-separated scaffold corruption levels for renderer robustness "
+            "diagnostics. A value near 1 is close to the oracle shape; a value "
+            "near 0 is close to the selected noise endpoint."
+        ),
+    )
+    parser.add_argument(
+        "--shape-condition-noise-modes",
+        type=parse_noise_modes,
+        default=(),
+        help=(
+            "Comma-separated noise endpoint modes for scaffold robustness "
+            "diagnostics, for example 'uniform,salt_pepper,zeros'."
         ),
     )
     parser.add_argument("--clamp-shape", dest="clamp_shape", action="store_true")
@@ -1325,7 +1512,10 @@ def main() -> None:
         eval_sample_count=args.eval_sample_count,
         sample_steps=args.sample_steps,
         sample_method=args.sample_method,
+        sample_readout_mode=args.sample_readout_mode,
         basin_t_values=args.basin_t_values,
+        shape_condition_t_values=args.shape_condition_t_values,
+        shape_condition_noise_modes=args.shape_condition_noise_modes,
         clamp_shape=args.clamp_shape,
         data_source=args.data_source,
         train_limit=args.train_limit,
@@ -1341,10 +1531,13 @@ if __name__ == "__main__":
 
 __all__ = [
     "MNISTShapePixelExperimentConfig",
+    "apply_shape_pixel_readout",
     "build_mnist_shape_pixel_model",
+    "compute_shape_condition_probe_metrics",
     "make_shape_pixel_flow_batch",
     "run_mnist_shape_pixel_experiment",
     "compute_shape_pixel_basin_metrics",
+    "corrupt_shape_conditions",
     "sample_shape_pixel_from_chord",
     "sample_shape_pixel_images",
     "shape_pixel_loss",

@@ -322,7 +322,12 @@ and internally convert them to patch sequences.
   `oscnet.experiments.mnist_shape_pixel` reuses the same model family for the
   next two-stage test: channel 0 is a noisy/generated pixel image, channel 1 is
   a clamped signed-distance shape condition, and only the pixel channel is
-  sampled. This isolates shape-field settling from pixel rendering.
+  sampled. This isolates shape-field settling from pixel rendering. Its
+  `shape_condition_t_values` and `shape_condition_noise_modes` diagnostics
+  corrupt the scaffold at evaluation time to test whether the renderer can
+  tolerate imperfect shape fields from an upstream oscillator stage. Set
+  `sample_readout_mode="shape_gated"` to use the clamped scaffold as an
+  explicit soft amplitude gate on sampled pixels.
 
 `RecurrentConvFlowField`
 : A matched non-oscillatory recurrent-flow control for `PhaseRateFlowField`.

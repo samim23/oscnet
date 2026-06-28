@@ -3949,6 +3949,159 @@ Interpretation:
   shape-to-pixel decoder, or a task where the evaluated output is the field
   itself rather than raw MNIST pixels.
 
+Follow-up scaffold robustness diagnostic:
+
+`mnist_shape_pixel` now has a lightweight probe for the actual two-stage bridge:
+corrupt the signed-distance condition with the same endpoint families used in
+the phase-flow basin tests, then ask the renderer to produce pixels from that
+imperfect scaffold. This does not claim the full cascade works; it answers the
+more basic question of whether the renderer requires oracle-clean shape fields
+or can tolerate plausible upstream oscillator errors.
+
+Local smoke:
+
+```bash
+python examples/image_mnist_shape_pixel.py \
+  --data-source synthetic \
+  --epochs 1 \
+  --field-channels 2 \
+  --steps 1 \
+  --eval-sample-count 4 \
+  --shape-condition-t-values 0.5 \
+  --shape-condition-noise-modes uniform
+```
+
+Modal scaffold robustness probe:
+
+Command:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_shape_pixel.py \
+  --sweep-preset mnist_shape_pixel_shape_condition_probe
+```
+
+Artifacts:
+
+```text
+outputs/analysis/modal_mnist_shape_pixel_shape_condition_probe.csv
+outputs/analysis/modal_mnist_shape_pixel_shape_condition_probe.json
+outputs/analysis/modal_mnist_shape_pixel_samples/
+```
+
+Mean oracle-scaffold sample metrics over seeds 31 and 32:
+
+| model | best loss | paired sample MSE | nearest-real MSE | active fraction | sample mean |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| local phase-flow | 0.049861 | 0.457849 | 0.372580 | 0.537070 | 0.517656 |
+| coarse phase-flow | 0.050207 | 0.510285 | 0.431072 | 0.924924 | 0.727241 |
+| recurrent-conv control | 0.060525 | 0.481999 | 0.369748 | 0.500010 | 0.499989 |
+| no-dynamics control | 0.194291 | 0.714797 | 0.582373 | 1.000000 | 0.910908 |
+
+Per-seed oracle-scaffold read:
+
+| run | paired sample MSE | active fraction | sample mean | qualitative read |
+| --- | ---: | ---: | ---: | --- |
+| local phase-flow seed 32 | 0.048343 | 0.074139 | 0.035313 | recognizable digit strokes |
+| local phase-flow seed 31 | 0.867355 | 1.000000 | 0.999999 | all-white collapse |
+| coarse phase-flow seed 32 | 0.158100 | 0.849849 | 0.457105 | recognizable digits with noisy foreground/background |
+| coarse phase-flow seed 31 | 0.862470 | 1.000000 | 0.997376 | all-white collapse |
+| recurrent-conv seed 32 | 0.096739 | 0.000020 | 0.000030 | near-blank collapse |
+| recurrent-conv seed 31 | 0.867260 | 1.000000 | 0.999949 | all-white collapse |
+
+Shape-condition robustness, paired sample MSE averaged over two seeds:
+
+| model | uniform t=0.1 | uniform t=0.5 | uniform t=0.9 | salt-pepper t=0.1 | salt-pepper t=0.5 | salt-pepper t=0.9 | zeros t=0.1 | zeros t=0.5 | zeros t=0.9 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| local phase-flow | 0.481418 | 0.471694 | 0.460691 | 0.493868 | 0.472222 | 0.460411 | 0.482075 | 0.482075 | 0.469355 |
+| coarse phase-flow | 0.744402 | 0.592659 | 0.517907 | 0.732722 | 0.637407 | 0.520584 | 0.503082 | 0.492621 | 0.503019 |
+| recurrent-conv control | 0.482070 | 0.482074 | 0.482060 | 0.481965 | 0.482047 | 0.482050 | 0.482039 | 0.482043 | 0.482038 |
+| no-dynamics control | 0.827489 | 0.812990 | 0.745323 | 0.750797 | 0.772847 | 0.744031 | 0.635631 | 0.677747 | 0.708383 |
+
+Interpretation:
+
+- This does not yet validate the full two-stage generator. The renderer remains
+  seed-unstable and can collapse to all-white or all-blank endpoints.
+- It does show a real capability hiding inside the noise: local phase-flow seed
+  32 renders recognizable digits from oracle signed-distance scaffolds, and it
+  remains usable under moderate uniform/salt-pepper scaffold corruption
+  (`t=0.5` paired sample MSE around `0.076` and `0.077` for that seed).
+- The recurrent-conv control is not a clean counterexample. It produced one
+  all-white seed and one near-blank seed, with scaffold corruption barely
+  changing the output. Good nearest-real or paired-MSE numbers can therefore be
+  degenerate sparse-MNIST artifacts.
+- Coarse phase-flow seed 32 preserves digit silhouettes even with noisy
+  scaffolds, but over-activates foreground/background. The slow/global carrier
+  may help shape carry-through, but it needs a foreground/bounds stabilizer.
+- Next intervention should target endpoint stability and foreground mass, not a
+  new oscillator variant. The minimal useful test is a shape-to-pixel objective
+  that penalizes all-white/all-blank sample endpoints or trains explicit
+  endpoint reconstructions, then reruns this exact scaffold robustness probe.
+
+Implemented next stabilizer hook:
+
+`mnist_shape_pixel` now supports `--sample-readout-mode shape_gated`, mirroring
+the earlier phase-flow readout. The sampled pixel channel is multiplied by a
+smooth gate derived from the clamped signed-distance scaffold. This is not the
+default and should be compared against the raw `primary` readout above. The
+question is whether explicit shape-field amplitude gating prevents all-white /
+all-blank endpoint collapse while preserving the recognizable local phase-flow
+seed.
+
+Modal command:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_shape_pixel.py \
+  --sweep-preset mnist_shape_pixel_shape_gated_probe
+```
+
+Modal shape-gated result:
+
+Artifacts:
+
+```text
+outputs/analysis/modal_mnist_shape_pixel_shape_gated_probe.csv
+outputs/analysis/modal_mnist_shape_pixel_shape_gated_probe.json
+outputs/analysis/modal_mnist_shape_pixel_samples/
+```
+
+Mean oracle-scaffold sample metrics, raw readout -> shape-gated readout:
+
+| model | paired sample MSE | active fraction | nearest-real MSE |
+| --- | ---: | ---: | ---: |
+| coarse phase-flow | 0.510285 -> 0.037721 | 0.924924 -> 0.323182 | 0.431072 -> 0.037416 |
+| local phase-flow | 0.457849 -> 0.049733 | 0.537070 -> 0.235252 | 0.372580 -> 0.041416 |
+| recurrent-conv control | 0.481999 -> 0.074019 | 0.500010 -> 0.197515 | 0.369748 -> 0.038814 |
+| no-dynamics control | 0.714797 -> 0.049097 | 1.000000 -> 0.381587 | 0.582373 -> 0.048642 |
+
+Shape-gated scaffold robustness, paired sample MSE averaged over two seeds:
+
+| model | uniform t=0.1 | uniform t=0.5 | uniform t=0.9 | salt-pepper t=0.1 | salt-pepper t=0.5 | salt-pepper t=0.9 | zeros t=0.1 | zeros t=0.5 | zeros t=0.9 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| coarse phase-flow | 0.415980 | 0.176134 | 0.045831 | 0.455321 | 0.278302 | 0.048573 | 0.084770 | 0.036957 | 0.028659 |
+| local phase-flow | 0.266974 | 0.150961 | 0.058511 | 0.291006 | 0.196382 | 0.059811 | 0.088203 | 0.062958 | 0.055646 |
+| recurrent-conv control | 0.267615 | 0.161562 | 0.079967 | 0.278383 | 0.206399 | 0.081500 | 0.088203 | 0.062960 | 0.068452 |
+| no-dynamics control | 0.435629 | 0.222277 | 0.060346 | 0.462266 | 0.317247 | 0.063600 | 0.081088 | 0.028114 | 0.037972 |
+
+Interpretation:
+
+- Shape gating is an effective stabilizer for the two-stage renderer. It
+  suppresses all-white collapse and turns the soft signed-distance scaffold into
+  recognizable MNIST-like pixels.
+- It is not an oscillator-specific win. It improves every model, including the
+  no-dynamics control, because the oracle signed-distance scaffold already
+  contains most of the digit geometry.
+- This changes the scientific pressure point. The decisive question is no longer
+  "can an ONN renderer convert an oracle scaffold into pixels?" That is mostly
+  solved by the scaffold gate. The decisive question is whether the oscillator
+  system can generate or settle a high-quality scaffold without oracle labels,
+  and whether it does so more robustly/efficiently than recurrent or feedforward
+  controls.
+- The next clean experiment should therefore be a true cascade or substitute
+  cascade: feed sampled/settled signed-distance fields into the shape-gated
+  readout, and score the final pixels plus the intermediate scaffold. If the
+  scaffold is oracle, the renderer score is no longer meaningful evidence for
+  oscillatory dynamics.
+
 ## Maintenance Notes
 
 - Put numerical benchmark summaries in this file and/or `outputs/analysis`.

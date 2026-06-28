@@ -149,6 +149,31 @@ python examples/image_mnist_shape_pixel.py \
   --eval-sample-count 4
 ```
 
+Shape-to-pixel scaffold robustness probe:
+
+```bash
+python examples/image_mnist_shape_pixel.py \
+  --data-source synthetic \
+  --epochs 1 \
+  --field-channels 2 \
+  --steps 1 \
+  --eval-sample-count 4 \
+  --shape-condition-t-values 0.5 \
+  --shape-condition-noise-modes uniform
+```
+
+Shape-gated renderer readout:
+
+```bash
+python examples/image_mnist_shape_pixel.py \
+  --data-source synthetic \
+  --epochs 1 \
+  --field-channels 2 \
+  --steps 1 \
+  --eval-sample-count 4 \
+  --sample-readout-mode shape_gated
+```
+
 Small phase VAE run:
 
 ```bash

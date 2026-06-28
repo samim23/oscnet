@@ -75,6 +75,11 @@ Use **MNIST shape-to-pixel** if you want the next two-stage experiment after
 the basin probe: the signed-distance field is treated as a fixed scaffold, and
 the model learns a pixel rectified-flow conditioned on that scaffold. This is
 the clean test of "oscillators settle shape; a second field renders pixels."
+Set `--shape-condition-t-values 0.1,0.5,0.9` and
+`--shape-condition-noise-modes uniform,salt_pepper,zeros` to test whether the
+renderer tolerates imperfect shape scaffolds instead of only oracle
+signed-distance maps. Set `--sample-readout-mode shape_gated` to make the
+signed-distance scaffold explicitly gate the sampled pixel amplitude.
 
 Use **MNIST masked representation** if you care about masked image recovery,
 block occlusion, or representation-prediction controls. This branch is useful
