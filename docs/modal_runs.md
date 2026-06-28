@@ -790,6 +790,23 @@ outputs/analysis/modal_mnist_phase_flow_signed_distance_probe.csv
 outputs/analysis/modal_mnist_phase_flow_samples/
 ```
 
+Run the signed-distance flow-field target probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_phase_flow.py \
+  --sweep-preset mnist_phase_flow_signed_distance_flow_probe
+```
+
+This adds `--target-representation signed_distance_flow`, a three-channel
+potential-field target: signed distance plus normalized x/y gradient direction.
+It compares the coarse/global phase-flow model against the matched
+recurrent-conv flow control. It writes:
+
+```text
+outputs/analysis/modal_mnist_phase_flow_signed_distance_flow_probe.csv
+outputs/analysis/modal_mnist_phase_flow_samples/
+```
+
 Run the two-channel pixel/shape target probe:
 
 ```bash
@@ -934,6 +951,22 @@ move the state closer to its scaffold target. It writes:
 
 ```text
 outputs/analysis/modal_mnist_phase_flow_basin_probe.csv
+outputs/analysis/modal_mnist_phase_flow_samples/
+```
+
+Run the signed-distance flow-field basin probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_phase_flow.py \
+  --sweep-preset mnist_phase_flow_signed_distance_flow_basin_probe
+```
+
+This runs the same basin diagnostic on `signed_distance_flow`, so we can test
+whether adding explicit local flow direction widens or narrows the stable
+shape-field basin versus plain signed distance. It writes:
+
+```text
+outputs/analysis/modal_mnist_phase_flow_signed_distance_flow_basin_probe.csv
 outputs/analysis/modal_mnist_phase_flow_samples/
 ```
 

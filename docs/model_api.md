@@ -291,6 +291,10 @@ and internally convert them to patch sequences.
   coherent digits. Set `target_representation="sobel_edges"` or
   `"signed_distance"` to train the same visible oscillator field on contour or
   smooth shape-field targets rather than raw pixels. Set
+  `target_representation="signed_distance_flow"` to train a three-channel
+  potential field: signed distance plus normalized x/y gradient direction.
+  This tests a more explicitly flow-like target while keeping signed distance
+  as the primary decoded metric channel. Set
   `target_representation="pixels_signed_distance"` to train a two-channel
   visible field: pixel occupancy in channel 0 and a smooth signed-distance
   shape target in channel 1. The underlying phase-flow models expose

@@ -3639,6 +3639,51 @@ Interpretation:
   on that field. More sampler tweaks on raw pixel phase-flow are unlikely to
   solve the binding problem by themselves.
 
+Signed-distance flow-field probe:
+
+The next field-native test added `target_representation="signed_distance_flow"`:
+channel 0 is the signed-distance scaffold, while channels 1 and 2 encode the
+local x/y gradient direction of that scaffold as bounded values in `[0, 1]`.
+The hypothesis was that adding explicit local flow direction might improve
+basin stability or give the oscillator a more physics-like potential field.
+
+Run:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_phase_flow.py \
+  --sweep-preset mnist_phase_flow_signed_distance_flow_basin_probe
+```
+
+Artifacts:
+
+```text
+outputs/analysis/modal_mnist_phase_flow_signed_distance_flow_basin_probe.csv
+outputs/analysis/modal_mnist_phase_flow_samples/
+```
+
+Mean paired MSE over two seeds:
+
+| target/model | best loss | clean loss | t=0.10 start -> final | t=0.50 start -> final | t=0.90 start -> final |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| signed-distance-flow, coarse phase-flow | 0.183851 | 0.030162 | 0.210990 -> 0.373102 | 0.120291 -> 0.381657 | 0.008175 -> 0.354626 |
+| signed-distance-flow, recurrent-conv | 0.217670 | 0.044081 | 0.210990 -> 0.390581 | 0.120291 -> 0.394689 | 0.008175 -> 0.394963 |
+
+Interpretation:
+
+- This is a useful negative result. Adding explicit gradient-direction
+  channels made the basin far worse than plain scalar signed distance.
+- Coarse phase-flow still fits the supervised objective better than the
+  recurrent-conv control, but both models damage the signed-distance-flow state
+  at every basin start time on average.
+- The result is seed-unstable. Seed 32 improved from noisy starts, but seed 31
+  collapsed toward a high-foreground field. The mean basin result is therefore
+  decisively worse than plain signed distance, which improved all start times
+  for both seeds.
+- Current read: the oscillator-native object is not "more channels that look
+  physical." The stable object is a scalar potential/energy-like field. If we
+  add richer structure, it likely needs to be hierarchical or constrained by an
+  energy functional, not just auxiliary direction channels.
+
 Two-stage shape-to-pixel renderer:
 
 The next branch is `oscnet.experiments.mnist_shape_pixel` /

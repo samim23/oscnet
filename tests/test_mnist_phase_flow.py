@@ -16,6 +16,7 @@ from oscnet.experiments.mnist_phase_flow import (
     run_mnist_phase_flow_experiment,
     sample_phase_flow_from_chord,
     sample_phase_flow_images,
+    signed_distance_flow_targets,
     signed_distance_targets,
     sobel_edge_targets,
 )
@@ -235,6 +236,38 @@ def test_signed_distance_targets_are_smooth_shape_fields():
     assert target_grid[0, 14, 14] > target_grid[0, 8, 14]
     assert target_grid[0, 8, 14] > target_grid[0, 0, 0]
     assert jnp.allclose(targets, prepared)
+
+
+def test_signed_distance_flow_targets_add_spatial_direction_channels():
+    image_grid = jnp.zeros((1, 28, 28))
+    image_grid = image_grid.at[:, 9:19, 9:19].set(1.0)
+    images = image_grid.reshape(1, 28 * 28)
+
+    targets = signed_distance_flow_targets(images)
+    prepared = prepare_phase_flow_targets(images, "signed_distance_flow")
+    target_grid = targets.reshape(1, 28, 28, 3)
+    decoded_shape = decode_phase_flow_primary_channel(
+        targets,
+        value_channels=3,
+        target_representation="signed_distance_flow",
+    )
+    shape_gate_source = decode_phase_flow_sample_readout(
+        targets,
+        value_channels=3,
+        target_representation="signed_distance_flow",
+        sample_readout_mode="shape_gated",
+    )
+
+    assert phase_flow_target_channels("signed_distance_flow") == 3
+    assert targets.shape == (1, 28 * 28 * 3)
+    assert prepared.shape == targets.shape
+    assert jnp.allclose(targets, prepared)
+    assert jnp.allclose(target_grid[..., 0].reshape(1, 28 * 28), decoded_shape)
+    assert jnp.min(targets) >= 0.0
+    assert jnp.max(targets) <= 1.0
+    assert jnp.mean(jnp.abs(target_grid[..., 1] - 0.5)) > 0.01
+    assert jnp.mean(jnp.abs(target_grid[..., 2] - 0.5)) > 0.01
+    assert jnp.mean(shape_gate_source) > 0.0
 
 
 def test_pixels_signed_distance_targets_keep_pixel_channel_primary():

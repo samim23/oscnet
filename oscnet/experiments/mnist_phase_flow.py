@@ -191,8 +191,8 @@ def _checkpoint_hyperparams(config: MNISTPhaseFlowExperimentConfig) -> Dict[str,
     }
 
 
-def sobel_edge_targets(images: Array, *, eps: float = 1e-6) -> Array:
-    """Convert flat MNIST images to normalized Sobel edge-magnitude maps."""
+def _sobel_gradients(images: Array, *, eps: float = 1e-6) -> Tuple[Array, Array, Array]:
+    """Return Sobel x/y gradients and magnitude for flat 28x28 images."""
 
     images = jnp.asarray(images)
     batch_size = images.shape[0]
@@ -228,6 +228,15 @@ def sobel_edge_targets(images: Array, *, eps: float = 1e-6) -> Array:
         dimension_numbers=("NHWC", "HWIO", "NHWC"),
     )
     magnitude = jnp.sqrt(grad_x**2 + grad_y**2 + float(eps))
+    return grad_x, grad_y, magnitude
+
+
+def sobel_edge_targets(images: Array, *, eps: float = 1e-6) -> Array:
+    """Convert flat MNIST images to normalized Sobel edge-magnitude maps."""
+
+    images = jnp.asarray(images)
+    batch_size = images.shape[0]
+    _grad_x, _grad_y, magnitude = _sobel_gradients(images, eps=eps)
     scale = jnp.max(magnitude, axis=(1, 2, 3), keepdims=True)
     magnitude = magnitude / (scale + float(eps))
     return jnp.clip(magnitude.reshape(batch_size, 28 * 28), 0.0, 1.0)
@@ -306,6 +315,27 @@ def signed_distance_targets(
     return jnp.clip(target.reshape(batch_size, 28 * 28), 0.0, 1.0)
 
 
+def signed_distance_flow_targets(images: Array, *, eps: float = 1e-6) -> Array:
+    """Return a signed-distance potential plus normalized gradient direction.
+
+    Channel 0 is the smooth signed-distance scaffold in ``[0, 1]``. Channels
+    1 and 2 encode the local x/y direction of that potential field as
+    ``0.5 + 0.5 * direction``. This keeps the target bounded while giving the
+    oscillator field explicit spatial-flow information.
+    """
+
+    signed_distance = signed_distance_targets(images)
+    batch_size = signed_distance.shape[0]
+    grad_x, grad_y, magnitude = _sobel_gradients(signed_distance, eps=eps)
+    direction_x = grad_x / (magnitude + float(eps))
+    direction_y = grad_y / (magnitude + float(eps))
+    return _stack_phase_flow_channels(
+        signed_distance,
+        jnp.clip(0.5 + 0.5 * direction_x.reshape(batch_size, 28 * 28), 0.0, 1.0),
+        jnp.clip(0.5 + 0.5 * direction_y.reshape(batch_size, 28 * 28), 0.0, 1.0),
+    )
+
+
 def phase_flow_target_channels(representation: str) -> int:
     """Return how many visible value channels a target representation uses."""
 
@@ -313,10 +343,12 @@ def phase_flow_target_channels(representation: str) -> int:
         return 1
     if representation in {"pixels_signed_distance", "centered_pixels_signed_distance"}:
         return 2
+    if representation == "signed_distance_flow":
+        return 3
     raise ValueError(
         "target_representation must be 'pixels', 'sobel_edges', "
         "'signed_distance', 'pixels_signed_distance', "
-        "or 'centered_pixels_signed_distance'"
+        "'centered_pixels_signed_distance', or 'signed_distance_flow'"
     )
 
 
@@ -335,6 +367,8 @@ def prepare_phase_flow_targets(images: Array, representation: str) -> Array:
         return sobel_edge_targets(images)
     if representation == "signed_distance":
         return signed_distance_targets(images)
+    if representation == "signed_distance_flow":
+        return signed_distance_flow_targets(images)
     if representation == "pixels_signed_distance":
         return _stack_phase_flow_channels(images, signed_distance_targets(images))
     if representation == "centered_pixels_signed_distance":
@@ -381,6 +415,12 @@ def decode_phase_flow_shape_channel(
 ) -> Array:
     """Extract a decoded shape/potential channel when present."""
 
+    if target_representation == "signed_distance_flow":
+        return decode_phase_flow_primary_channel(
+            images,
+            value_channels=value_channels,
+            target_representation=target_representation,
+        )
     if value_channels < 2:
         return jnp.ones_like(primary_phase_flow_channel(images, value_channels))
     batch_size = images.shape[0]
@@ -1694,6 +1734,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
             "pixels",
             "sobel_edges",
             "signed_distance",
+            "signed_distance_flow",
             "pixels_signed_distance",
             "centered_pixels_signed_distance",
         ],
