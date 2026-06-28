@@ -84,9 +84,9 @@ extension points.
 
 ## Examples and Experiments
 
-Runnable scripts live in `examples/`. The experiment guide lives in
-`oscnet/experiments/README.md`; start there if you want to train models,
-compare runs, or understand the MNIST/audio research tasks.
+Runnable scripts live in `examples/`; see `examples/README.md` for the command
+menu. The experiment guide lives in `oscnet/experiments/README.md`; read it if
+you want to compare runs or understand the MNIST/audio research tasks.
 
 Tiny smoke run:
 

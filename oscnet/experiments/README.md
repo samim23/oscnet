@@ -7,7 +7,8 @@ If `oscnet.models` is the library of reusable oscillator architectures, then
 audio wavelets, masked prediction, and generative sampling.
 
 Most users should run experiments through `examples/`, because those files are
-thin command-line entrypoints around this package.
+thin command-line entrypoints around this package. See `examples/README.md` for
+the runnable command menu.
 
 ## Quick Start
 
