@@ -1,11 +1,12 @@
 # OscNet Examples
 
-This folder contains runnable entrypoints.
+This folder contains runnable entrypoints. If you want to try OscNet from the
+command line, start here.
 
 The examples are intentionally thin: they parse command-line arguments and call
-the experiment harnesses in `oscnet.experiments`. If you want to understand the
-training loop, config objects, metrics, or artifact layout, read
-`oscnet/experiments/README.md` next.
+the experiment harnesses in `oscnet.experiments`. That split is deliberate:
+`examples/` is for users running scripts, while `oscnet.experiments` is
+importable package code.
 
 ## Start Here
 
@@ -73,6 +74,6 @@ python examples/image_mnist_phase_vae.py \
 
 ## Where To Go Next
 
-- `oscnet/experiments/README.md` explains the experiment families.
+- `oscnet/experiments/README.md` explains the harnesses behind these scripts.
 - `docs/model_api.md` explains reusable model classes.
 - `docs/experiment_report.md` records research results and interpretation.

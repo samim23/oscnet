@@ -1,48 +1,32 @@
-# OscNet Experiments
+# Experiment Harnesses
 
-This folder contains training and evaluation harnesses for OscNet models.
+This package contains importable training and evaluation harnesses for OscNet
+models.
 
 If `oscnet.models` is the library of reusable oscillator architectures, then
 `oscnet.experiments` is where those models are put on concrete tasks: MNIST,
 audio wavelets, masked prediction, and generative sampling.
 
-Most users should run experiments through `examples/`, because those files are
-thin command-line entrypoints around this package. See `examples/README.md` for
-the runnable command menu.
+Most users should run the top-level scripts in `examples/`. Those scripts are
+thin command-line entrypoints around this package. Use this README when you want
+to understand what each harness does, import a harness from Python, or compare
+finished runs.
 
-## Quick Start
+## Folder Roles
 
-Run a tiny CPU smoke test:
-
-```bash
-python examples/image_mnist_oscillatory_autoencoder.py \
-  --data-source synthetic \
-  --epochs 1
+```text
+examples/              runnable command-line entrypoints
+oscnet/experiments/    importable experiment harnesses and result utilities
+oscnet/models/         reusable model classes and oscillator layers
+docs/                  model docs, Modal notes, and research reports
+outputs/               generated local run artifacts
 ```
 
-Try the current MNIST oscillator field generator on synthetic data:
+For runnable commands, start with `examples/README.md`.
 
-```bash
-python examples/image_mnist_phase_flow.py \
-  --data-source synthetic \
-  --epochs 1 \
-  --field-channels 2 \
-  --steps 1 \
-  --eval-sample-count 4
-```
+## Harness Menu
 
-Use `--help` on any example to see its full options:
-
-```bash
-python examples/image_mnist_phase_flow.py --help
-```
-
-By default, runs write checkpoints, metrics, plots, traces, and sample images
-under `outputs/`.
-
-## Experiment Menu
-
-| Experiment | One-line idea | Start here |
+| Harness | One-line idea | Usual entrypoint |
 | --- | --- | --- |
 | MNIST autoencoder | Reconstruct MNIST patches with reusable OscNet autoencoders and matched baselines. | `python examples/image_mnist_oscillatory_autoencoder.py --help` |
 | Audio wavelet autoencoder | Encode and reconstruct audio wavelet feature sequences with oscillatory dynamics. | `python examples/audio_wavelet_oscillatory_autoencoder.py --help` |
@@ -51,7 +35,7 @@ under `outputs/`.
 | MNIST phase VAE | A conventional paired VAE where the latent code passes through oscillator phase dynamics. | `python examples/image_mnist_phase_vae.py --help` |
 | MNIST phase-flow sampler | Treat the noisy image itself as a phase-rate oscillator field trained with rectified flow. | `python examples/image_mnist_phase_flow.py --help` |
 
-## Which One Should I Run?
+## Choosing a Harness
 
 Use **MNIST autoencoder** if you want the most stable reference benchmark.
 
@@ -71,43 +55,15 @@ tasks.
 Use **Kuramoto MNIST generator** if you want the more speculative coupled
 oscillator generator branch.
 
-## Common Run Patterns
+## Python Usage
 
-Reference MNIST run:
+The example scripts are convenient, but the harnesses can also be imported:
 
-```bash
-python examples/image_mnist_oscillatory_autoencoder.py \
-  --data-source idx \
-  --patch-size 7 \
-  --decoder-mode positional \
-  --epochs 10
-```
-
-Phase VAE smoke run:
-
-```bash
-python examples/image_mnist_phase_vae.py \
-  --data-source synthetic \
-  --epochs 1 \
-  --train-limit 8 \
-  --eval-limit 4
-```
-
-Phase-flow real MNIST probe:
-
-```bash
-python examples/image_mnist_phase_flow.py \
-  --data-source idx \
-  --model-family coarse_phase_flow \
-  --epochs 10 \
-  --train-limit 10000 \
-  --eval-limit 1000
-```
-
-Masked-representation help:
-
-```bash
-python examples/image_mnist_jepa.py --help
+```python
+from oscnet.experiments import (
+    MNISTPhaseFlowExperimentConfig,
+    run_mnist_phase_flow_experiment,
+)
 ```
 
 ## Comparing Results

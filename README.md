@@ -85,8 +85,9 @@ extension points.
 ## Examples and Experiments
 
 Runnable scripts live in `examples/`; see `examples/README.md` for the command
-menu. The experiment guide lives in `oscnet/experiments/README.md`; read it if
-you want to compare runs or understand the MNIST/audio research tasks.
+menu. Importable training/evaluation harnesses live in `oscnet.experiments`;
+see `oscnet/experiments/README.md` if you want to compare runs or understand
+the MNIST/audio research tasks.
 
 Tiny smoke run:
 
@@ -105,7 +106,7 @@ python examples/image_mnist_phase_flow.py --help
 Useful pointers:
 
 - `examples/` for command-line entrypoints
-- `oscnet/experiments/README.md` for the experiment menu
+- `oscnet/experiments/README.md` for experiment harnesses
 - `docs/model_api.md` for reusable model families and tensor conventions
 - `docs/experiment_report.md` for research notes and benchmark outcomes
 
