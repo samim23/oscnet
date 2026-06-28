@@ -101,6 +101,10 @@ SWEEP_CSVS = {
         "outputs/analysis/"
         "modal_mnist_generator_horn_state_mlp_low_data_probe.csv"
     ),
+    "mnist_generator_horn_state_mlp_settling_probe": Path(
+        "outputs/analysis/"
+        "modal_mnist_generator_horn_state_mlp_settling_probe.csv"
+    ),
 }
 
 REMOTE_PACKAGES = [
@@ -1573,6 +1577,76 @@ def _mnist_generator_horn_state_mlp_low_data_probe_sweep() -> list[
     return entries
 
 
+def _mnist_generator_horn_state_mlp_settling_probe_sweep() -> list[
+    tuple[list[str], str]
+]:
+    entries = []
+    variants = [
+        ("horn", ["--model-family horn"]),
+        ("state_mlp", ["--model-family state_mlp"]),
+    ]
+    common = [
+        "--conditional",
+        "--label-phase-scale 0.0",
+        "--conditioning-mode phase_shift",
+        "--readout-mode mean_relative",
+        "--decoder-mode resize_conv",
+        "--resize-conv-seed-size 7",
+        "--resize-conv-upsamples 2",
+        "--resize-conv-min-channels 8",
+        "--loss-mode pixel_drift",
+        "--pixel-drift-weight 1.0",
+        "--feature-drift-weight 0.0",
+        "--distributional-weight 0.0",
+        "--drift-gamma 0.2",
+        "--drift-temperatures 0.02,0.05,0.2",
+        "--drift-queue-size 512",
+        "--drift-queue-num-pos 32",
+        "--class-moment-weight 0.0",
+        "--prototype-weight 0.0",
+        "--epochs 20",
+        "--train-limit 500",
+        "--eval-limit 1000",
+        "--eval-sample-count 512",
+        "--batch-size 128",
+        "--num-oscillators 196",
+        "--decoder-hidden-dim 256",
+        "--decoder-depth 0",
+        "--steps 16",
+        "--settling-steps 0,1,2,4,8,16,32",
+        "--dt 0.1",
+        "--coupling-strength 1.0",
+        "--omega-scale 0.1",
+        "--coupling-init-scale 0.05",
+        "--horn-frequency 1.0",
+        "--horn-damping 0.15",
+        "--horn-nonlinearity 0.05",
+        "--horn-state-bound 3.0",
+        "--state-mlp-hidden-dim 48",
+        "--state-mlp-depth 1",
+        "--state-mlp-residual-scale 0.1",
+        "--num-projections 256",
+        "--moment-weight 0.1",
+        "--pixel-marginal-weight 1.0",
+        "--quality-classifier-epochs 5",
+        "--quality-classifier-dim 128",
+        "--quality-classifier-depth 2",
+        "--output-bias-init -2.0",
+        "--artifact-every 20",
+        "--checkpoint-every 20",
+    ]
+    for model_suffix, model_args in variants:
+        run_name = (
+            "mnist_generator_horn_state_mlp_settling_"
+            f"{model_suffix}_n196_resizeconv_steps16_train500_seed11_20e"
+        )
+        args = shlex.split(" ".join(["--seed 11", *common, *model_args]))
+        output_dir = VOLUME_MOUNT / "mnist_generator" / run_name
+        args = _with_default_arg(args, "--output-dir", output_dir)
+        entries.append((args, run_name))
+    return entries
+
+
 def _sweep_entries(preset: str) -> list[tuple[list[str], str]]:
     if preset == "mnist_generator_core":
         return _mnist_generator_core_sweep()
@@ -1616,6 +1690,8 @@ def _sweep_entries(preset: str) -> list[tuple[list[str], str]]:
         return _mnist_generator_state_mlp_label0_control_probe_sweep()
     if preset == "mnist_generator_horn_state_mlp_low_data_probe":
         return _mnist_generator_horn_state_mlp_low_data_probe_sweep()
+    if preset == "mnist_generator_horn_state_mlp_settling_probe":
+        return _mnist_generator_horn_state_mlp_settling_probe_sweep()
     raise ValueError("unknown sweep preset")
 
 
@@ -1701,6 +1777,28 @@ def _write_sweep_csv(results: list[dict[str, Any]], path: Path) -> None:
         "generator.success_diagnostics.phase_order_delta",
         "generator.success_diagnostics.state_final_energy",
         "generator.success_diagnostics.state_mean_abs_velocity_displacement",
+        "generator.settling.classifier_label_accuracy_best_step",
+        "generator.settling.classifier_label_accuracy_best",
+        "generator.settling.classifier_label_accuracy_last_minus_first",
+        "generator.settling.classifier_label_confidence_best_step",
+        "generator.settling.classifier_label_confidence_best",
+        "generator.settling.classifier_label_confidence_last_minus_first",
+        "generator.settling.diversity_ratio_best_step",
+        "generator.settling.diversity_ratio_best",
+        "generator.settling.diversity_ratio_last_minus_first",
+        "generator.settling.nearest_real_mse_best_step",
+        "generator.settling.nearest_real_mse_best",
+        "generator.settling.nearest_real_mse_last_minus_first",
+        "generator.settling.by_step.step_000.classifier_label_accuracy",
+        "generator.settling.by_step.step_001.classifier_label_accuracy",
+        "generator.settling.by_step.step_002.classifier_label_accuracy",
+        "generator.settling.by_step.step_004.classifier_label_accuracy",
+        "generator.settling.by_step.step_008.classifier_label_accuracy",
+        "generator.settling.by_step.step_016.classifier_label_accuracy",
+        "generator.settling.by_step.step_032.classifier_label_accuracy",
+        "generator.settling.by_step.step_000.diversity_ratio",
+        "generator.settling.by_step.step_016.diversity_ratio",
+        "generator.settling.by_step.step_032.diversity_ratio",
         "generator.generated_mean",
         "generator.generated_std",
         "final_train_pixel_drift_loss",

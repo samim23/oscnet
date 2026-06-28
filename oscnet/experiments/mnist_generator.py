@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import logging
 import time
@@ -170,6 +171,7 @@ class MNISTGeneratorExperimentConfig:
     drift_gamma: float = 0.2
     drift_temperatures: Tuple[float, ...] = (0.02, 0.05, 0.2)
     eval_sample_count: int = 128
+    settling_steps: Tuple[int, ...] = ()
     data_source: str = "idx"
     train_limit: Optional[int] = 10_000
     eval_limit: Optional[int] = 1_000
@@ -1417,6 +1419,90 @@ def compute_generator_quality_metrics(
     return metrics
 
 
+def _model_with_steps(model: eqx.Module, steps: int) -> eqx.Module:
+    """Return a view of ``model`` with a different static settling depth."""
+
+    stepped_model = copy.copy(model)
+    object.__setattr__(stepped_model, "steps", int(steps))
+    return stepped_model
+
+
+def compute_generator_settling_metrics(
+    model: eqx.Module,
+    *,
+    key: jax.random.PRNGKey,
+    real_images: Array,
+    sample_count: int,
+    batch_size: int,
+    settling_steps: Sequence[int],
+    labels: Optional[Array] = None,
+    prototypes: Optional[Array] = None,
+    classifier: Optional[MNISTFeatureClassifier] = None,
+) -> Dict[str, Any]:
+    """Score one trained generator at multiple test-time settling depths."""
+
+    steps = tuple(dict.fromkeys(int(step) for step in settling_steps))
+    if not steps:
+        return {}
+    if any(step < 0 for step in steps):
+        raise ValueError("settling_steps must be non-negative")
+
+    count = min(int(sample_count), int(real_images.shape[0]))
+    label_slice = None if labels is None else labels[:count]
+    by_step: Dict[str, Dict[str, float]] = {}
+    for step in steps:
+        step_model = _model_with_steps(model, step)
+        generated = sample_generator_images(
+            step_model,
+            key=key,
+            sample_count=count,
+            batch_size=batch_size,
+            labels=label_slice,
+        )
+        by_step[f"step_{step:03d}"] = compute_generator_quality_metrics(
+            real_images[:count],
+            generated,
+            labels=label_slice,
+            prototypes=prototypes,
+            classifier=classifier,
+        )
+
+    first_key = f"step_{steps[0]:03d}"
+    last_key = f"step_{steps[-1]:03d}"
+    metrics: Dict[str, Any] = {
+        "steps": [int(step) for step in steps],
+        "by_step": by_step,
+    }
+    for metric_name in (
+        "classifier_label_accuracy",
+        "classifier_label_confidence",
+        "prototype_nearest_accuracy",
+        "diversity_ratio",
+        "nearest_real_mse",
+        "pixel_mean_mse",
+        "pixel_std_mse",
+    ):
+        values = [
+            (step, by_step[f"step_{step:03d}"].get(metric_name))
+            for step in steps
+            if metric_name in by_step[f"step_{step:03d}"]
+        ]
+        if not values:
+            continue
+        best_step, best_value = max(values, key=lambda item: float(item[1]))
+        if metric_name in ("nearest_real_mse", "pixel_mean_mse", "pixel_std_mse"):
+            best_step, best_value = min(values, key=lambda item: float(item[1]))
+        first_value = by_step[first_key].get(metric_name)
+        last_value = by_step[last_key].get(metric_name)
+        metrics[f"{metric_name}_best_step"] = int(best_step)
+        metrics[f"{metric_name}_best"] = float(best_value)
+        if first_value is not None and last_value is not None:
+            metrics[f"{metric_name}_last_minus_first"] = float(
+                last_value - first_value
+            )
+    return metrics
+
+
 def _array_size(value: Optional[Array]) -> int:
     if value is None:
         return 0
@@ -1744,6 +1830,9 @@ def _checkpoint_hyperparams(config: MNISTGeneratorExperimentConfig) -> Dict[str,
         "decoder_mode": config.decoder_mode,
         "spatial_basis_sigma": config.spatial_basis_sigma,
         "local_patch_size": config.local_patch_size,
+        "resize_conv_seed_size": config.resize_conv_seed_size,
+        "resize_conv_upsamples": config.resize_conv_upsamples,
+        "resize_conv_min_channels": config.resize_conv_min_channels,
         "output_activation": config.output_activation,
         "output_bias_init": config.output_bias_init,
         "num_projections": config.num_projections,
@@ -1770,6 +1859,7 @@ def _checkpoint_hyperparams(config: MNISTGeneratorExperimentConfig) -> Dict[str,
         "distributional_weight": config.distributional_weight,
         "drift_gamma": config.drift_gamma,
         "drift_temperatures": config.drift_temperatures,
+        "settling_steps": config.settling_steps,
     }
 
 
@@ -2201,6 +2291,17 @@ def run_mnist_generator_experiment(
         prototypes=prototypes,
         classifier=quality_classifier_model,
     )
+    settling = compute_generator_settling_metrics(
+        model,
+        key=jax.random.fold_in(key, 45_000),
+        real_images=eval_images[:eval_count],
+        sample_count=eval_count,
+        batch_size=config.run.batch_size,
+        settling_steps=config.settling_steps,
+        labels=eval_labels[:eval_count] if config.conditional else None,
+        prototypes=prototypes,
+        classifier=quality_classifier_model,
+    )
     diagnostic_count = min(
         eval_count,
         int(config.run.batch_size),
@@ -2278,6 +2379,7 @@ def run_mnist_generator_experiment(
             "resize_conv_seed_size": config.resize_conv_seed_size,
             "resize_conv_upsamples": config.resize_conv_upsamples,
             "resize_conv_min_channels": config.resize_conv_min_channels,
+            "settling": settling,
             **quality,
             "success_diagnostics": success_diagnostics,
         },
@@ -2300,6 +2402,16 @@ def _parse_float_tuple(value: str | Sequence[float]) -> Tuple[float, ...]:
         values = tuple(float(part) for part in value)
     if not values:
         raise argparse.ArgumentTypeError("expected at least one float")
+    return values
+
+
+def _parse_int_tuple(value: str | Sequence[int]) -> Tuple[int, ...]:
+    if isinstance(value, str):
+        values = tuple(int(part.strip()) for part in value.split(",") if part.strip())
+    else:
+        values = tuple(int(part) for part in value)
+    if any(step < 0 for step in values):
+        raise argparse.ArgumentTypeError("expected non-negative integers")
     return values
 
 
@@ -2443,6 +2555,15 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output-bias-init", type=float, default=-2.0)
     parser.add_argument("--eval-sample-count", type=int, default=128)
     parser.add_argument(
+        "--settling-steps",
+        type=_parse_int_tuple,
+        default=(),
+        help=(
+            "Comma-separated test-time settling depths to score after training, "
+            "for example '0,1,2,4,8,16,32'."
+        ),
+    )
+    parser.add_argument(
         "--data-source",
         choices=["tfds", "idx", "synthetic"],
         default="idx",
@@ -2529,6 +2650,7 @@ def config_from_args(args: argparse.Namespace) -> MNISTGeneratorExperimentConfig
         drift_gamma=args.drift_gamma,
         drift_temperatures=args.drift_temperatures,
         eval_sample_count=args.eval_sample_count,
+        settling_steps=args.settling_steps,
         data_source=args.data_source,
         train_limit=args.train_limit,
         eval_limit=args.eval_limit,

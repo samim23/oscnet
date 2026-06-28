@@ -4312,7 +4312,10 @@ outputs/analysis/modal_mnist_generator_horn_label0_replication_samples/
 ```
 
 This repeated only the key condition, `label_phase_scale=0.0`, on fresh seeds
-12 and 13. Combined with seed 11 from the attribution probe:
+12 and 13. In this setting the label embedding starts at zero, so there is no
+pre-seeded class geometry, but in trainable runs the conditioning parameters
+can still learn from labels during training. Combined with seed 11 from the
+attribution probe:
 
 | Variant | Seeds | Mean final eval | Mean classifier label acc | Mean prototype acc | Mean diversity |
 | --- | ---: | ---: | ---: | ---: | ---: |
@@ -4321,9 +4324,9 @@ This repeated only the key condition, `label_phase_scale=0.0`, on fresh seeds
 | HORN decoder-only | 3 | 0.001254 | 0.0944 | 0.1100 | 0.5348 |
 
 This is the first replicated, control-separated generator result where
-learned oscillatory recurrence is not a cosmetic add-on. With no explicit
-label phase shift at sampling time, trainable HORN consistently produces
-clean class-structured MNIST grids, while the matched frozen and decoder-only
+learned oscillatory recurrence is not a cosmetic add-on. With label geometry
+initialized at zero, trainable HORN consistently produces clean
+class-structured MNIST grids, while the matched frozen and decoder-only
 controls collapse to near-chance class alignment. The sample montage confirms
 the metrics: the trainable HORN grids contain readable digits for all three
 seeds; the controls are mostly blurred texture fragments.
@@ -4437,6 +4440,58 @@ OscNet-native MNIST generator, not because it beats every ordinary neural
 model on every metric, but because it now has replicated dynamics attribution
 and a matched-control regime where the oscillatory transition is more stable
 and more diverse than a similarly sized learned state MLP.
+
+Settling-depth probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_horn_state_mlp_settling_probe
+```
+
+The probe wrote:
+
+```text
+outputs/analysis/modal_mnist_generator_horn_state_mlp_settling_probe.csv
+outputs/analysis/modal_mnist_generator_horn_state_mlp_settling_probe.json
+```
+
+This is the first direct "does settling itself help?" diagnostic on the HORN
+generator branch. It trains one low-data seed for HORN and the matched
+state-MLP, then evaluates the same trained model at test-time depths
+`0,1,2,4,8,16,32`.
+
+Seed 11 classifier label accuracy by test-time depth:
+
+| Variant | Step 0 | Step 1 | Step 2 | Step 4 | Step 8 | Step 16 | Step 32 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| HORN | 0.0273 | 0.0820 | 0.2207 | 0.5898 | 0.8770 | 0.9609 | 0.0488 |
+| State-MLP | 0.7715 | 0.8223 | 0.8516 | 0.9199 | 0.9707 | 0.9863 | 0.7246 |
+
+Selected diversity/nearest-real metrics:
+
+| Variant | Best class step | Step-0 diversity | Step-16 diversity | Step-32 diversity | Step-16 nearest-real MSE |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| HORN | 16 | 1.2953 | 1.2506 | 1.1747 | 0.0636 |
+| State-MLP | 16 | 1.0887 | 1.0697 | 1.0138 | 0.0472 |
+
+Interpretation:
+
+- HORN has a much stronger dynamics signature. At step 0 it is near chance;
+  semantic class structure emerges progressively through recurrent settling
+  and peaks at step 16.
+- State-MLP also benefits from settling, but it already has high class
+  alignment at step 0. That means the learned label/state/readout scaffold is
+  carrying much more class information before any recurrent transition.
+- Both models over-settle by step 32. More recurrent compute is not
+  automatically better; this branch has a learned finite-time attractor around
+  the training depth.
+- This strengthens the attribution story for HORN specifically: its good
+  samples are less explainable as an immediate label-conditioned decoder readout
+  and more explainable as a learned second-order dynamical organization process.
+  The next physics-native pressure test should therefore target finite-time
+  stability: train over a range of depths, add mild damping/step robustness
+  losses, or test whether structured/sparser HORN coupling preserves the
+  step-16 gain without dense all-to-all coupling.
 
 ## Maintenance Notes
 

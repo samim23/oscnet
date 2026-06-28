@@ -584,6 +584,28 @@ OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_generator.py \
   --print-only
 ```
 
+Run the low-data HORN-vs-state-MLP settling-depth probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_horn_state_mlp_settling_probe
+```
+
+This is a compact two-run diagnostic on seed 11. It trains the same low-data
+HORN and state-MLP generators, then scores the trained checkpoint at test-time
+settling depths `0,1,2,4,8,16,32`. Use it to ask whether extra recurrent
+settling is actually useful, or whether the decoder already has the answer at
+step zero. Results write to
+`outputs/analysis/modal_mnist_generator_horn_state_mlp_settling_probe.csv`.
+
+Dry-run it first:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_horn_state_mlp_settling_probe \
+  --print-only
+```
+
 Run the resize-conv generator with Un-0-style dynamic conditioning oscillators:
 
 ```bash

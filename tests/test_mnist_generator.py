@@ -11,6 +11,7 @@ from oscnet.experiments.mnist_generator import (
     conditional_feature_drift_loss,
     conditional_pixel_drift_loss,
     compute_class_prototypes,
+    compute_generator_settling_metrics,
     compute_generator_success_diagnostics,
     compute_generator_quality_metrics,
     generator_distribution_loss,
@@ -548,6 +549,35 @@ def test_horn_image_generator_samples_and_traces_state():
     assert diagnostics["state_final_energy"] >= 0.0
 
 
+def test_generator_settling_metrics_score_multiple_step_depths():
+    from oscnet.models import HORNImageGenerator
+
+    model = HORNImageGenerator(
+        num_oscillators=8,
+        image_shape=(8, 8),
+        decoder_hidden_dim=12,
+        decoder_depth=1,
+        steps=2,
+        key=jax.random.PRNGKey(88),
+    )
+    real = jnp.linspace(0.0, 1.0, 4 * 64, dtype=jnp.float32).reshape(4, 64)
+
+    metrics = compute_generator_settling_metrics(
+        model,
+        key=jax.random.PRNGKey(89),
+        real_images=real,
+        sample_count=4,
+        batch_size=2,
+        settling_steps=(0, 1, 2),
+    )
+
+    assert metrics["steps"] == [0, 1, 2]
+    assert "step_000" in metrics["by_step"]
+    assert "step_002" in metrics["by_step"]
+    assert "diversity_ratio_best_step" in metrics
+    assert "nearest_real_mse_last_minus_first" in metrics
+
+
 def test_horn_resize_conv_generator_decodes_spatial_state_seed():
     from oscnet.models import HORNImageGenerator
 
@@ -678,6 +708,7 @@ def test_mnist_generator_horn_synthetic_training_smoke(tmp_path):
         quality_classifier_dim=8,
         quality_classifier_depth=1,
         eval_sample_count=2,
+        settling_steps=(0, 1),
         data_source="synthetic",
         train_limit=4,
         eval_limit=2,
@@ -691,6 +722,7 @@ def test_mnist_generator_horn_synthetic_training_smoke(tmp_path):
     assert summary["generator"]["dynamics_family"] == "horn"
     assert summary["generator"]["quality_classifier"]["epochs"] == 1
     assert "classifier_label_accuracy" in summary["generator"]
+    assert summary["generator"]["settling"]["steps"] == [0, 1]
     assert diagnostics["dynamics_family"] == "horn"
     assert "state_final_energy" in diagnostics
     assert summary["final_eval_loss"] >= 0.0
