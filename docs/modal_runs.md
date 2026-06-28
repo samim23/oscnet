@@ -520,6 +520,27 @@ OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_generator.py \
   --print-only
 ```
 
+Run the zero-label HORN replication probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_horn_label0_replication_probe
+```
+
+This repeats the most interesting attribution condition from the first probe:
+`label_phase_scale=0.0` with trainable HORN, frozen HORN, and HORN decoder-only.
+It uses fresh seeds 12 and 13, keeps classifier-based semantic scoring enabled,
+and writes results to
+`outputs/analysis/modal_mnist_generator_horn_label0_replication_probe.csv`.
+
+Dry-run it first:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_horn_label0_replication_probe \
+  --print-only
+```
+
 Run the resize-conv generator with Un-0-style dynamic conditioning oscillators:
 
 ```bash
