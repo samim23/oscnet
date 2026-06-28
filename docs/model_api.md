@@ -300,7 +300,8 @@ and internally convert them to patch sequences.
   back to pixel space for metrics and artifacts. Set
   `sample_readout_mode="shape_gated"` to use the auxiliary shape channel as a
   smooth gate on the pixel channel when computing sample metrics and PNG
-  artifacts.
+  artifacts. Set `sample_schedule="shape_guided"` to stage Euler sampling so
+  the shape channel settles first and pixel-channel updates open later.
 
 `RecurrentConvFlowField`
 : A matched non-oscillatory recurrent-flow control for `PhaseRateFlowField`.

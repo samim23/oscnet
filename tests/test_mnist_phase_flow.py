@@ -98,6 +98,30 @@ def test_phase_rate_flow_field_can_sample_without_clipping():
     assert jnp.any(samples < 0.0) or jnp.any(samples > 1.0)
 
 
+def test_shape_guided_sampler_runs_for_two_channel_phase_flow():
+    model = PhaseRateFlowField(
+        value_channels=2,
+        field_channels=2,
+        steps=1,
+        key=jax.random.PRNGKey(45),
+    )
+
+    samples = sample_phase_flow_images(
+        model,
+        key=jax.random.PRNGKey(46),
+        sample_count=4,
+        sample_steps=3,
+        sample_method="euler",
+        labels=None,
+        batch_size=2,
+        clip_samples=False,
+        sample_schedule="shape_guided",
+    )
+
+    assert samples.shape == (4, 28 * 28 * 2)
+    assert jnp.any(samples < 0.0) or jnp.any(samples > 1.0)
+
+
 def test_phase_flow_loss_backprops_to_model():
     model = PhaseRateFlowField(
         field_channels=2,
@@ -450,6 +474,7 @@ def test_mnist_phase_flow_synthetic_training_smoke(tmp_path):
     assert summary["phase_flow"]["model_family"] == "phase_flow"
     assert summary["phase_flow"]["steps"] == 1
     assert summary["phase_flow"]["sample_method"] == "euler"
+    assert summary["phase_flow"]["sample_schedule"] == "standard"
     assert summary["phase_flow"]["sample_readout_mode"] == "primary"
     assert summary["phase_flow"]["closure_loss_weight"] == 0.5
     assert summary["phase_flow"]["target_representation"] == "pixels_signed_distance"

@@ -3441,6 +3441,53 @@ Interpretation:
   dynamical: settle shape first, then run a pixel-refinement field conditioned
   on that settled shape, instead of relying on a fixed readout gate.
 
+Shape-guided sampler probe:
+
+The phase-flow sampler now supports `sample_schedule="shape_guided"` /
+`--sample-schedule shape_guided` for two-channel centered pixel/shape targets.
+During Euler sampling, the shape channel receives full updates from the start,
+while pixel-channel updates open later and are softly pulled through the
+decoded shape potential. This moves the staging from a post-hoc readout gate
+into the sampling dynamics itself.
+
+Run:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_phase_flow.py \
+  --sweep-preset mnist_phase_flow_shape_guided_sampler_probe
+```
+
+Result:
+
+```text
+outputs/analysis/modal_mnist_phase_flow_shape_guided_sampler_probe.csv
+outputs/analysis/modal_mnist_phase_flow_samples/
+```
+
+| model | best eval loss | velocity loss | clean loss | nearest-real MSE | active frac | components | largest frac |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| coarse/global phase-flow | 0.214272 | 0.201506 | 0.068735 | 0.141564 | 0.554747 | 4.546875 | 0.932344 |
+| recurrent-conv flow | 0.269503 | 0.248902 | 0.086670 | 0.169127 | 0.643495 | 2.484375 | 0.991480 |
+| real MNIST pixels | n/a | n/a | n/a | 0.059272 | 0.143973 | 1.015625 | 0.995226 |
+
+Interpretation:
+
+- Shape-guided sampling is a useful negative result. It moved the staging idea
+  into the dynamics, but the fixed schedule overfilled the canvas instead of
+  producing clean digit attractors.
+- Compared with the simpler centered shape-gated readout, nearest-real MSE got
+  much worse for the coarse/global oscillator (`0.062428` to `0.141564`) and
+  active mass exploded (`0.117267` to `0.554747`, versus real `0.143973`).
+- The higher largest-component fraction is not a win here. It mostly reflects
+  oversized connected blobs, not better digit binding.
+- The oscillator still beats the recurrent-conv control on the trained field
+  objective and on these bad-schedule sample-distance metrics, but absolute
+  sample quality is worse than the fixed readout gate.
+- Updated bottleneck: the shape channel contains useful cleanup structure, but
+  hand-coded shape-first sampling is too blunt. The next plausible step is a
+  learned second-stage pixel refiner conditioned on a settled shape field, not
+  a stronger manual schedule.
+
 ## Maintenance Notes
 
 - Put numerical benchmark summaries in this file and/or `outputs/analysis`.

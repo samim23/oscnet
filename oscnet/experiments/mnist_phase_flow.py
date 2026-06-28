@@ -67,6 +67,7 @@ class MNISTPhaseFlowExperimentConfig:
     eval_sample_count: int = 64
     sample_steps: int = 16
     sample_method: str = "euler"
+    sample_schedule: str = "standard"
     sample_readout_mode: str = "primary"
     target_representation: str = "pixels"
     data_source: str = "idx"
@@ -181,6 +182,7 @@ def _checkpoint_hyperparams(config: MNISTPhaseFlowExperimentConfig) -> Dict[str,
         "closure_loss_weight": config.closure_loss_weight,
         "sample_steps": config.sample_steps,
         "sample_method": config.sample_method,
+        "sample_schedule": config.sample_schedule,
         "sample_readout_mode": config.sample_readout_mode,
         "target_representation": config.target_representation,
         "target_channels": phase_flow_target_channels(config.target_representation),
@@ -418,6 +420,32 @@ def phase_flow_sample_clip(target_representation: str) -> bool:
     """Return whether model sampling should clip in native target space."""
 
     return target_representation != "centered_pixels_signed_distance"
+
+
+def _shape_guided_step(
+    current_x: Array,
+    velocity: Array,
+    step_fraction: Array,
+    step_size: float,
+) -> Array:
+    """Update two-channel centered pixel/shape samples with staged gating."""
+
+    batch_size = current_x.shape[0]
+    state = current_x.reshape(batch_size, 28, 28, 2)
+    velocity_grid = velocity.reshape(batch_size, 28, 28, 2)
+    pixel = state[..., 0]
+    shape = state[..., 1]
+    pixel_velocity = velocity_grid[..., 0]
+    shape_velocity = velocity_grid[..., 1]
+
+    pixel_open = jax.nn.sigmoid(12.0 * (step_fraction - 0.45))
+    shape = shape + float(step_size) * shape_velocity
+    shape_probability = jnp.clip(0.5 * (shape + 1.0), 0.0, 1.0)
+    shape_gate = 2.0 * jax.nn.sigmoid(8.0 * (shape_probability - 0.35)) - 1.0
+    gated_pixel = pixel * jnp.clip(shape_gate, 0.0, 1.0)
+    proposed_pixel = pixel + float(step_size) * pixel_open * pixel_velocity
+    pixel = (1.0 - 0.25 * pixel_open) * proposed_pixel + 0.25 * pixel_open * gated_pixel
+    return jnp.stack([pixel, shape], axis=-1).reshape(batch_size, 28 * 28 * 2)
 
 
 def _mean_pool_flat_images(images: Array, grid_size: int) -> Array:
@@ -679,11 +707,18 @@ def sample_phase_flow_images(
     labels: Optional[Array],
     batch_size: int,
     clip_samples: bool = True,
+    sample_schedule: str = "standard",
 ) -> Array:
     """Generate samples in batches."""
 
     if sample_method not in {"euler", "heun"}:
         raise ValueError("sample_method must be 'euler' or 'heun'")
+    if sample_schedule not in {"standard", "shape_guided"}:
+        raise ValueError("sample_schedule must be 'standard' or 'shape_guided'")
+    if sample_schedule == "shape_guided" and sample_method != "euler":
+        raise ValueError("shape_guided sample_schedule currently requires euler")
+    if sample_schedule == "shape_guided" and model.value_channels != 2:
+        raise ValueError("shape_guided sample_schedule requires two value channels")
     samples = []
     remaining = int(sample_count)
     start = 0
@@ -695,13 +730,23 @@ def sample_phase_flow_images(
             current_labels = labels[start : start + current]
         batch_key = jax.random.fold_in(key, batch_index)
         if sample_method == "euler":
-            batch_samples = model.sample(
-                batch_key,
-                current,
-                labels=current_labels,
-                outer_steps=sample_steps,
-                clip=clip_samples,
-            )
+            if sample_schedule == "shape_guided":
+                batch_samples = _sample_phase_flow_shape_guided_euler(
+                    model,
+                    batch_key,
+                    current,
+                    labels=current_labels,
+                    sample_steps=sample_steps,
+                    clip=clip_samples,
+                )
+            else:
+                batch_samples = model.sample(
+                    batch_key,
+                    current,
+                    labels=current_labels,
+                    outer_steps=sample_steps,
+                    clip=clip_samples,
+                )
         else:
             batch_samples = _sample_phase_flow_heun(
                 model,
@@ -716,6 +761,38 @@ def sample_phase_flow_images(
         remaining -= current
         batch_index += 1
     return jnp.concatenate(samples, axis=0)
+
+
+def _sample_phase_flow_shape_guided_euler(
+    model: PhaseFlowModel,
+    key: jax.random.PRNGKey,
+    sample_count: int,
+    *,
+    labels: Optional[Array],
+    sample_steps: int,
+    clip: bool = True,
+) -> Array:
+    """Generate centered two-channel samples with staged shape-first updates."""
+
+    sample_count = int(sample_count)
+    if sample_steps < 1:
+        raise ValueError("sample_steps must be positive")
+    x = jax.random.normal(key, (sample_count, model.image_dim))
+    if labels is not None:
+        labels = labels.astype(jnp.int32)
+    step_size = 1.0 / float(sample_steps)
+
+    def scan_fn(current_x, step_index):
+        step_fraction = (step_index.astype(current_x.dtype) + 0.5) * step_size
+        t = jnp.full((sample_count,), step_fraction, dtype=current_x.dtype)
+        velocity = model(current_x, t, labels)
+        return _shape_guided_step(current_x, velocity, step_fraction, step_size), None
+
+    steps = jnp.arange(int(sample_steps), dtype=jnp.float32)
+    x, _ = jax.lax.scan(scan_fn, x, steps)
+    if clip:
+        return jnp.clip(x, 0.0, 1.0)
+    return x
 
 
 def _sample_phase_flow_heun(
@@ -916,6 +993,7 @@ def save_phase_flow_artifacts(
     sample_count: int,
     sample_steps: int,
     sample_method: str,
+    sample_schedule: str,
     batch_size: int,
     conditional: bool,
     num_classes: int,
@@ -948,6 +1026,7 @@ def save_phase_flow_artifacts(
         labels=sample_labels,
         batch_size=batch_size,
         clip_samples=phase_flow_sample_clip(target_representation),
+        sample_schedule=sample_schedule,
     )
 
     real_primary = decode_phase_flow_primary_channel(
@@ -1147,6 +1226,7 @@ def run_mnist_phase_flow_experiment(
                 sample_count=config.eval_sample_count,
                 sample_steps=config.sample_steps,
                 sample_method=config.sample_method,
+                sample_schedule=config.sample_schedule,
                 batch_size=config.run.batch_size,
                 conditional=config.conditional,
                 num_classes=config.num_classes,
@@ -1198,6 +1278,7 @@ def run_mnist_phase_flow_experiment(
         labels=sample_labels,
         batch_size=config.run.batch_size,
         clip_samples=phase_flow_sample_clip(config.target_representation),
+        sample_schedule=config.sample_schedule,
     )
     quality = compute_phase_flow_quality_metrics(
         eval_images[:count],
@@ -1260,6 +1341,7 @@ def run_mnist_phase_flow_experiment(
             "target_representation": config.target_representation,
             "sample_steps": int(config.sample_steps),
             "sample_method": config.sample_method,
+            "sample_schedule": config.sample_schedule,
             "sample_readout_mode": config.sample_readout_mode,
             "coarse_grid_size": (
                 int(model.coarse_grid_size)
@@ -1335,6 +1417,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--sample-steps", type=int, default=16)
     parser.add_argument("--sample-method", choices=["euler", "heun"], default="euler")
     parser.add_argument(
+        "--sample-schedule",
+        choices=["standard", "shape_guided"],
+        default="standard",
+    )
+    parser.add_argument(
         "--sample-readout-mode",
         choices=["primary", "shape_gated"],
         default="primary",
@@ -1394,6 +1481,7 @@ def main() -> None:
         eval_sample_count=args.eval_sample_count,
         sample_steps=args.sample_steps,
         sample_method=args.sample_method,
+        sample_schedule=args.sample_schedule,
         sample_readout_mode=args.sample_readout_mode,
         target_representation=args.target_representation,
         data_source=args.data_source,

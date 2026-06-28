@@ -840,6 +840,22 @@ outputs/analysis/modal_mnist_phase_flow_centered_shape_gated_probe.csv
 outputs/analysis/modal_mnist_phase_flow_samples/
 ```
 
+Run the shape-guided sampler probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_phase_flow.py \
+  --sweep-preset mnist_phase_flow_shape_guided_sampler_probe
+```
+
+This uses centered pixel/shape targets, `--sample-schedule shape_guided`, and
+`--sample-readout-mode shape_gated`. During Euler sampling, the shape channel
+updates first and pixel-channel updates open later. It writes:
+
+```text
+outputs/analysis/modal_mnist_phase_flow_shape_guided_sampler_probe.csv
+outputs/analysis/modal_mnist_phase_flow_samples/
+```
+
 To rerun the full four-way attribution matrix in one request:
 
 ```bash

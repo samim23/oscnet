@@ -54,7 +54,9 @@ shape field. Use `--target-representation centered_pixels_signed_distance` for
 the same two-channel target in centered `[-1, 1]` coordinates, decoded back to
 pixel space for sample metrics and PNG artifacts. Set
 `--sample-readout-mode shape_gated` to multiply the decoded pixel channel by
-the decoded shape channel during sample metrics/artifact export.
+the decoded shape channel during sample metrics/artifact export. Set
+`--sample-schedule shape_guided` to let the shape channel update first and
+open pixel-channel updates later during Euler sampling.
 
 Use **MNIST masked representation** if you care about masked image recovery,
 block occlusion, or representation-prediction controls. This branch is useful

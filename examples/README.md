@@ -123,6 +123,20 @@ python examples/image_mnist_phase_flow.py \
   --eval-sample-count 4
 ```
 
+Shape-guided sampler phase-flow run:
+
+```bash
+python examples/image_mnist_phase_flow.py \
+  --data-source synthetic \
+  --target-representation centered_pixels_signed_distance \
+  --sample-schedule shape_guided \
+  --sample-readout-mode shape_gated \
+  --epochs 1 \
+  --field-channels 2 \
+  --steps 1 \
+  --eval-sample-count 4
+```
+
 Small phase VAE run:
 
 ```bash
