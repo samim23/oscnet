@@ -4,7 +4,10 @@ A JAX library for oscillatory neural networks and dynamical systems.
 
 ## Overview
 
-OscNet provides a framework for building and training neural networks based on oscillatory dynamics — coupled oscillator networks, continuous-time neural networks, and general dynamical systems. Built on JAX and Equinox for differentiable, high-performance computation.
+OscNet provides a framework for building and training neural networks based on
+oscillatory dynamics: coupled oscillator networks, continuous-time neural
+networks, and general dynamical systems. Built on JAX and Equinox for
+differentiable, high-performance computation.
 
 ## Features
 
@@ -21,20 +24,6 @@ pip install -e .
 ```
 
 **Requirements**: JAX, Equinox, Optax, Diffrax, NumPy, Matplotlib
-
-## Examples
-
-See `examples/` for usage:
-- `image_mnist_oscillatory_autoencoder.py` — MNIST reference benchmark
-- `audio_wavelet_oscillatory_autoencoder.py` — Audio wavelet reference benchmark
-- `image_mnist_phase_flow.py` — MNIST phase-flow research sampler
-- `image_mnist_phase_vae.py` — MNIST phase-VAE debugging baseline
-- `resonanceDB.py` — Phase-aware similarity store
-- `fractal/` — Hierarchical coupling experiments
-
-For the research experiment map, see `oscnet/experiments/README.md`. For
-detailed model-family notes, see `docs/model_api.md`. For benchmark outcomes
-and negative results, see `docs/experiment_report.md`.
 
 ## Quick Example
 
@@ -93,42 +82,32 @@ patch-position signal. For sequence generation, set
 See `docs/model_api.md` for the full model spine, tensor conventions, and
 extension points.
 
-## Reference Benchmarks
+## Examples and Experiments
 
-The first canonical experiment harness lives in `oscnet.experiments`. It gives
-MNIST and audio wavelet runs the same CLI/config flow, output layout,
-checkpoint metadata, metrics, loss curves, reconstruction plots, and
-latent/state traces. The experiment package also contains newer research
-branches such as MNIST phase-flow generation; see
-`oscnet/experiments/README.md` before running the larger sweeps.
+Runnable scripts live in `examples/`. The experiment guide lives in
+`oscnet/experiments/README.md`; start there if you want to train models,
+compare runs, or understand the MNIST/audio research tasks.
+
+Tiny smoke run:
 
 ```bash
 python examples/image_mnist_oscillatory_autoencoder.py \
-  --output-dir outputs/reference/mnist \
-  --data-source idx \
-  --patch-size 7 \
-  --decoder-mode positional \
-  --latent-conditioning-strength 2.0 \
-  --hidden-dim 64 \
-  --latent-dim 64 \
-  --epochs 120 \
-  --seed 42
-
-python examples/audio_wavelet_oscillatory_autoencoder.py \
-  --output-dir outputs/reference/audio_wavelet \
-  --epochs 10 \
-  --seed 42
+  --data-source synthetic \
+  --epochs 1
 ```
 
-Use `--mode eval --checkpoint path/to/model.eqx` to run evaluation through the
-same artifact pipeline. For quick dependency-light smoke runs, both examples
-also support synthetic data:
+See available options:
 
 ```bash
-python examples/image_mnist_oscillatory_autoencoder.py --data-source synthetic --epochs 1
-python examples/audio_wavelet_oscillatory_autoencoder.py --feature-source synthetic-features --epochs 1
+python examples/image_mnist_phase_flow.py --help
 ```
 
+Useful pointers:
+
+- `examples/` for command-line entrypoints
+- `oscnet/experiments/README.md` for the experiment menu
+- `docs/model_api.md` for reusable model families and tensor conventions
+- `docs/experiment_report.md` for research notes and benchmark outcomes
 
 ## License
 
