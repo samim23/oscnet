@@ -5636,6 +5636,55 @@ claims. The next bigger step should be either a stronger pretrained/contrastive
 quality metric for CIFAR-like data, or a color/multichannel HORN generator
 rather than more MNIST knob tuning.
 
+Conv-judge CIFAR-10 grayscale audit:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=8 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_gray_convjudge_frontier_probe
+```
+
+The previous CIFAR-gray generated-label judge was a flat MLP and only reached
+about `0.305` eval accuracy. This audit keeps the generator recipes fixed but
+switches the quality evaluator to `--quality-classifier-kind conv`.
+
+Modal result, seeds 11/12/13:
+
+| Variant | Judge acc | Generated-label acc | Best acc | Step 0 | Step 16 | Step 32 | Step 64 | Diversity | Best diversity | Nearest-real MSE | Best nearest-real MSE | Mean MSE | Std MSE | Prototype acc | State energy | Samples/sec |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| HORN recommended | 0.3584 | 0.9023 | 0.9089 | 0.0957 | 0.8548 | 0.9089 | 0.7539 | 0.9167 | 0.9151 | 0.0214 | 0.0144 | 0.0028 | 0.0031 | 0.7415 | 0.0092 | 792.6 |
+| HORN dist .05 | 0.3582 | 0.8314 | 0.8704 | 0.1029 | 0.7207 | 0.8464 | 0.8646 | 1.0964 | 1.1082 | 0.0305 | 0.0239 | 0.0027 | 0.0025 | 0.7298 | 0.0082 | 856.8 |
+| StateMLP strength8 | 0.3584 | 0.6270 | 0.6270 | 0.1055 | 0.5924 | 0.6270 | 0.6270 | 0.5108 | 0.5158 | 0.0086 | 0.0047 | 0.0015 | 0.0147 | 0.7539 | 5.9995 | 928.4 |
+
+Artifact command:
+
+```bash
+python scripts/analyze_mnist_generator_frontier.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_gray_convjudge_frontier_probe.csv \
+  --output-dir outputs/analysis/cifar10_gray_convjudge_generator_frontier \
+  --title "CIFAR-10 grayscale conv-judge generator frontier" \
+  --accuracy-floor 0.3
+```
+
+Interpretation:
+
+- The conv judge is better but still weak in absolute CIFAR-gray terms
+  (`~0.358` eval accuracy). This remains a small-data, grayscale diagnostic,
+  not a final CIFAR metric.
+- Under the conv judge, the HORN semantic proxy becomes stronger, not weaker:
+  recommended HORN reaches `0.9023` generated-label accuracy versus StateMLP
+  `0.6270`.
+- The old caveat still holds. StateMLP remains much closer by nearest-real MSE
+  (`0.0086` versus HORN `0.0214/0.0305`) and faster. HORN remains the
+  diversity/semantic/settling frontier, not the raw pixel-proximity frontier.
+- `dist .05` becomes the explicit high-diversity HORN point. Recommended HORN
+  is the better semantic/proximity HORN point.
+
+Practical result: use `--quality-classifier-kind conv` for CIFAR-gray and other
+image datasets where the flat MLP judge underfits. The next evaluation upgrade
+should be an embedding/FID-like metric or a stronger classifier trained once
+per dataset, but this conv judge is already enough to confirm that the HORN
+transfer signal is not just an artifact of the weaker flat MLP evaluator.
+
 ## Maintenance Notes
 
 - Put numerical benchmark summaries in this file and/or `outputs/analysis`.

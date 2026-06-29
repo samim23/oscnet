@@ -52,6 +52,13 @@ def test_infer_generator_variant_handles_known_modal_sweeps():
         )
         == "horn_recommended"
     )
+    assert (
+        infer_generator_variant(
+            "mnist_generator_cifar10_gray_convjudge_frontier_"
+            "state_mlp_strength8_n256_resizeconv_train1000_seed11_20e"
+        )
+        == "state_mlp_strength8"
+    )
 
 
 def test_generator_frontier_marks_non_dominated_tradeoff(tmp_path: Path):

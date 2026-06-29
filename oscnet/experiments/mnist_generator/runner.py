@@ -31,6 +31,7 @@ from .builder import build_mnist_generator_model
 from .common import Array, _logger, _tree_norm
 from .config import MNISTGeneratorExperimentConfig
 from .features import (
+    FeatureClassifier,
     MNISTFeatureClassifier,
     compute_class_prototypes,
     make_projection_matrix,
@@ -343,7 +344,7 @@ def run_mnist_generator_experiment(
     key, model_key, projection_key, feature_key = jax.random.split(key, 4)
     feature_model: Optional[MNISTFeatureClassifier] = None
     feature_classifier_metrics: Dict[str, Any] = {}
-    quality_classifier_model: Optional[MNISTFeatureClassifier] = None
+    quality_classifier_model: Optional[FeatureClassifier] = None
     quality_classifier_metrics: Dict[str, Any] = {}
     if config.feature_drift_mode == "learned":
         logger.info(
@@ -411,7 +412,8 @@ def run_mnist_generator_experiment(
             quality_train_labels = quality_train_labels.astype(jnp.int32)
             quality_eval_labels = quality_eval_labels.astype(jnp.int32)
         logger.info(
-            "training quality classifier epochs=%s feature_dim=%s train_n=%s eval_n=%s",
+            "training quality classifier kind=%s epochs=%s feature_dim=%s train_n=%s eval_n=%s",
+            config.quality_classifier_kind,
             config.quality_classifier_epochs,
             config.quality_classifier_dim,
             int(quality_train_images.shape[0]),
@@ -432,6 +434,8 @@ def run_mnist_generator_experiment(
                 learning_rate=config.quality_classifier_learning_rate,
                 weight_decay=config.quality_classifier_weight_decay,
                 max_grad_norm=config.run.max_grad_norm,
+                classifier_kind=config.quality_classifier_kind,
+                image_shape=config.image_shape,
             )
         )
         write_json(
@@ -813,6 +817,7 @@ def run_mnist_generator_experiment(
             "feature_classifier": feature_classifier_metrics,
             "quality_classifier": quality_classifier_metrics,
             "quality_classifier_epochs": config.quality_classifier_epochs,
+            "quality_classifier_kind": config.quality_classifier_kind,
             "quality_classifier_dim": config.quality_classifier_dim,
             "quality_classifier_depth": config.quality_classifier_depth,
             "quality_classifier_train_limit": config.quality_classifier_train_limit,

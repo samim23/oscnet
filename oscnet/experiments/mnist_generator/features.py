@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Tuple, Union
 
 import equinox as eqx
 import jax
@@ -80,6 +80,129 @@ class MNISTFeatureClassifier(eqx.Module):
         return jax.vmap(self._logits_single)(images)
 
 
+class ConvImageFeatureClassifier(eqx.Module):
+    """Small convolutional classifier for image-quality diagnostics."""
+
+    conv_layers: Tuple[eqx.nn.Conv2d, ...]
+    hidden_layer: eqx.nn.Linear
+    output_layer: eqx.nn.Linear
+    image_shape: Tuple[int, int] = eqx.field(static=True)
+    feature_dim: int = eqx.field(static=True)
+    num_classes: int = eqx.field(static=True)
+
+    def __init__(
+        self,
+        *,
+        image_dim: int = 28 * 28,
+        image_shape: Tuple[int, int] = (28, 28),
+        feature_dim: int = 128,
+        depth: int = 3,
+        num_classes: int = 10,
+        key: jax.random.PRNGKey,
+    ):
+        if feature_dim < 1:
+            raise ValueError("feature_dim must be positive")
+        if depth < 1:
+            raise ValueError("conv feature classifier depth must be positive")
+        if num_classes < 1:
+            raise ValueError("num_classes must be positive")
+        height, width = (int(size) for size in image_shape)
+        if height * width != int(image_dim):
+            raise ValueError("image_shape must match image_dim")
+        keys = jax.random.split(key, depth + 2)
+        conv_layers = []
+        in_channels = 1
+        current_height = height
+        current_width = width
+        for layer_index in range(depth):
+            out_channels = min(int(feature_dim), 16 * (2**layer_index))
+            conv_layers.append(
+                eqx.nn.Conv2d(
+                    in_channels,
+                    out_channels,
+                    kernel_size=3,
+                    stride=2,
+                    padding=1,
+                    key=keys[layer_index],
+                )
+            )
+            in_channels = out_channels
+            current_height = (current_height + 1) // 2
+            current_width = (current_width + 1) // 2
+        flattened_dim = int(in_channels * current_height * current_width)
+        self.conv_layers = tuple(conv_layers)
+        self.hidden_layer = eqx.nn.Linear(
+            flattened_dim,
+            int(feature_dim),
+            key=keys[-2],
+        )
+        self.output_layer = eqx.nn.Linear(
+            int(feature_dim),
+            int(num_classes),
+            key=keys[-1],
+        )
+        self.image_shape = (height, width)
+        self.feature_dim = int(feature_dim)
+        self.num_classes = int(num_classes)
+
+    def _features_single(self, image: Array) -> Array:
+        height, width = self.image_shape
+        hidden = image.reshape(1, height, width)
+        for layer in self.conv_layers:
+            hidden = jax.nn.gelu(layer(hidden))
+        hidden = jax.nn.gelu(self.hidden_layer(hidden.reshape(-1)))
+        norm = jnp.linalg.norm(hidden)
+        return hidden / jnp.maximum(norm, 1e-6)
+
+    def features(self, images: Array) -> Array:
+        """Return normalized penultimate features for a batch of flat images."""
+
+        return jax.vmap(self._features_single)(images)
+
+    def _logits_single(self, image: Array) -> Array:
+        return self.output_layer(self._features_single(image))
+
+    def __call__(self, images: Array) -> Array:
+        """Return class logits for a batch of flat images."""
+
+        return jax.vmap(self._logits_single)(images)
+
+
+FeatureClassifier = Union[MNISTFeatureClassifier, ConvImageFeatureClassifier]
+
+
+def _build_feature_classifier(
+    *,
+    classifier_kind: str,
+    image_dim: int,
+    image_shape: Tuple[int, int],
+    feature_dim: int,
+    depth: int,
+    num_classes: int,
+    key: jax.random.PRNGKey,
+) -> FeatureClassifier:
+    """Build a feature classifier for learned drift or sample-quality scoring."""
+
+    if classifier_kind == "mlp":
+        return MNISTFeatureClassifier(
+            image_dim=int(image_dim),
+            feature_dim=int(feature_dim),
+            depth=int(depth),
+            num_classes=int(num_classes),
+            key=key,
+        )
+    if classifier_kind == "conv":
+        return ConvImageFeatureClassifier(
+            image_dim=int(image_dim),
+            image_shape=tuple(int(size) for size in image_shape),
+            feature_dim=int(feature_dim),
+            depth=int(depth),
+            num_classes=int(num_classes),
+            key=key,
+        )
+    raise ValueError("classifier_kind must be 'mlp' or 'conv'")
+
+
 def make_projection_matrix(
     key: jax.random.PRNGKey,
     *,
@@ -97,7 +220,7 @@ def make_projection_matrix(
 
 @eqx.filter_jit
 def _feature_classifier_train_step(
-    classifier: MNISTFeatureClassifier,
+    classifier: FeatureClassifier,
     opt_state: Any,
     images: Array,
     labels: Array,
@@ -131,7 +254,7 @@ def _feature_classifier_train_step(
 
 @eqx.filter_jit
 def _feature_classifier_eval_step(
-    classifier: MNISTFeatureClassifier,
+    classifier: FeatureClassifier,
     images: Array,
     labels: Array,
 ) -> Tuple[Array, Array]:
@@ -147,7 +270,7 @@ def _feature_classifier_eval_step(
 
 
 def evaluate_feature_classifier(
-    classifier: MNISTFeatureClassifier,
+    classifier: FeatureClassifier,
     images: Array,
     labels: Array,
     *,
@@ -193,13 +316,17 @@ def train_mnist_feature_classifier(
     learning_rate: float,
     weight_decay: float,
     max_grad_norm: float,
-) -> Tuple[MNISTFeatureClassifier, Dict[str, Any]]:
+    classifier_kind: str = "mlp",
+    image_shape: Tuple[int, int] = (28, 28),
+) -> Tuple[FeatureClassifier, Dict[str, Any]]:
     """Train a small feature classifier that will be frozen for drift loss."""
 
     if epochs < 1:
         raise ValueError("learned feature drift requires at least one feature epoch")
-    classifier = MNISTFeatureClassifier(
+    classifier = _build_feature_classifier(
+        classifier_kind=classifier_kind,
         image_dim=int(train_images.shape[-1]),
+        image_shape=tuple(int(size) for size in image_shape),
         feature_dim=int(feature_dim),
         depth=int(depth),
         num_classes=int(num_classes),
@@ -265,6 +392,7 @@ def train_mnist_feature_classifier(
     history["feature_dim"] = int(feature_dim)
     history["depth"] = int(depth)
     history["epochs"] = int(epochs)
+    history["classifier_kind"] = classifier_kind
     history["final_train_accuracy"] = history["train_accuracy"][-1]
     history["final_eval_accuracy"] = history["eval_accuracy"][-1]
     history["final_eval_loss"] = history["eval_loss"][-1]
@@ -398,5 +526,3 @@ def compute_class_prototypes(
     counts = jnp.sum(one_hot, axis=0)[:, None]
     sums = one_hot.T @ images
     return sums / jnp.maximum(counts, 1.0)
-
-

@@ -209,6 +209,15 @@ def build_arg_parser(preset: str = "none") -> argparse.ArgumentParser:
     parser.add_argument("--learned-feature-learning-rate", type=float, default=1e-3)
     parser.add_argument("--learned-feature-weight-decay", type=float, default=1e-4)
     parser.add_argument("--quality-classifier-epochs", type=int, default=0)
+    parser.add_argument(
+        "--quality-classifier-kind",
+        choices=["mlp", "conv"],
+        default="mlp",
+        help=(
+            "Classifier architecture for generated-label quality metrics. "
+            "Use 'conv' for image datasets where the flat MLP judge is weak."
+        ),
+    )
     parser.add_argument("--quality-classifier-dim", type=int, default=128)
     parser.add_argument("--quality-classifier-depth", type=int, default=2)
     parser.add_argument("--quality-classifier-learning-rate", type=float, default=1e-3)
@@ -353,6 +362,7 @@ def config_from_args(args: argparse.Namespace) -> MNISTGeneratorExperimentConfig
         learned_feature_learning_rate=args.learned_feature_learning_rate,
         learned_feature_weight_decay=args.learned_feature_weight_decay,
         quality_classifier_epochs=args.quality_classifier_epochs,
+        quality_classifier_kind=args.quality_classifier_kind,
         quality_classifier_dim=args.quality_classifier_dim,
         quality_classifier_depth=args.quality_classifier_depth,
         quality_classifier_learning_rate=args.quality_classifier_learning_rate,

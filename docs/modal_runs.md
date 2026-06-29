@@ -1492,6 +1492,22 @@ outputs/analysis/modal_mnist_generator_cifar10_gray_frontier_probe.csv
 outputs/analysis/modal_mnist_generator_cifar10_gray_frontier_probe.json
 ```
 
+Run the same CIFAR-10 grayscale gate with the convolutional quality judge:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=8 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_gray_convjudge_frontier_probe
+```
+
+This keeps the generator recipes fixed and only changes the generated-label
+evaluator from the flat MLP judge to `--quality-classifier-kind conv`. Use this
+when CIFAR-gray semantic metrics matter. It writes:
+
+```text
+outputs/analysis/modal_mnist_generator_cifar10_gray_convjudge_frontier_probe.csv
+outputs/analysis/modal_mnist_generator_cifar10_gray_convjudge_frontier_probe.json
+```
+
 To rerun the full four-way attribution matrix in one request:
 
 ```bash

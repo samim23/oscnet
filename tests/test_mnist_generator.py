@@ -6,6 +6,7 @@ import jax.numpy as jnp
 from oscnet.experiments.harness import AutoencoderExperimentConfig
 from oscnet.experiments.mnist_autoencoder import load_mnist_data
 from oscnet.experiments.mnist_generator import (
+    ConvImageFeatureClassifier,
     MNISTDriftQueue,
     MNISTFeatureClassifier,
     MNISTGeneratorExperimentConfig,
@@ -466,18 +467,21 @@ def test_quality_classifier_limits_parse_without_changing_generator_limits():
                 "32",
                 "--eval-limit",
                 "16",
-                "--quality-classifier-train-limit",
-                "5000",
-                "--quality-classifier-eval-limit",
-                "2000",
-            ]
-        )
+            "--quality-classifier-train-limit",
+            "5000",
+            "--quality-classifier-eval-limit",
+            "2000",
+            "--quality-classifier-kind",
+            "conv",
+        ]
+    )
     )
 
     assert parsed.train_limit == 32
     assert parsed.eval_limit == 16
     assert parsed.quality_classifier_train_limit == 5000
     assert parsed.quality_classifier_eval_limit == 2000
+    assert parsed.quality_classifier_kind == "conv"
 
 
 def test_conditional_generator_loss_uses_class_terms():
@@ -732,6 +736,26 @@ def test_generator_quality_metrics_can_use_classifier_labels():
     assert metrics["classifier_entropy"] >= 0.0
 
 
+def test_conv_image_feature_classifier_smoke():
+    images = jnp.linspace(0.0, 1.0, 5 * 32 * 32).reshape(5, 32 * 32)
+    classifier = ConvImageFeatureClassifier(
+        image_dim=32 * 32,
+        image_shape=(32, 32),
+        feature_dim=12,
+        depth=2,
+        num_classes=4,
+        key=jax.random.PRNGKey(71),
+    )
+
+    logits = classifier(images)
+    features = classifier.features(images)
+
+    assert logits.shape == (5, 4)
+    assert features.shape == (5, 12)
+    assert bool(jnp.all(jnp.isfinite(logits)))
+    assert bool(jnp.all(jnp.isfinite(features)))
+
+
 def test_train_mnist_feature_classifier_smoke():
     images = jnp.linspace(0.0, 1.0, 12 * 28 * 28).reshape(12, 28 * 28)
     labels = jnp.asarray([0, 1, 2, 3] * 3, dtype=jnp.int32)
@@ -754,6 +778,36 @@ def test_train_mnist_feature_classifier_smoke():
 
     assert classifier.features(images[:2]).shape == (2, 12)
     assert history["epochs"] == 1
+    assert history["classifier_kind"] == "mlp"
+    assert 0.0 <= history["final_eval_accuracy"] <= 1.0
+    assert history["final_eval_loss"] >= 0.0
+
+
+def test_train_conv_feature_classifier_smoke():
+    images = jnp.linspace(0.0, 1.0, 12 * 32 * 32).reshape(12, 32 * 32)
+    labels = jnp.asarray([0, 1, 2, 3] * 3, dtype=jnp.int32)
+
+    classifier, history = train_mnist_feature_classifier(
+        images,
+        labels,
+        images[:8],
+        labels[:8],
+        key=jax.random.PRNGKey(15),
+        num_classes=4,
+        feature_dim=12,
+        depth=2,
+        epochs=1,
+        batch_size=4,
+        learning_rate=1e-3,
+        weight_decay=0.0,
+        max_grad_norm=1.0,
+        classifier_kind="conv",
+        image_shape=(32, 32),
+    )
+
+    assert classifier.features(images[:2]).shape == (2, 12)
+    assert history["epochs"] == 1
+    assert history["classifier_kind"] == "conv"
     assert 0.0 <= history["final_eval_accuracy"] <= 1.0
     assert history["final_eval_loss"] >= 0.0
 
@@ -1148,6 +1202,7 @@ def test_mnist_generator_horn_synthetic_training_smoke(tmp_path):
         steps=1,
         num_projections=8,
         quality_classifier_epochs=1,
+        quality_classifier_kind="conv",
         quality_classifier_dim=8,
         quality_classifier_depth=1,
         eval_sample_count=2,
@@ -1166,6 +1221,8 @@ def test_mnist_generator_horn_synthetic_training_smoke(tmp_path):
     assert summary["generator"]["dynamics_family"] == "horn"
     assert summary["generator"]["train_settling_steps"] == [0, 1]
     assert summary["generator"]["quality_classifier"]["epochs"] == 1
+    assert summary["generator"]["quality_classifier"]["classifier_kind"] == "conv"
+    assert summary["generator"]["quality_classifier_kind"] == "conv"
     assert "classifier_label_accuracy" in summary["generator"]
     assert summary["generator"]["settling"]["steps"] == [0, 1]
     assert diagnostics["dynamics_family"] == "horn"

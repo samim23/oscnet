@@ -5,6 +5,8 @@ from .builder import build_mnist_generator_model
 from .cli import build_arg_parser, config_from_args, main, parse_args
 from .config import MNISTGeneratorExperimentConfig
 from .features import (
+    ConvImageFeatureClassifier,
+    FeatureClassifier,
     MNISTFeatureClassifier,
     compute_class_prototypes,
     make_projection_matrix,
@@ -31,6 +33,8 @@ from .runner import evaluate_generator_loss, run_mnist_generator_experiment
 
 __all__ = [
     "GENERATOR_PRESETS",
+    "ConvImageFeatureClassifier",
+    "FeatureClassifier",
     "MNISTDriftQueue",
     "MNISTFeatureClassifier",
     "MNISTGeneratorExperimentConfig",

@@ -159,6 +159,16 @@ What to keep honest:
   the frontier, while StateMLP remains the raw pixel-proximity and throughput
   control. The quick CIFAR-gray judge is weak, and samples remain blurry, so
   treat this as a transfer signal rather than a solved CIFAR generator.
+  For CIFAR-gray semantic metrics, rerun the same sweep with the convolutional
+  generated-label judge:
+
+  ```bash
+  OSCNET_MODAL_MAX_CONTAINERS=8 modal run scripts/modal_mnist_generator.py \
+    --sweep-preset mnist_generator_cifar10_gray_convjudge_frontier_probe
+  ```
+
+  The conv judge remains modest in absolute CIFAR-gray accuracy, but it is a
+  better image-native diagnostic than the flat MLP judge.
 - Detailed results and caveats live in `docs/experiment_report.md`.
 
 ## Harness Menu

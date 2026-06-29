@@ -65,6 +65,7 @@ class MNISTGeneratorExperimentConfig:
     learned_feature_learning_rate: float = 1e-3
     learned_feature_weight_decay: float = 1e-4
     quality_classifier_epochs: int = 0
+    quality_classifier_kind: str = "mlp"
     quality_classifier_dim: int = 128
     quality_classifier_depth: int = 2
     quality_classifier_learning_rate: float = 1e-3

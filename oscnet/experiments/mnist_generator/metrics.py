@@ -11,7 +11,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from .common import Array
-from .features import MNISTFeatureClassifier
+from .features import FeatureClassifier
 
 def sample_generator_images(
     model: eqx.Module,
@@ -45,7 +45,7 @@ def compute_generator_quality_metrics(
     *,
     labels: Optional[Array] = None,
     prototypes: Optional[Array] = None,
-    classifier: Optional[MNISTFeatureClassifier] = None,
+    classifier: Optional[FeatureClassifier] = None,
 ) -> Dict[str, float]:
     """Compute lightweight distribution and diversity diagnostics."""
 
@@ -138,7 +138,7 @@ def compute_generator_settling_metrics(
     settling_steps: Sequence[int],
     labels: Optional[Array] = None,
     prototypes: Optional[Array] = None,
-    classifier: Optional[MNISTFeatureClassifier] = None,
+    classifier: Optional[FeatureClassifier] = None,
 ) -> Dict[str, Any]:
     """Score one trained generator at multiple test-time settling depths."""
 
@@ -435,4 +435,3 @@ def compute_generator_success_diagnostics(
             )
 
     return diagnostics
-

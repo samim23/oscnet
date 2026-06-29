@@ -196,7 +196,8 @@ finished CIFAR generator claim. Current read: recommended HORN remains the
 higher-diversity, stronger-settling point, while the matched StateMLP control
 still wins nearest-real pixel proximity and speed. Samples are blurry
 grayscale CIFAR-like objects, so this is evidence of transfer, not solved
-natural-image generation.
+natural-image generation. For CIFAR-gray semantic metrics, prefer adding
+`--quality-classifier-kind conv`; the flat MLP judge underfits this dataset.
 
 ## Example Menu
 
