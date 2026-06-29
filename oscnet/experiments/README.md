@@ -104,6 +104,61 @@ What to keep honest:
   `outputs/analysis/mnist_generator_frontier/`. Frontier variants are
   non-dominated over generated-label accuracy, diversity ratio, and
   nearest-real MSE, with a default generated-label accuracy floor of `0.99`.
+- To move the same frontier check beyond handwritten digits, use the
+  Fashion-MNIST presets:
+
+  ```bash
+  python examples/image_mnist_generator.py --preset sparse_horn_fashion_mnist_recommended
+  python examples/image_mnist_generator.py --preset sparse_horn_fashion_mnist_state_mlp_strength8
+  python examples/image_mnist_generator.py --preset sparse_horn_fashion_mnist_state_mlp_strength8_dist005
+  python examples/image_mnist_generator.py --preset sparse_horn_fashion_mnist_recommended_ch16
+  python examples/image_mnist_generator.py --preset sparse_horn_fashion_mnist_state_mlp_strength8_ch16
+  python examples/image_mnist_generator.py --preset sparse_horn_fashion_mnist_recommended_dist0025
+  python examples/image_mnist_generator.py --preset sparse_horn_fashion_mnist_recommended_dist005
+  ```
+
+  Or run the compact Modal sweep:
+
+  ```bash
+  OSCNET_MODAL_MAX_CONTAINERS=1 modal run scripts/modal_mnist_generator.py \
+    --sweep-preset mnist_generator_fashion_mnist_frontier_probe
+  ```
+
+  Fashion-MNIST uses the same 28x28 grayscale/10-class shape as MNIST, so it is
+  the first clean stress test for whether HORN's diversity/settling frontier
+  survives outside handwritten digits. The current three-seed result preserves
+  the same tradeoff: HORN is the high-diversity point, while the matched
+  StateMLP controls win generated-label accuracy and nearest-real MSE. The
+  `ch16` presets are readout-capacity probes, useful for checking whether
+  HORN's quality deficit is mainly a small decoder/readout bottleneck. The
+  current result says wider readout improves HORN semantic accuracy and
+  diversity, but does not close the nearest-real MSE gap.
+  The `dist*` HORN presets test explicit calibration pressure as the next
+  quality path. Current read: `sparse_horn_fashion_mnist_recommended_dist005`
+  is the calibrated HORN quality variant; StateMLP strength-8 remains the raw
+  pixel-proximity control.
+- The next scale gate is CIFAR-10 grayscale:
+
+  ```bash
+  python examples/image_mnist_generator.py --preset sparse_horn_cifar10_gray_recommended
+  python examples/image_mnist_generator.py --preset sparse_horn_cifar10_gray_recommended_dist005
+  python examples/image_mnist_generator.py --preset sparse_horn_cifar10_gray_state_mlp_strength8
+  ```
+
+  Or run the Modal frontier sweep. Use parallelism deliberately; the current
+  workspace budget can handle up to eight Modal GPU containers:
+
+  ```bash
+  OSCNET_MODAL_MAX_CONTAINERS=8 modal run scripts/modal_mnist_generator.py \
+    --sweep-preset mnist_generator_cifar10_gray_frontier_probe
+  ```
+
+  This keeps the current single-channel HORN generator surface but moves from
+  28x28 symbolic/silhouette data to 32x32 natural-image classes. Current
+  result: HORN still sits on the higher-diversity/stronger-settling side of
+  the frontier, while StateMLP remains the raw pixel-proximity and throughput
+  control. The quick CIFAR-gray judge is weak, and samples remain blurry, so
+  treat this as a transfer signal rather than a solved CIFAR generator.
 - Detailed results and caveats live in `docs/experiment_report.md`.
 
 ## Harness Menu

@@ -42,6 +42,7 @@ class MNISTGeneratorExperimentConfig:
     conditioning_mode: str = "phase_shift"
     readout_mode: str = "absolute"
     decoder_mode: str = "mlp"
+    image_shape: Tuple[int, int] = (28, 28)
     spatial_basis_sigma: float = 0.0
     local_patch_size: int = 5
     resize_conv_seed_size: int = 7
@@ -78,6 +79,7 @@ class MNISTGeneratorExperimentConfig:
     eval_sample_count: int = 128
     train_settling_steps: Tuple[int, ...] = ()
     settling_steps: Tuple[int, ...] = ()
+    dataset_name: str = "mnist"
     data_source: str = "idx"
     train_limit: Optional[int] = 10_000
     eval_limit: Optional[int] = 1_000

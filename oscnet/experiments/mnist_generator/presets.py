@@ -567,6 +567,183 @@ GENERATOR_PRESETS: Dict[str, Dict[str, Any]] = {
             "strength8_dist01_class"
         ),
     ),
+    "sparse_horn_fashion_mnist_recommended": _preset(
+        dataset_name="fashion_mnist",
+        data_source="idx",
+        conditioning_mode="class_coupling",
+        num_condition_oscillators=32,
+        conditioning_strength=8.0,
+        horn_damping=0.30,
+        steps=32,
+        train_settling_steps=(16, 32, 48),
+        settling_steps=(0, 1, 8, 16, 32, 48, 64),
+        output_dir="outputs/reference/mnist_generator_sparse_horn_fashion_mnist",
+    ),
+    "sparse_horn_fashion_mnist_state_mlp_strength8": _preset(
+        dataset_name="fashion_mnist",
+        data_source="idx",
+        model_family="state_mlp",
+        conditioning_mode="class_coupling",
+        num_condition_oscillators=32,
+        conditioning_strength=8.0,
+        state_mlp_hidden_dim=48,
+        state_mlp_depth=1,
+        state_mlp_residual_scale=0.1,
+        steps=32,
+        train_settling_steps=(16, 32, 48),
+        settling_steps=(0, 1, 8, 16, 32, 48, 64),
+        output_dir=(
+            "outputs/reference/"
+            "mnist_generator_sparse_horn_fashion_mnist_state_mlp_strength8"
+        ),
+    ),
+    "sparse_horn_fashion_mnist_state_mlp_strength8_dist005": _preset(
+        dataset_name="fashion_mnist",
+        data_source="idx",
+        model_family="state_mlp",
+        conditioning_mode="class_coupling",
+        num_condition_oscillators=32,
+        conditioning_strength=8.0,
+        state_mlp_hidden_dim=48,
+        state_mlp_depth=1,
+        state_mlp_residual_scale=0.1,
+        steps=32,
+        train_settling_steps=(16, 32, 48),
+        settling_steps=(0, 1, 8, 16, 32, 48, 64),
+        distributional_weight=0.05,
+        output_dir=(
+            "outputs/reference/"
+            "mnist_generator_sparse_horn_fashion_mnist_state_mlp_strength8_dist005"
+        ),
+    ),
+    "sparse_horn_fashion_mnist_recommended_ch16": _preset(
+        dataset_name="fashion_mnist",
+        data_source="idx",
+        conditioning_mode="class_coupling",
+        num_condition_oscillators=32,
+        conditioning_strength=8.0,
+        horn_damping=0.30,
+        resize_conv_min_channels=16,
+        steps=32,
+        train_settling_steps=(16, 32, 48),
+        settling_steps=(0, 1, 8, 16, 32, 48, 64),
+        output_dir=(
+            "outputs/reference/"
+            "mnist_generator_sparse_horn_fashion_mnist_ch16"
+        ),
+    ),
+    "sparse_horn_fashion_mnist_state_mlp_strength8_ch16": _preset(
+        dataset_name="fashion_mnist",
+        data_source="idx",
+        model_family="state_mlp",
+        conditioning_mode="class_coupling",
+        num_condition_oscillators=32,
+        conditioning_strength=8.0,
+        state_mlp_hidden_dim=48,
+        state_mlp_depth=1,
+        state_mlp_residual_scale=0.1,
+        resize_conv_min_channels=16,
+        steps=32,
+        train_settling_steps=(16, 32, 48),
+        settling_steps=(0, 1, 8, 16, 32, 48, 64),
+        output_dir=(
+            "outputs/reference/"
+            "mnist_generator_sparse_horn_fashion_mnist_state_mlp_strength8_ch16"
+        ),
+    ),
+    "sparse_horn_fashion_mnist_recommended_dist0025": _preset(
+        dataset_name="fashion_mnist",
+        data_source="idx",
+        conditioning_mode="class_coupling",
+        num_condition_oscillators=32,
+        conditioning_strength=8.0,
+        horn_damping=0.30,
+        steps=32,
+        train_settling_steps=(16, 32, 48),
+        settling_steps=(0, 1, 8, 16, 32, 48, 64),
+        distributional_weight=0.025,
+        output_dir=(
+            "outputs/reference/"
+            "mnist_generator_sparse_horn_fashion_mnist_dist0025"
+        ),
+    ),
+    "sparse_horn_fashion_mnist_recommended_dist005": _preset(
+        dataset_name="fashion_mnist",
+        data_source="idx",
+        conditioning_mode="class_coupling",
+        num_condition_oscillators=32,
+        conditioning_strength=8.0,
+        horn_damping=0.30,
+        steps=32,
+        train_settling_steps=(16, 32, 48),
+        settling_steps=(0, 1, 8, 16, 32, 48, 64),
+        distributional_weight=0.05,
+        output_dir=(
+            "outputs/reference/"
+            "mnist_generator_sparse_horn_fashion_mnist_dist005"
+        ),
+    ),
+    "sparse_horn_cifar10_gray_recommended": _preset(
+        dataset_name="cifar10_gray",
+        data_source="idx",
+        image_shape=(32, 32),
+        resize_conv_seed_size=8,
+        num_oscillators=256,
+        conditioning_mode="class_coupling",
+        num_condition_oscillators=32,
+        conditioning_strength=8.0,
+        horn_damping=0.30,
+        steps=32,
+        train_settling_steps=(16, 32, 48),
+        settling_steps=(0, 1, 8, 16, 32, 48, 64),
+        train_limit=1000,
+        eval_limit=1000,
+        output_dir="outputs/reference/mnist_generator_sparse_horn_cifar10_gray",
+    ),
+    "sparse_horn_cifar10_gray_recommended_dist005": _preset(
+        dataset_name="cifar10_gray",
+        data_source="idx",
+        image_shape=(32, 32),
+        resize_conv_seed_size=8,
+        num_oscillators=256,
+        conditioning_mode="class_coupling",
+        num_condition_oscillators=32,
+        conditioning_strength=8.0,
+        horn_damping=0.30,
+        steps=32,
+        train_settling_steps=(16, 32, 48),
+        settling_steps=(0, 1, 8, 16, 32, 48, 64),
+        train_limit=1000,
+        eval_limit=1000,
+        distributional_weight=0.05,
+        output_dir=(
+            "outputs/reference/"
+            "mnist_generator_sparse_horn_cifar10_gray_dist005"
+        ),
+    ),
+    "sparse_horn_cifar10_gray_state_mlp_strength8": _preset(
+        dataset_name="cifar10_gray",
+        data_source="idx",
+        image_shape=(32, 32),
+        resize_conv_seed_size=8,
+        num_oscillators=256,
+        model_family="state_mlp",
+        conditioning_mode="class_coupling",
+        num_condition_oscillators=32,
+        conditioning_strength=8.0,
+        state_mlp_hidden_dim=48,
+        state_mlp_depth=1,
+        state_mlp_residual_scale=0.1,
+        steps=32,
+        train_settling_steps=(16, 32, 48),
+        settling_steps=(0, 1, 8, 16, 32, 48, 64),
+        train_limit=1000,
+        eval_limit=1000,
+        output_dir=(
+            "outputs/reference/"
+            "mnist_generator_sparse_horn_cifar10_gray_state_mlp_strength8"
+        ),
+    ),
     "sparse_horn_mnist_state_mlp_class_coupling_strong_dist005": _preset(
         model_family="state_mlp",
         conditioning_mode="class_coupling",

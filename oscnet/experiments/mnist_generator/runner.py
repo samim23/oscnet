@@ -318,12 +318,19 @@ def run_mnist_generator_experiment(
     logger = _logger()
     train_images, train_labels, eval_images, eval_labels = load_mnist_data(
         source=config.data_source,
+        dataset_name=config.dataset_name,
         train_limit=config.train_limit,
         eval_limit=config.eval_limit,
         seed=config.run.seed,
     )
     train_labels = train_labels.astype(jnp.int32)
     eval_labels = eval_labels.astype(jnp.int32)
+    expected_image_dim = int(config.image_shape[0]) * int(config.image_shape[1])
+    if train_images.shape[-1] != expected_image_dim:
+        raise ValueError(
+            f"dataset {config.dataset_name!r} produced image_dim={train_images.shape[-1]}, "
+            f"but config.image_shape={config.image_shape} implies {expected_image_dim}"
+        )
     prototypes = None
     if config.conditional:
         prototypes = compute_class_prototypes(
@@ -396,6 +403,7 @@ def run_mnist_generator_experiment(
                 quality_eval_labels,
             ) = load_mnist_data(
                 source=config.data_source,
+                dataset_name=config.dataset_name,
                 train_limit=quality_train_limit,
                 eval_limit=quality_eval_limit,
                 seed=config.run.seed,
@@ -794,6 +802,9 @@ def run_mnist_generator_experiment(
         "final_epoch": metrics["epoch"][-1],
         "checkpoints": checkpoint_paths,
         "generator": {
+            "dataset_name": config.dataset_name,
+            "data_source": config.data_source,
+            "image_shape": list(config.image_shape),
             "loss": config.loss_mode,
             "distributional_loss": "sliced_wasserstein_plus_moments_and_pixel_marginals",
             "pixel_drift_weight": config.pixel_drift_weight,

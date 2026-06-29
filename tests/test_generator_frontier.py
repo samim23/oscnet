@@ -24,6 +24,34 @@ def test_infer_generator_variant_handles_known_modal_sweeps():
         )
         == "no_main_coupling"
     )
+    assert (
+        infer_generator_variant(
+            "mnist_generator_fashion_mnist_frontier_"
+            "state_mlp_strength8_dist005_n196_resizeconv_train500_seed11_20e"
+        )
+        == "state_mlp_strength8_dist005"
+    )
+    assert (
+        infer_generator_variant(
+            "mnist_generator_fashion_mnist_readout_capacity_"
+            "horn_ch16_n196_resizeconv16_train500_seed11_20e"
+        )
+        == "horn_ch16"
+    )
+    assert (
+        infer_generator_variant(
+            "mnist_generator_fashion_mnist_horn_calibration_"
+            "horn_dist0025_n196_resizeconv_train500_seed11_20e"
+        )
+        == "horn_dist0025"
+    )
+    assert (
+        infer_generator_variant(
+            "mnist_generator_cifar10_gray_frontier_"
+            "horn_recommended_n256_resizeconv_train1000_seed11_20e"
+        )
+        == "horn_recommended"
+    )
 
 
 def test_generator_frontier_marks_non_dominated_tradeoff(tmp_path: Path):

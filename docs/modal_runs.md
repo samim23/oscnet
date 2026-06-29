@@ -306,6 +306,8 @@ modal volume get oscnet-runs \
 
 The generator launcher defaults to one Modal container. Raise
 `OSCNET_MODAL_MAX_CONTAINERS` only when you intentionally want several GPUs.
+The current workspace can use up to eight GPU containers for deliberate sweeps;
+use that for frontier probes where parallelism saves real wall-clock time.
 
 Run the simple conditional generator comparison:
 
@@ -1470,6 +1472,24 @@ from the loss. It writes:
 ```text
 outputs/analysis/modal_mnist_generator_sparse_horn_dynamics_quality_probe.csv
 outputs/analysis/modal_mnist_generator_sparse_horn_dynamics_quality_probe.json
+```
+
+Run the CIFAR-10 grayscale generator frontier gate:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=8 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_gray_frontier_probe
+```
+
+This is the first natural-image scale check for the sparse HORN generator
+frontier. It compares strict HORN, calibrated HORN `dist005`, and a matched
+StateMLP strength-8 control on 32x32 grayscale CIFAR-10 using train1000/20e and
+a stronger generated-label evaluator. Use up to eight containers when the
+workspace GPU budget allows it. It writes:
+
+```text
+outputs/analysis/modal_mnist_generator_cifar10_gray_frontier_probe.csv
+outputs/analysis/modal_mnist_generator_cifar10_gray_frontier_probe.json
 ```
 
 To rerun the full four-way attribution matrix in one request:

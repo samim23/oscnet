@@ -134,6 +134,70 @@ This reads the latest strength-8 StateMLP diversity sweep by default and writes
 `frontier_summary.csv`, `frontier_summary.md`, and `frontier_plot.png` under
 `outputs/analysis/mnist_generator_frontier/`.
 
+## Beyond MNIST
+
+Fashion-MNIST uses the same 28x28 grayscale/10-class shape as MNIST, so it is
+the first larger-step check for whether the HORN quality/diversity frontier
+survives outside handwritten digits:
+
+```bash
+python examples/image_mnist_generator.py --preset sparse_horn_fashion_mnist_recommended
+python examples/image_mnist_generator.py --preset sparse_horn_fashion_mnist_state_mlp_strength8
+python examples/image_mnist_generator.py --preset sparse_horn_fashion_mnist_state_mlp_strength8_dist005
+```
+
+These presets use direct IDX downloads through `--dataset-name fashion_mnist`;
+the script name remains `image_mnist_generator.py` because the harness is still
+the 28x28 grayscale generator harness.
+
+Current Fashion-MNIST read: HORN keeps the higher-diversity frontier point,
+while matched StateMLP controls produce closer, more classifier-friendly
+samples. Use this as a generalization check for the HORN diversity/settling
+behavior, not as a claim that HORN has already won raw image quality.
+
+To test whether HORN is limited by the resize-conv readout width, use the
+capacity probes:
+
+```bash
+python examples/image_mnist_generator.py --preset sparse_horn_fashion_mnist_recommended_ch16
+python examples/image_mnist_generator.py --preset sparse_horn_fashion_mnist_state_mlp_strength8_ch16
+```
+
+The ch16 probe improved HORN's semantic accuracy/diversity on Fashion-MNIST,
+but did not improve nearest-real pixel proximity, so it remains a diagnostic
+probe rather than the default recipe.
+
+To test explicit HORN calibration pressure instead of decoder width:
+
+```bash
+python examples/image_mnist_generator.py --preset sparse_horn_fashion_mnist_recommended_dist0025
+python examples/image_mnist_generator.py --preset sparse_horn_fashion_mnist_recommended_dist005
+```
+
+The current Fashion-MNIST read is: recommended HORN is the cleaner
+diversity/settling reference; `sparse_horn_fashion_mnist_recommended_dist005`
+is the calibrated quality variant; StateMLP remains the raw pixel-proximity
+control.
+
+CIFAR-10 grayscale is the next scale gate: 32x32 natural-image classes, still
+flattened to a single grayscale channel so it stays compatible with the current
+HORN generator harness.
+
+```bash
+python examples/image_mnist_generator.py --preset sparse_horn_cifar10_gray_recommended
+python examples/image_mnist_generator.py --preset sparse_horn_cifar10_gray_recommended_dist005
+python examples/image_mnist_generator.py --preset sparse_horn_cifar10_gray_state_mlp_strength8
+```
+
+These presets use the CIFAR-10 Python archive through
+`--dataset-name cifar10_gray`, set `--image-shape 32,32`, and use an `8x8`
+resize-conv seed. Treat this as the first natural-image frontier gate, not as a
+finished CIFAR generator claim. Current read: recommended HORN remains the
+higher-diversity, stronger-settling point, while the matched StateMLP control
+still wins nearest-real pixel proximity and speed. Samples are blurry
+grayscale CIFAR-like objects, so this is evidence of transfer, not solved
+natural-image generation.
+
 ## Example Menu
 
 | Example | What it runs |

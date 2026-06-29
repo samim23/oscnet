@@ -166,6 +166,20 @@ SWEEP_CSVS = {
         "outputs/analysis/"
         "modal_mnist_generator_sparse_horn_state_mlp_strength8_diversity_probe.csv"
     ),
+    "mnist_generator_fashion_mnist_frontier_probe": Path(
+        "outputs/analysis/modal_mnist_generator_fashion_mnist_frontier_probe.csv"
+    ),
+    "mnist_generator_fashion_mnist_readout_capacity_probe": Path(
+        "outputs/analysis/"
+        "modal_mnist_generator_fashion_mnist_readout_capacity_probe.csv"
+    ),
+    "mnist_generator_fashion_mnist_horn_calibration_probe": Path(
+        "outputs/analysis/"
+        "modal_mnist_generator_fashion_mnist_horn_calibration_probe.csv"
+    ),
+    "mnist_generator_cifar10_gray_frontier_probe": Path(
+        "outputs/analysis/modal_mnist_generator_cifar10_gray_frontier_probe.csv"
+    ),
 }
 
 REMOTE_PACKAGES = [
@@ -2410,6 +2424,139 @@ def _mnist_generator_sparse_horn_recommended_ablation_probe_sweep() -> list[
     return entries
 
 
+def _mnist_generator_fashion_mnist_frontier_probe_sweep() -> list[
+    tuple[list[str], str]
+]:
+    """First non-MNIST HORN-vs-StateMLP frontier probe."""
+
+    entries = []
+    variants = [
+        ("horn_recommended", "sparse_horn_fashion_mnist_recommended"),
+        ("state_mlp_strength8", "sparse_horn_fashion_mnist_state_mlp_strength8"),
+        (
+            "state_mlp_strength8_dist005",
+            "sparse_horn_fashion_mnist_state_mlp_strength8_dist005",
+        ),
+    ]
+    classifier_args = (
+        "--quality-classifier-train-limit 5000 "
+        "--quality-classifier-eval-limit 2000 "
+        "--quality-classifier-epochs 10 "
+        "--quality-classifier-dim 256 "
+        "--quality-classifier-depth 3"
+    )
+    for seed in (11, 12, 13):
+        for variant_suffix, local_preset in variants:
+            run_name = (
+                "mnist_generator_fashion_mnist_frontier_"
+                f"{variant_suffix}_n196_resizeconv_train500_seed{seed}_20e"
+            )
+            args = shlex.split(
+                f"--seed {seed} --preset {local_preset} {classifier_args}"
+            )
+            output_dir = VOLUME_MOUNT / "mnist_generator" / run_name
+            args = _with_default_arg(args, "--output-dir", output_dir)
+            entries.append((args, run_name))
+    return entries
+
+
+def _mnist_generator_fashion_mnist_readout_capacity_probe_sweep() -> list[
+    tuple[list[str], str]
+]:
+    """Check whether Fashion-MNIST HORN quality is readout-width limited."""
+
+    entries = []
+    variants = [
+        ("horn_ch16", "sparse_horn_fashion_mnist_recommended_ch16"),
+        ("state_mlp_strength8_ch16", "sparse_horn_fashion_mnist_state_mlp_strength8_ch16"),
+    ]
+    classifier_args = (
+        "--quality-classifier-train-limit 5000 "
+        "--quality-classifier-eval-limit 2000 "
+        "--quality-classifier-epochs 10 "
+        "--quality-classifier-dim 256 "
+        "--quality-classifier-depth 3"
+    )
+    for seed in (11, 12, 13):
+        for variant_suffix, local_preset in variants:
+            run_name = (
+                "mnist_generator_fashion_mnist_readout_capacity_"
+                f"{variant_suffix}_n196_resizeconv16_train500_seed{seed}_20e"
+            )
+            args = shlex.split(
+                f"--seed {seed} --preset {local_preset} {classifier_args}"
+            )
+            output_dir = VOLUME_MOUNT / "mnist_generator" / run_name
+            args = _with_default_arg(args, "--output-dir", output_dir)
+            entries.append((args, run_name))
+    return entries
+
+
+def _mnist_generator_fashion_mnist_horn_calibration_probe_sweep() -> list[
+    tuple[list[str], str]
+]:
+    """Check whether small distributional pressure improves Fashion HORN quality."""
+
+    entries = []
+    variants = [
+        ("horn_dist0025", "sparse_horn_fashion_mnist_recommended_dist0025"),
+        ("horn_dist005", "sparse_horn_fashion_mnist_recommended_dist005"),
+    ]
+    classifier_args = (
+        "--quality-classifier-train-limit 5000 "
+        "--quality-classifier-eval-limit 2000 "
+        "--quality-classifier-epochs 10 "
+        "--quality-classifier-dim 256 "
+        "--quality-classifier-depth 3"
+    )
+    for seed in (11, 12, 13):
+        for variant_suffix, local_preset in variants:
+            run_name = (
+                "mnist_generator_fashion_mnist_horn_calibration_"
+                f"{variant_suffix}_n196_resizeconv_train500_seed{seed}_20e"
+            )
+            args = shlex.split(
+                f"--seed {seed} --preset {local_preset} {classifier_args}"
+            )
+            output_dir = VOLUME_MOUNT / "mnist_generator" / run_name
+            args = _with_default_arg(args, "--output-dir", output_dir)
+            entries.append((args, run_name))
+    return entries
+
+
+def _mnist_generator_cifar10_gray_frontier_probe_sweep() -> list[
+    tuple[list[str], str]
+]:
+    """First 32x32 natural-image grayscale HORN-vs-control frontier probe."""
+
+    entries = []
+    variants = [
+        ("horn_recommended", "sparse_horn_cifar10_gray_recommended"),
+        ("horn_dist005", "sparse_horn_cifar10_gray_recommended_dist005"),
+        ("state_mlp_strength8", "sparse_horn_cifar10_gray_state_mlp_strength8"),
+    ]
+    classifier_args = (
+        "--quality-classifier-train-limit 5000 "
+        "--quality-classifier-eval-limit 2000 "
+        "--quality-classifier-epochs 10 "
+        "--quality-classifier-dim 256 "
+        "--quality-classifier-depth 3"
+    )
+    for seed in (11, 12, 13):
+        for variant_suffix, local_preset in variants:
+            run_name = (
+                "mnist_generator_cifar10_gray_frontier_"
+                f"{variant_suffix}_n256_resizeconv_train1000_seed{seed}_20e"
+            )
+            args = shlex.split(
+                f"--seed {seed} --preset {local_preset} {classifier_args}"
+            )
+            output_dir = VOLUME_MOUNT / "mnist_generator" / run_name
+            args = _with_default_arg(args, "--output-dir", output_dir)
+            entries.append((args, run_name))
+    return entries
+
+
 def _sweep_entries(preset: str) -> list[tuple[list[str], str]]:
     if preset == "mnist_generator_core":
         return _mnist_generator_core_sweep()
@@ -2489,6 +2636,14 @@ def _sweep_entries(preset: str) -> list[tuple[list[str], str]]:
         return _mnist_generator_sparse_horn_recommended_ablation_probe_sweep()
     if preset == "mnist_generator_sparse_horn_state_mlp_strength8_diversity_probe":
         return _mnist_generator_sparse_horn_state_mlp_strength8_diversity_probe_sweep()
+    if preset == "mnist_generator_fashion_mnist_frontier_probe":
+        return _mnist_generator_fashion_mnist_frontier_probe_sweep()
+    if preset == "mnist_generator_fashion_mnist_readout_capacity_probe":
+        return _mnist_generator_fashion_mnist_readout_capacity_probe_sweep()
+    if preset == "mnist_generator_fashion_mnist_horn_calibration_probe":
+        return _mnist_generator_fashion_mnist_horn_calibration_probe_sweep()
+    if preset == "mnist_generator_cifar10_gray_frontier_probe":
+        return _mnist_generator_cifar10_gray_frontier_probe_sweep()
     raise ValueError("unknown sweep preset")
 
 
@@ -2544,6 +2699,9 @@ def _write_sweep_csv(results: list[dict[str, Any]], path: Path) -> None:
         "generator.quality_classifier_depth",
         "generator.quality_classifier_train_limit",
         "generator.quality_classifier_eval_limit",
+        "generator.dataset_name",
+        "generator.data_source",
+        "generator.image_shape",
         "generator.classifier_label_accuracy",
         "generator.classifier_label_confidence",
         "generator.classifier_max_confidence",

@@ -6,7 +6,9 @@ import argparse
 import gzip
 import json
 import logging
+import pickle
 import struct
+import tarfile
 import urllib.request
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -57,6 +59,52 @@ MNIST_IDX_URLS = {
     "eval_images": "https://storage.googleapis.com/cvdf-datasets/mnist/t10k-images-idx3-ubyte.gz",
     "eval_labels": "https://storage.googleapis.com/cvdf-datasets/mnist/t10k-labels-idx1-ubyte.gz",
 }
+
+FASHION_MNIST_IDX_URLS = {
+    "train_images": (
+        "http://fashion-mnist.s3-website.eu-central-1.amazonaws.com/"
+        "train-images-idx3-ubyte.gz"
+    ),
+    "train_labels": (
+        "http://fashion-mnist.s3-website.eu-central-1.amazonaws.com/"
+        "train-labels-idx1-ubyte.gz"
+    ),
+    "eval_images": (
+        "http://fashion-mnist.s3-website.eu-central-1.amazonaws.com/"
+        "t10k-images-idx3-ubyte.gz"
+    ),
+    "eval_labels": (
+        "http://fashion-mnist.s3-website.eu-central-1.amazonaws.com/"
+        "t10k-labels-idx1-ubyte.gz"
+    ),
+}
+
+IDX_DATASET_URLS = {
+    "mnist": MNIST_IDX_URLS,
+    "fashion_mnist": FASHION_MNIST_IDX_URLS,
+}
+
+CIFAR10_PYTHON_URL = "https://www.cs.toronto.edu/~kriz/cifar-10-python.tar.gz"
+
+IMAGE_DATASET_SHAPES = {
+    "mnist": (28, 28),
+    "fashion_mnist": (28, 28),
+    "cifar10_gray": (32, 32),
+}
+
+DIRECT_DATASET_NAMES = frozenset((*IDX_DATASET_URLS, "cifar10_gray"))
+
+
+def image_shape_for_dataset(dataset_name: str) -> Tuple[int, int]:
+    """Return the flat grayscale image shape used by image-generator harnesses."""
+
+    try:
+        return IMAGE_DATASET_SHAPES[dataset_name]
+    except KeyError as exc:
+        known = "', '".join(sorted(IMAGE_DATASET_SHAPES))
+        raise ValueError(
+            f"unknown image dataset {dataset_name!r}; choose one of: '{known}'"
+        ) from exc
 
 
 @dataclass(frozen=True)
@@ -192,9 +240,12 @@ def _read_idx_labels(path: Path) -> np.ndarray:
     return data.reshape(n_labels).astype(np.int32)
 
 
-def _load_mnist_idx(cache_dir: Path) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+def _load_idx_dataset(
+    urls: Dict[str, str],
+    cache_dir: Path,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     paths = {}
-    for name, url in MNIST_IDX_URLS.items():
+    for name, url in urls.items():
         path = cache_dir / Path(url).name
         _download_file(url, path)
         paths[name] = path
@@ -207,15 +258,102 @@ def _load_mnist_idx(cache_dir: Path) -> Tuple[np.ndarray, np.ndarray, np.ndarray
     )
 
 
+def _load_mnist_idx(cache_dir: Path) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    return _load_idx_dataset(MNIST_IDX_URLS, cache_dir)
+
+
+def _read_cifar10_batch(
+    archive: tarfile.TarFile,
+    member_suffix: str,
+) -> Tuple[np.ndarray, np.ndarray]:
+    member = next(
+        item for item in archive.getmembers() if item.name.endswith(member_suffix)
+    )
+    handle = archive.extractfile(member)
+    if handle is None:
+        raise ValueError(f"could not read CIFAR-10 archive member {member.name}")
+    with handle:
+        batch = pickle.load(handle, encoding="bytes")
+    data_key = b"data" if b"data" in batch else "data"
+    label_key = b"labels" if b"labels" in batch else "labels"
+    images = batch[data_key].reshape(-1, 3, 32, 32).astype(np.float32) / 255.0
+    gray = (
+        0.2989 * images[:, 0]
+        + 0.5870 * images[:, 1]
+        + 0.1140 * images[:, 2]
+    )
+    labels = np.asarray(batch[label_key], dtype=np.int32)
+    return gray.reshape(-1, 32 * 32), labels
+
+
+def _load_cifar10_gray(
+    cache_dir: Path,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    archive_path = cache_dir / Path(CIFAR10_PYTHON_URL).name
+    _download_file(CIFAR10_PYTHON_URL, archive_path)
+    train_images = []
+    train_labels = []
+    with tarfile.open(archive_path, "r:gz") as archive:
+        for index in range(1, 6):
+            images, labels = _read_cifar10_batch(
+                archive,
+                f"data_batch_{index}",
+            )
+            train_images.append(images)
+            train_labels.append(labels)
+        eval_images, eval_labels = _read_cifar10_batch(archive, "test_batch")
+    return (
+        np.concatenate(train_images, axis=0),
+        np.concatenate(train_labels, axis=0),
+        eval_images,
+        eval_labels,
+    )
+
+
+def _load_direct_image_dataset(
+    dataset_name: str,
+    cache_dir: Path,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    if dataset_name in IDX_DATASET_URLS:
+        return _load_idx_dataset(IDX_DATASET_URLS[dataset_name], cache_dir)
+    if dataset_name == "cifar10_gray":
+        return _load_cifar10_gray(cache_dir)
+    known = "', '".join(sorted(DIRECT_DATASET_NAMES))
+    raise ValueError(
+        f"direct dataset loading is only available for dataset_name in '{known}'"
+    )
+
+
+def _flatten_loaded_images(images: np.ndarray, dataset_name: str) -> np.ndarray:
+    images = images.astype(np.float32)
+    if images.max(initial=0.0) > 1.0:
+        images = images / 255.0
+    if images.ndim == 4 and images.shape[-1] == 1:
+        images = images[..., 0]
+    elif images.ndim == 4 and images.shape[-1] == 3:
+        if dataset_name != "cifar10_gray":
+            raise ValueError(
+                f"dataset {dataset_name!r} produced RGB images; use an explicit "
+                "grayscale dataset_name or add RGB generator support"
+            )
+        images = (
+            0.2989 * images[..., 0]
+            + 0.5870 * images[..., 1]
+            + 0.1140 * images[..., 2]
+        )
+    return images.reshape(images.shape[0], -1)
+
+
 def load_mnist_data(
     subset_size: Optional[int] = None,
     *,
     source: str = "tfds",
+    dataset_name: str = "mnist",
     train_limit: Optional[int] = None,
     eval_limit: Optional[int] = None,
     seed: int = 42,
 ):
-    """Load MNIST as flattened float32 images.
+    """Load an MNIST-shaped dataset as flattened float32 images.
 
     The ``subset_size`` argument is kept for older example compatibility.
     Prefer ``train_limit`` and ``eval_limit`` in new experiment code.
@@ -234,32 +372,51 @@ def load_mnist_data(
 
     if source not in {"tfds", "idx"}:
         raise ValueError("source must be 'tfds', 'idx', or 'synthetic'")
+    if source == "idx" and dataset_name not in DIRECT_DATASET_NAMES:
+        known = "', '".join(sorted(DIRECT_DATASET_NAMES))
+        raise ValueError(
+            f"direct dataset loading is only available for dataset_name in '{known}'"
+        )
 
     if source == "tfds":
         try:
             import tensorflow_datasets as tfds
 
-            train_ds = tfds.as_numpy(tfds.load("mnist", split="train", batch_size=-1))
-            test_ds = tfds.as_numpy(tfds.load("mnist", split="test", batch_size=-1))
+            train_ds = tfds.as_numpy(
+                tfds.load(dataset_name, split="train", batch_size=-1)
+            )
+            test_ds = tfds.as_numpy(
+                tfds.load(dataset_name, split="test", batch_size=-1)
+            )
 
-            train_images = train_ds["image"].astype(np.float32) / 255.0
-            eval_images = test_ds["image"].astype(np.float32) / 255.0
+            train_images = _flatten_loaded_images(train_ds["image"], dataset_name)
+            eval_images = _flatten_loaded_images(test_ds["image"], dataset_name)
             train_labels = train_ds["label"].astype(np.int32)
             eval_labels = test_ds["label"].astype(np.int32)
-
-            train_images = train_images.reshape(-1, 28 * 28)
-            eval_images = eval_images.reshape(-1, 28 * 28)
         except Exception as exc:
+            if dataset_name not in DIRECT_DATASET_NAMES:
+                raise
             _logger().warning(
-                "TFDS MNIST loading failed (%s); falling back to direct IDX download.",
+                "TFDS %s loading failed (%s); falling back to direct dataset download.",
+                dataset_name,
                 exc,
             )
-            train_images, train_labels, eval_images, eval_labels = _load_mnist_idx(
-                Path.home() / ".cache" / "oscnet" / "mnist"
+            train_images, train_labels, eval_images, eval_labels = _load_direct_image_dataset(
+                dataset_name,
+                Path.home() / ".cache" / "oscnet" / dataset_name,
             )
     else:
-        train_images, train_labels, eval_images, eval_labels = _load_mnist_idx(
-            Path.home() / ".cache" / "oscnet" / "mnist"
+        train_images, train_labels, eval_images, eval_labels = _load_direct_image_dataset(
+            dataset_name,
+            Path.home() / ".cache" / "oscnet" / dataset_name,
+        )
+
+    expected_shape = image_shape_for_dataset(dataset_name)
+    expected_dim = expected_shape[0] * expected_shape[1]
+    if train_images.shape[-1] != expected_dim or eval_images.shape[-1] != expected_dim:
+        raise ValueError(
+            f"dataset {dataset_name!r} should produce flat images of length "
+            f"{expected_dim}; got train={train_images.shape[-1]} eval={eval_images.shape[-1]}"
         )
 
     if train_limit is not None:

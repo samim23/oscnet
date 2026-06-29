@@ -10,6 +10,7 @@ from oscnet.experiments.harness import (
     AutoencoderExperimentConfig,
     AutoencoderExperimentResult,
 )
+from oscnet.experiments.mnist_autoencoder import image_shape_for_dataset
 
 from .config import MNISTGeneratorExperimentConfig
 from .presets import GENERATOR_PRESETS, RECOMMENDED_GENERATOR_PRESET, preset_defaults
@@ -36,6 +37,18 @@ def _parse_int_tuple(value: str | Sequence[int]) -> Tuple[int, ...]:
     if any(step < 0 for step in values):
         raise argparse.ArgumentTypeError("expected non-negative integers")
     return values
+
+
+def _parse_image_shape(value: str | Sequence[int] | None) -> Tuple[int, int] | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        parts = tuple(int(part.strip()) for part in value.split(",") if part.strip())
+    else:
+        parts = tuple(int(part) for part in value)
+    if len(parts) != 2 or any(part < 1 for part in parts):
+        raise argparse.ArgumentTypeError("expected image shape like '28,28'")
+    return parts
 
 
 def _selected_preset(
@@ -149,6 +162,15 @@ def build_arg_parser(preset: str = "none") -> argparse.ArgumentParser:
         choices=["mlp", "spatial_basis", "local_basis", "resize_conv"],
         default="mlp",
     )
+    parser.add_argument(
+        "--image-shape",
+        type=_parse_image_shape,
+        default=None,
+        help=(
+            "Flat grayscale image shape as 'height,width'. Defaults to the "
+            "shape implied by --dataset-name."
+        ),
+    )
     parser.add_argument("--spatial-basis-sigma", type=float, default=0.0)
     parser.add_argument("--local-patch-size", type=int, default=5)
     parser.add_argument("--resize-conv-seed-size", type=int, default=7)
@@ -228,6 +250,16 @@ def build_arg_parser(preset: str = "none") -> argparse.ArgumentParser:
         choices=["tfds", "idx", "synthetic"],
         default="idx",
     )
+    parser.add_argument(
+        "--dataset-name",
+        "--dataset",
+        choices=["mnist", "fashion_mnist", "cifar10_gray"],
+        default="mnist",
+        help=(
+            "Flat grayscale dataset to load. MNIST and Fashion-MNIST use IDX; "
+            "cifar10_gray uses the CIFAR-10 Python archive converted to grayscale."
+        ),
+    )
     parser.add_argument("--train-limit", type=int, default=10_000)
     parser.add_argument("--eval-limit", type=int, default=1_000)
     parser.set_defaults(_preset_defaults_applied=False)
@@ -261,6 +293,11 @@ def config_from_args(args: argparse.Namespace) -> MNISTGeneratorExperimentConfig
         checkpoint_every=args.checkpoint_every,
         artifact_every=args.artifact_every,
     )
+    image_shape = (
+        args.image_shape
+        if args.image_shape is not None
+        else image_shape_for_dataset(args.dataset_name)
+    )
     return MNISTGeneratorExperimentConfig(
         run=run,
         model_family=args.model_family,
@@ -293,6 +330,7 @@ def config_from_args(args: argparse.Namespace) -> MNISTGeneratorExperimentConfig
         conditioning_mode=args.conditioning_mode,
         readout_mode=args.readout_mode,
         decoder_mode=args.decoder_mode,
+        image_shape=image_shape,
         spatial_basis_sigma=args.spatial_basis_sigma,
         local_patch_size=args.local_patch_size,
         resize_conv_seed_size=args.resize_conv_seed_size,
@@ -329,6 +367,7 @@ def config_from_args(args: argparse.Namespace) -> MNISTGeneratorExperimentConfig
         eval_sample_count=args.eval_sample_count,
         train_settling_steps=args.train_settling_steps,
         settling_steps=args.settling_steps,
+        dataset_name=args.dataset_name,
         data_source=args.data_source,
         train_limit=args.train_limit,
         eval_limit=args.eval_limit,

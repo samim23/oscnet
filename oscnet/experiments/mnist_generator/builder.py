@@ -84,6 +84,7 @@ def build_mnist_generator_model(
         "conditioning_mode": config.conditioning_mode if config.conditional else "none",
         "readout_mode": config.readout_mode,
         "decoder_mode": config.decoder_mode,
+        "image_shape": config.image_shape,
         "spatial_basis_sigma": config.spatial_basis_sigma,
         "local_patch_size": config.local_patch_size,
         "resize_conv_seed_shape": (
@@ -115,4 +116,3 @@ def build_mnist_generator_model(
             }
         )
     return model_class(**model_kwargs)
-

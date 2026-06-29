@@ -4,6 +4,7 @@ import jax
 import jax.numpy as jnp
 
 from oscnet.experiments.harness import AutoencoderExperimentConfig
+from oscnet.experiments.mnist_autoencoder import load_mnist_data
 from oscnet.experiments.mnist_generator import (
     MNISTDriftQueue,
     MNISTFeatureClassifier,
@@ -147,6 +148,16 @@ def test_sparse_horn_mnist_control_presets_share_recipe():
         "sparse_horn_mnist_state_mlp_class_coupling_strength8_dist005": "state_mlp",
         "sparse_horn_mnist_state_mlp_class_coupling_strength8_dist01": "state_mlp",
         "sparse_horn_mnist_state_mlp_class_coupling_strength8_dist01_class": "state_mlp",
+        "sparse_horn_fashion_mnist_recommended": "horn",
+        "sparse_horn_fashion_mnist_state_mlp_strength8": "state_mlp",
+        "sparse_horn_fashion_mnist_state_mlp_strength8_dist005": "state_mlp",
+        "sparse_horn_fashion_mnist_recommended_ch16": "horn",
+        "sparse_horn_fashion_mnist_state_mlp_strength8_ch16": "state_mlp",
+        "sparse_horn_fashion_mnist_recommended_dist0025": "horn",
+        "sparse_horn_fashion_mnist_recommended_dist005": "horn",
+        "sparse_horn_cifar10_gray_recommended": "horn",
+        "sparse_horn_cifar10_gray_recommended_dist005": "horn",
+        "sparse_horn_cifar10_gray_state_mlp_strength8": "state_mlp",
         "sparse_horn_mnist_state_mlp_class_coupling_strong_dist005": "state_mlp",
         "sparse_horn_mnist_state_mlp_class_coupling_strong_dist01": "state_mlp",
         "sparse_horn_mnist_state_mlp_class_coupling_strong_dist01_class": "state_mlp",
@@ -160,7 +171,10 @@ def test_sparse_horn_mnist_control_presets_share_recipe():
         assert parsed.decoder_mode == "resize_conv"
         assert parsed.readout_mode == "mean_relative"
         assert parsed.loss_mode == "pixel_drift"
-        assert parsed.train_limit == 500
+        if parsed.dataset_name == "cifar10_gray":
+            assert parsed.train_limit == 1000
+        else:
+            assert parsed.train_limit == 500
 
     step1 = config_from_args(parse_args(["--preset", "sparse_horn_mnist_step1"]))
     assert step1.steps == 1
@@ -291,6 +305,40 @@ def test_sparse_horn_mnist_control_presets_share_recipe():
     assert state_mlp_strength8_dist.distributional_weight == 0.1
     assert state_mlp_strength8_dist.class_moment_weight == 1.0
 
+    fashion = config_from_args(
+        parse_args(["--preset", "sparse_horn_fashion_mnist_recommended"])
+    )
+    assert fashion.dataset_name == "fashion_mnist"
+    assert fashion.data_source == "idx"
+    assert fashion.conditioning_mode == "class_coupling"
+    assert fashion.conditioning_strength == 8.0
+    assert fashion.horn_damping == 0.30
+
+    fashion_ch16 = config_from_args(
+        parse_args(["--preset", "sparse_horn_fashion_mnist_recommended_ch16"])
+    )
+    assert fashion_ch16.dataset_name == "fashion_mnist"
+    assert fashion_ch16.resize_conv_min_channels == 16
+
+    fashion_dist = config_from_args(
+        parse_args(["--preset", "sparse_horn_fashion_mnist_recommended_dist0025"])
+    )
+    assert fashion_dist.dataset_name == "fashion_mnist"
+    assert fashion_dist.distributional_weight == 0.025
+
+    cifar = config_from_args(
+        parse_args(["--preset", "sparse_horn_cifar10_gray_recommended"])
+    )
+    assert cifar.dataset_name == "cifar10_gray"
+    assert cifar.image_shape == (32, 32)
+    assert cifar.resize_conv_seed_size == 8
+    assert cifar.num_oscillators == 256
+    assert cifar.train_limit == 1000
+
+    cifar_model = build_mnist_generator_model(cifar, jax.random.PRNGKey(0))
+    assert cifar_model.image_shape == (32, 32)
+    assert cifar_model.image_dim == 32 * 32
+
     state_mlp_dist = config_from_args(
         parse_args(
             [
@@ -310,6 +358,20 @@ def test_sparse_horn_mnist_control_presets_share_recipe():
     )
     assert anchor.conditioning_mode == "class_coupling"
     assert anchor.label_phase_scale == 0.5
+
+
+def test_unknown_idx_dataset_loading_is_rejected():
+    try:
+        load_mnist_data(
+            source="idx",
+            dataset_name="not_a_dataset",
+            train_limit=1,
+            eval_limit=1,
+        )
+    except ValueError as exc:
+        assert "direct dataset loading" in str(exc)
+    else:
+        raise AssertionError("unknown IDX dataset must not silently load MNIST data")
 
 
 def test_class_oscillator_preset_removes_initial_label_shift():

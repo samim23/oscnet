@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from pathlib import Path
+from typing import Any, Dict, Optional, Tuple
 
 import equinox as eqx
 import jax
@@ -16,9 +17,19 @@ from .common import Array
 from .config import MNISTGeneratorExperimentConfig
 from .metrics import sample_generator_images
 
-def _save_image_grid(images: Array, path: Path, *, columns: int = 8) -> None:
+def _save_image_grid(
+    images: Array,
+    path: Path,
+    *,
+    image_shape: Tuple[int, int],
+    columns: int = 8,
+) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    images_np = np.asarray(images, dtype=np.float32).reshape(-1, 28, 28)
+    images_np = np.asarray(images, dtype=np.float32).reshape(
+        -1,
+        int(image_shape[0]),
+        int(image_shape[1]),
+    )
     rows = int(np.ceil(images_np.shape[0] / columns))
     fig, axes = plt.subplots(rows, columns, figsize=(columns, rows))
     axes_np = np.asarray(axes).reshape(rows, columns)
@@ -71,6 +82,7 @@ def save_mnist_generator_artifacts(
     _save_image_grid(
         generated[: min(count, 64)],
         paths.plots / f"mnist_generator_samples_epoch_{epoch:03d}.png",
+        image_shape=tuple(int(size) for size in model.image_shape),
     )
 
 
@@ -83,6 +95,9 @@ def _save_metrics_bundle(metrics: Dict[str, Any], paths: ExperimentPaths) -> Non
 def _checkpoint_hyperparams(config: MNISTGeneratorExperimentConfig) -> Dict[str, Any]:
     return {
         "experiment_family": "mnist_generator",
+        "dataset_name": config.dataset_name,
+        "data_source": config.data_source,
+        "image_shape": config.image_shape,
         "model_family": config.model_family,
         "num_oscillators": config.num_oscillators,
         "decoder_hidden_dim": config.decoder_hidden_dim,

@@ -13,6 +13,10 @@ import matplotlib.pyplot as plt
 
 
 DEFAULT_VARIANT_PATTERNS = (
+    re.compile(r"fashion_mnist_frontier_(.+?)_n196"),
+    re.compile(r"fashion_mnist_readout_capacity_(.+?)_n196"),
+    re.compile(r"fashion_mnist_horn_calibration_(.+?)_n196"),
+    re.compile(r"cifar10_gray_frontier_(.+?)_n256"),
     re.compile(r"state_mlp_strength8_diversity_(.+?)_n196"),
     re.compile(r"recommended_ablation_(.+?)_n196"),
     re.compile(r"damping_distributional_(.+?)_n196"),
