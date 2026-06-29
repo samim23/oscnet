@@ -124,6 +124,16 @@ checking whether a HORN gain is genuinely dynamical rather than a generator
 shortcut. The strength-8 StateMLP distributional controls improve pixel
 proximity but have not recovered HORN-like diversity in the current sweeps.
 
+To summarize a completed HORN-vs-control sweep as a quality/diversity frontier:
+
+```bash
+python scripts/analyze_mnist_generator_frontier.py
+```
+
+This reads the latest strength-8 StateMLP diversity sweep by default and writes
+`frontier_summary.csv`, `frontier_summary.md`, and `frontier_plot.png` under
+`outputs/analysis/mnist_generator_frontier/`.
+
 ## Example Menu
 
 | Example | What it runs |

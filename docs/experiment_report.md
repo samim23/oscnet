@@ -5331,6 +5331,18 @@ calibration while keeping diversity above `1.0`. If chasing attribution, probe
 why frozen recurrent HORN works so well: fixed sparse HORN substrate versus
 learned conditioning drive versus decoder adaptation.
 
+Frontier artifact command:
+
+```bash
+python scripts/analyze_mnist_generator_frontier.py
+```
+
+This writes `outputs/analysis/mnist_generator_frontier/frontier_summary.csv`,
+`frontier_summary.md`, and `frontier_plot.png`. The current plot makes the
+tradeoff explicit: recommended HORN is the high-diversity frontier point,
+while the best StateMLP distributional control is the pixel-proximity frontier
+point.
+
 ## Maintenance Notes
 
 - Put numerical benchmark summaries in this file and/or `outputs/analysis`.

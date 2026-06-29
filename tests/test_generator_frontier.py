@@ -1,0 +1,94 @@
+from pathlib import Path
+
+from oscnet.analysis.generator_frontier import (
+    infer_generator_variant,
+    read_generator_sweep_csv,
+    summarize_generator_frontier,
+    write_frontier_csv,
+    write_frontier_markdown,
+)
+
+
+def test_infer_generator_variant_handles_known_modal_sweeps():
+    assert (
+        infer_generator_variant(
+            "mnist_generator_sparse_horn_state_mlp_strength8_diversity_"
+            "horn_recommended_n196_resizeconv_train500_seed11_20e"
+        )
+        == "horn_recommended"
+    )
+    assert (
+        infer_generator_variant(
+            "mnist_generator_sparse_horn_recommended_ablation_"
+            "no_main_coupling_n196_resizeconv_train500_seed11_20e"
+        )
+        == "no_main_coupling"
+    )
+
+
+def test_generator_frontier_marks_non_dominated_tradeoff(tmp_path: Path):
+    rows = {
+        "horn": [
+            {
+                "generator.classifier_label_accuracy": "1.0",
+                "generator.diversity_ratio": "1.10",
+                "generator.nearest_real_mse": "0.052",
+            },
+            {
+                "generator.classifier_label_accuracy": "1.0",
+                "generator.diversity_ratio": "1.20",
+                "generator.nearest_real_mse": "0.056",
+            },
+        ],
+        "state_mlp": [
+            {
+                "generator.classifier_label_accuracy": "1.0",
+                "generator.diversity_ratio": "0.76",
+                "generator.nearest_real_mse": "0.034",
+            }
+        ],
+        "dominated": [
+            {
+                "generator.classifier_label_accuracy": "0.9",
+                "generator.diversity_ratio": "0.5",
+                "generator.nearest_real_mse": "0.080",
+            }
+        ],
+    }
+
+    summaries = summarize_generator_frontier(rows, accuracy_floor=0.99)
+    by_variant = {summary.variant: summary for summary in summaries}
+
+    assert by_variant["horn"].pareto_frontier is True
+    assert by_variant["state_mlp"].pareto_frontier is True
+    assert by_variant["dominated"].pareto_frontier is False
+
+    csv_path = tmp_path / "frontier.csv"
+    md_path = tmp_path / "frontier.md"
+    write_frontier_csv(summaries, csv_path)
+    write_frontier_markdown(summaries, md_path)
+
+    assert "pareto_frontier" in csv_path.read_text()
+    assert "Frontier variants" in md_path.read_text()
+
+
+def test_read_generator_sweep_csv_groups_by_variant(tmp_path: Path):
+    csv_path = tmp_path / "sweep.csv"
+    csv_path.write_text(
+        "\n".join(
+            [
+                "run,generator.classifier_label_accuracy,"
+                "generator.diversity_ratio,generator.nearest_real_mse",
+                "prefix_state_mlp_strength8_diversity_horn_n196_seed11,"
+                "1.0,1.1,0.05",
+                "prefix_state_mlp_strength8_diversity_horn_n196_seed12,"
+                "1.0,1.2,0.06",
+            ]
+        )
+        + "\n"
+    )
+
+    grouped = read_generator_sweep_csv(csv_path)
+
+    assert list(grouped) == ["horn"]
+    assert len(grouped["horn"]) == 2

@@ -94,6 +94,16 @@ What to keep honest:
 - For generated-label metrics, prefer sweeps that set
   `--quality-classifier-train-limit` above the generator `--train-limit`; the
   strict HORN audit uses 500 generator examples but trains the judge on 5000.
+- To compare finished generator sweeps as a quality/diversity frontier, run:
+
+  ```bash
+  python scripts/analyze_mnist_generator_frontier.py
+  ```
+
+  The script writes a compact CSV, Markdown table, and PNG plot under
+  `outputs/analysis/mnist_generator_frontier/`. Frontier variants are
+  non-dominated over generated-label accuracy, diversity ratio, and
+  nearest-real MSE, with a default generated-label accuracy floor of `0.99`.
 - Detailed results and caveats live in `docs/experiment_report.md`.
 
 ## Harness Menu

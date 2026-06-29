@@ -12,6 +12,15 @@ from .phase_synchrony import (
     phase_order_parameter,
     trace_phase_summary,
 )
+from .generator_frontier import (
+    GeneratorFrontierSummary,
+    infer_generator_variant,
+    plot_frontier,
+    read_generator_sweep_csv,
+    summarize_generator_frontier,
+    write_frontier_csv,
+    write_frontier_markdown,
+)
 from .reconstruction_diagnostics import (
     ReconstructionArtifactSummary,
     RunDiagnosticSummary,
@@ -24,16 +33,23 @@ from .reconstruction_diagnostics import (
 
 __all__ = [
     "circular_difference",
+    "GeneratorFrontierSummary",
     "ReconstructionArtifactSummary",
     "RunDiagnosticSummary",
     "infer_changed_mask",
+    "infer_generator_variant",
     "latest_reconstruction_artifact",
     "local_group_order",
     "mean_neighbor_phase_difference",
     "phase_order_parameter",
+    "plot_frontier",
+    "read_generator_sweep_csv",
     "summarize_reconstruction_artifact",
+    "summarize_generator_frontier",
     "summarize_run_diagnostics",
     "trace_phase_summary",
+    "write_frontier_csv",
+    "write_frontier_markdown",
     "write_run_diagnostics_csv",
 ]
 
