@@ -38,6 +38,7 @@ class KuramotoImageGenerator(eqx.Module):
     condition_omega: Optional[Array]
     condition_coupling: Optional[Array]
     label_condition_coupling: Optional[Array]
+    conditioning_target_mask: Tuple[float, ...] = eqx.field(static=True)
     decoder_layers: Tuple[eqx.nn.Linear, ...]
     resize_conv_layers: Tuple[eqx.nn.Conv2d, ...]
     resize_conv_output: Optional[eqx.nn.Conv2d]
@@ -57,6 +58,8 @@ class KuramotoImageGenerator(eqx.Module):
     coupling_floor: float = eqx.field(static=True)
     coupling_bias_strength: float = eqx.field(static=True)
     conditioning_strength: float = eqx.field(static=True)
+    conditioning_target_fraction: float = eqx.field(static=True)
+    conditioning_target_pattern: str = eqx.field(static=True)
     train_dynamics: bool = eqx.field(static=True)
     train_recurrent_dynamics: bool = eqx.field(static=True)
     train_conditioning_dynamics: bool = eqx.field(static=True)
@@ -87,6 +90,8 @@ class KuramotoImageGenerator(eqx.Module):
         coupling_floor: float = 0.0,
         coupling_bias_strength: float = 0.0,
         conditioning_strength: float = 1.0,
+        conditioning_target_fraction: float = 1.0,
+        conditioning_target_pattern: str = "prefix",
         train_dynamics: bool = True,
         train_recurrent_dynamics: Optional[bool] = None,
         train_conditioning_dynamics: Optional[bool] = None,
@@ -163,6 +168,17 @@ class KuramotoImageGenerator(eqx.Module):
             raise ValueError("coupling_floor must be in [0, 1]")
         if conditioning_strength < 0.0:
             raise ValueError("conditioning_strength must be non-negative")
+        if conditioning_target_fraction <= 0.0 or conditioning_target_fraction > 1.0:
+            raise ValueError("conditioning_target_fraction must be in (0, 1]")
+        if conditioning_target_pattern not in (
+            "prefix",
+            "spatial_grid",
+            "center_block",
+        ):
+            raise ValueError(
+                "conditioning_target_pattern must be 'prefix', 'spatial_grid', "
+                "or 'center_block'"
+            )
         if key is None:
             key = jax.random.PRNGKey(42)
 
@@ -180,6 +196,8 @@ class KuramotoImageGenerator(eqx.Module):
         self.coupling_floor = float(coupling_floor)
         self.coupling_bias_strength = float(coupling_bias_strength)
         self.conditioning_strength = float(conditioning_strength)
+        self.conditioning_target_fraction = float(conditioning_target_fraction)
+        self.conditioning_target_pattern = conditioning_target_pattern
         if train_recurrent_dynamics is None:
             train_recurrent_dynamics = bool(train_dynamics)
         if train_conditioning_dynamics is None:
@@ -270,11 +288,17 @@ class KuramotoImageGenerator(eqx.Module):
         self.condition_omega = None
         self.condition_coupling = None
         self.label_condition_coupling = None
+        self.conditioning_target_mask = ()
         if (
             self.num_classes > 0
             and self.conditioning_mode == "class_coupling"
             and self.num_condition_oscillators > 0
         ):
+            self.conditioning_target_mask = self._conditioning_target_mask(
+                self.num_oscillators,
+                self.conditioning_target_fraction,
+                self.conditioning_target_pattern,
+            )
             self.label_condition_phase = (
                 jax.random.uniform(
                     condition_phase_key,
@@ -301,6 +325,11 @@ class KuramotoImageGenerator(eqx.Module):
             and self.conditioning_mode == "class_oscillator"
             and self.num_condition_oscillators > 0
         ):
+            self.conditioning_target_mask = self._conditioning_target_mask(
+                self.num_oscillators,
+                self.conditioning_target_fraction,
+                self.conditioning_target_pattern,
+            )
             self.condition_omega = (
                 jax.random.normal(
                     condition_omega_key,
@@ -427,6 +456,156 @@ class KuramotoImageGenerator(eqx.Module):
                 decoder_layers.append(layer)
             self.decoder_layers = tuple(decoder_layers)
 
+    @staticmethod
+    def _conditioning_target_mask(
+        num_oscillators: int,
+        target_fraction: float,
+        pattern: str = "prefix",
+    ) -> Tuple[float, ...]:
+        """Return a fixed mask for oscillators receiving direct class drive."""
+
+        count = int(math.ceil(float(num_oscillators) * float(target_fraction)))
+        count = min(max(count, 1), int(num_oscillators))
+        if pattern == "prefix":
+            indices = range(count)
+        elif pattern == "spatial_grid":
+            indices = KuramotoImageGenerator._spatial_grid_target_indices(
+                num_oscillators,
+                count,
+            )
+        elif pattern == "center_block":
+            indices = KuramotoImageGenerator._center_block_target_indices(
+                num_oscillators,
+                count,
+            )
+        else:
+            raise ValueError(
+                "conditioning_target_pattern must be 'prefix', 'spatial_grid', "
+                "or 'center_block'"
+            )
+        targets = set(int(index) for index in indices)
+        return tuple(
+            1.0 if index in targets else 0.0 for index in range(num_oscillators)
+        )
+
+    @staticmethod
+    def _spatial_grid_target_indices(
+        num_oscillators: int,
+        count: int,
+    ) -> Tuple[int, ...]:
+        """Return approximately even target indices over the oscillator grid."""
+
+        num_oscillators = int(num_oscillators)
+        count = min(max(int(count), 1), num_oscillators)
+        grid_rows = max(1, int(math.floor(math.sqrt(num_oscillators))))
+        grid_cols = max(1, int(math.ceil(num_oscillators / grid_rows)))
+        anchor_rows = max(
+            1,
+            int(round(math.sqrt(float(count) * grid_rows / float(grid_cols)))),
+        )
+        anchor_cols = max(1, int(math.ceil(float(count) / float(anchor_rows))))
+        anchor_rows = min(anchor_rows, grid_rows)
+        anchor_cols = min(anchor_cols, grid_cols)
+
+        selected = []
+        seen = set()
+        for row_index in range(anchor_rows):
+            row = (
+                int(round(row_index * (grid_rows - 1) / max(anchor_rows - 1, 1)))
+                if anchor_rows > 1
+                else grid_rows // 2
+            )
+            for col_index in range(anchor_cols):
+                col = (
+                    int(round(col_index * (grid_cols - 1) / max(anchor_cols - 1, 1)))
+                    if anchor_cols > 1
+                    else grid_cols // 2
+                )
+                index = row * grid_cols + col
+                if index < num_oscillators and index not in seen:
+                    selected.append(index)
+                    seen.add(index)
+                if len(selected) >= count:
+                    return tuple(selected)
+
+        if len(selected) < count:
+            all_indices = range(num_oscillators)
+            if selected:
+                coords = {
+                    index: (index // grid_cols, index % grid_cols)
+                    for index in all_indices
+                }
+                selected_coords = [coords[index] for index in selected]
+                remaining = [
+                    index
+                    for index in all_indices
+                    if index not in seen
+                ]
+                remaining.sort(
+                    key=lambda index: (
+                        min(
+                            (coords[index][0] - row) ** 2
+                            + (coords[index][1] - col) ** 2
+                            for row, col in selected_coords
+                        ),
+                        -index,
+                    ),
+                    reverse=True,
+                )
+            else:
+                remaining = list(all_indices)
+            for index in remaining:
+                selected.append(index)
+                if len(selected) >= count:
+                    break
+        return tuple(selected[:count])
+
+    @staticmethod
+    def _center_block_target_indices(
+        num_oscillators: int,
+        count: int,
+    ) -> Tuple[int, ...]:
+        """Return target indices from a compact centered oscillator-grid block."""
+
+        num_oscillators = int(num_oscillators)
+        count = min(max(int(count), 1), num_oscillators)
+        grid_rows = max(1, int(math.floor(math.sqrt(num_oscillators))))
+        grid_cols = max(1, int(math.ceil(num_oscillators / grid_rows)))
+        block_rows = max(
+            1,
+            int(round(math.sqrt(float(count) * grid_rows / float(grid_cols)))),
+        )
+        block_cols = max(1, int(math.ceil(float(count) / float(block_rows))))
+        block_rows = min(block_rows, grid_rows)
+        block_cols = min(block_cols, grid_cols)
+        start_row = max(0, (grid_rows - block_rows) // 2)
+        start_col = max(0, (grid_cols - block_cols) // 2)
+        candidate_indices = []
+        center_row = (grid_rows - 1) / 2.0
+        center_col = (grid_cols - 1) / 2.0
+        for row in range(start_row, start_row + block_rows):
+            for col in range(start_col, start_col + block_cols):
+                index = row * grid_cols + col
+                if index < num_oscillators:
+                    distance = (row - center_row) ** 2 + (col - center_col) ** 2
+                    candidate_indices.append((distance, row, col, index))
+        if len(candidate_indices) < count:
+            for index in range(num_oscillators):
+                row = index // grid_cols
+                col = index % grid_cols
+                if index not in {item[-1] for item in candidate_indices}:
+                    distance = (row - center_row) ** 2 + (col - center_col) ** 2
+                    candidate_indices.append((distance, row, col, index))
+        candidate_indices.sort()
+        return tuple(index for _, _, _, index in candidate_indices[:count])
+
+    def _conditioning_target_mask_array(self) -> Array:
+        """Return the fixed class-drive mask as a JAX array."""
+
+        if not self.conditioning_target_mask:
+            return jnp.ones((self.num_oscillators,), dtype=jnp.float32)
+        return jnp.asarray(self.conditioning_target_mask, dtype=jnp.float32)
+
     def initial_phase(
         self,
         key: jax.random.PRNGKey,
@@ -517,6 +696,9 @@ class KuramotoImageGenerator(eqx.Module):
 
         condition_phase = self.label_condition_phase[labels.astype(jnp.int32)]
         condition_coupling = self.label_condition_coupling[labels.astype(jnp.int32)]
+        condition_coupling = (
+            condition_coupling * self._conditioning_target_mask_array()[None, :, None]
+        )
         if not self.train_conditioning_dynamics:
             condition_phase = jax.lax.stop_gradient(condition_phase)
             condition_coupling = jax.lax.stop_gradient(condition_coupling)
@@ -543,6 +725,9 @@ class KuramotoImageGenerator(eqx.Module):
             return jnp.zeros_like(theta)
 
         condition_coupling = self.label_condition_coupling[labels.astype(jnp.int32)]
+        condition_coupling = (
+            condition_coupling * self._conditioning_target_mask_array()[None, :, None]
+        )
         if not self.train_conditioning_dynamics:
             condition_coupling = jax.lax.stop_gradient(condition_coupling)
         phase_diff = condition_theta[:, None, :] - theta[:, :, None]
@@ -881,6 +1066,7 @@ class KuramotoImageGenerator(eqx.Module):
                 if self.label_condition_coupling is None
                 else self.label_condition_coupling
             ),
+            "conditioning_target_mask": self._conditioning_target_mask_array(),
             "spatial_phase_weights": (
                 jnp.zeros((0, 2))
                 if self.spatial_phase_weights is None

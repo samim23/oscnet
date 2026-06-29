@@ -191,6 +191,37 @@ SWEEP_CSVS = {
         "outputs/analysis/"
         "modal_mnist_generator_cifar10_rgb_feature_metric_audit.csv"
     ),
+    "mnist_generator_cifar10_rgb_judge_audit": Path(
+        "outputs/analysis/modal_mnist_generator_cifar10_rgb_judge_audit.csv"
+    ),
+    "mnist_generator_cifar10_rgb_semantic_feature_drift_probe": Path(
+        "outputs/analysis/"
+        "modal_mnist_generator_cifar10_rgb_semantic_feature_drift_probe.csv"
+    ),
+    "mnist_generator_cifar10_rgb_semantic_feature_drift_attribution": Path(
+        "outputs/analysis/"
+        "modal_mnist_generator_cifar10_rgb_semantic_feature_drift_attribution.csv"
+    ),
+    "mnist_generator_cifar10_rgb_attribution_probe": Path(
+        "outputs/analysis/"
+        "modal_mnist_generator_cifar10_rgb_attribution_probe.csv"
+    ),
+    "mnist_generator_cifar10_rgb_sparse_drive_probe": Path(
+        "outputs/analysis/"
+        "modal_mnist_generator_cifar10_rgb_sparse_drive_probe.csv"
+    ),
+    "mnist_generator_cifar10_rgb_sparse_drive_seed_repeat": Path(
+        "outputs/analysis/"
+        "modal_mnist_generator_cifar10_rgb_sparse_drive_seed_repeat.csv"
+    ),
+    "mnist_generator_cifar10_rgb_structured_drive_probe": Path(
+        "outputs/analysis/"
+        "modal_mnist_generator_cifar10_rgb_structured_drive_probe.csv"
+    ),
+    "mnist_generator_cifar10_rgb_coherent_drive_probe": Path(
+        "outputs/analysis/"
+        "modal_mnist_generator_cifar10_rgb_coherent_drive_probe.csv"
+    ),
 }
 
 REMOTE_PACKAGES = [
@@ -2670,6 +2701,398 @@ def _mnist_generator_cifar10_rgb_feature_metric_audit_sweep() -> list[
     return entries
 
 
+def _mnist_generator_cifar10_rgb_judge_audit_sweep() -> list[
+    tuple[list[str], str]
+]:
+    """Compare old conv and stronger residual-conv CIFAR RGB quality judges."""
+
+    entries = []
+    variants = [
+        ("horn_prefix025", "sparse_horn_cifar10_rgb_recommended_drive025"),
+        (
+            "horn_no_main_prefix025",
+            "sparse_horn_cifar10_rgb_recommended_no_main_interaction_drive025",
+        ),
+    ]
+    classifier_variants = [
+        (
+            "convjudge",
+            "--quality-classifier-kind conv "
+            "--quality-classifier-train-limit 10000 "
+            "--quality-classifier-eval-limit 5000 "
+            "--quality-classifier-epochs 15 "
+            "--quality-classifier-dim 256 "
+            "--quality-classifier-depth 3",
+        ),
+        (
+            "resconvjudge",
+            "--quality-classifier-kind residual_conv "
+            "--quality-classifier-train-limit 10000 "
+            "--quality-classifier-eval-limit 5000 "
+            "--quality-classifier-epochs 15 "
+            "--quality-classifier-dim 256 "
+            "--quality-classifier-depth 3",
+        ),
+    ]
+    seed = 11
+    for variant_suffix, local_preset in variants:
+        for judge_suffix, classifier_args in classifier_variants:
+            run_name = (
+                "mnist_generator_cifar10_rgb_judge_audit_"
+                f"{variant_suffix}_{judge_suffix}_n256_resizeconv_train1000_seed{seed}_20e"
+            )
+            args = shlex.split(
+                f"--seed {seed} --preset {local_preset} {classifier_args}"
+            )
+            output_dir = VOLUME_MOUNT / "mnist_generator" / run_name
+            args = _with_default_arg(args, "--output-dir", output_dir)
+            entries.append((args, run_name))
+    return entries
+
+
+def _mnist_generator_cifar10_rgb_semantic_feature_drift_probe_sweep() -> list[
+    tuple[list[str], str]
+]:
+    """Ask whether residual-conv feature drift improves strict CIFAR semantics."""
+
+    entries = []
+    variants = [
+        ("horn_pixel", []),
+        (
+            "horn_resfeat025",
+            [
+                "--loss-mode pixel_feature_drift",
+                "--pixel-drift-weight 0.5",
+                "--feature-drift-weight 0.25",
+                "--feature-drift-mode learned",
+                "--learned-feature-kind residual_conv",
+                "--learned-feature-epochs 10",
+                "--learned-feature-dim 256",
+                "--learned-feature-depth 3",
+            ],
+        ),
+        (
+            "horn_resfeat100",
+            [
+                "--loss-mode pixel_feature_drift",
+                "--pixel-drift-weight 0.5",
+                "--feature-drift-weight 1.0",
+                "--feature-drift-mode learned",
+                "--learned-feature-kind residual_conv",
+                "--learned-feature-epochs 10",
+                "--learned-feature-dim 256",
+                "--learned-feature-depth 3",
+            ],
+        ),
+    ]
+    common = [
+        "--preset sparse_horn_cifar10_rgb_recommended_drive025",
+        "--train-limit 2000",
+        "--eval-limit 1000",
+        "--quality-classifier-kind residual_conv",
+        "--quality-classifier-train-limit 10000",
+        "--quality-classifier-eval-limit 5000",
+        "--quality-classifier-epochs 15",
+        "--quality-classifier-dim 256",
+        "--quality-classifier-depth 3",
+    ]
+    seed = 11
+    for variant_suffix, variant_args in variants:
+        run_name = (
+            "mnist_generator_cifar10_rgb_semantic_feature_drift_"
+            f"{variant_suffix}_n256_resizeconv_train2000_seed{seed}_20e"
+        )
+        args = shlex.split(
+            " ".join([f"--seed {seed}", *common, *variant_args])
+        )
+        output_dir = VOLUME_MOUNT / "mnist_generator" / run_name
+        args = _with_default_arg(args, "--output-dir", output_dir)
+        entries.append((args, run_name))
+    return entries
+
+
+def _mnist_generator_cifar10_rgb_semantic_feature_drift_attribution_sweep() -> list[
+    tuple[list[str], str]
+]:
+    """Repeat residual feature drift against no-main controls across seeds."""
+
+    entries = []
+    feature_args = [
+        "--loss-mode pixel_feature_drift",
+        "--pixel-drift-weight 0.5",
+        "--feature-drift-weight 0.25",
+        "--feature-drift-mode learned",
+        "--learned-feature-kind residual_conv",
+        "--learned-feature-epochs 10",
+        "--learned-feature-dim 256",
+        "--learned-feature-depth 3",
+    ]
+    variants = [
+        ("horn_pixel", "sparse_horn_cifar10_rgb_recommended_drive025", []),
+        (
+            "horn_resfeat025",
+            "sparse_horn_cifar10_rgb_recommended_drive025",
+            feature_args,
+        ),
+        (
+            "horn_no_main_pixel",
+            "sparse_horn_cifar10_rgb_recommended_no_main_interaction_drive025",
+            [],
+        ),
+        (
+            "horn_no_main_resfeat025",
+            "sparse_horn_cifar10_rgb_recommended_no_main_interaction_drive025",
+            feature_args,
+        ),
+    ]
+    common = [
+        "--train-limit 2000",
+        "--eval-limit 1000",
+        "--quality-classifier-kind residual_conv",
+        "--quality-classifier-train-limit 10000",
+        "--quality-classifier-eval-limit 5000",
+        "--quality-classifier-epochs 15",
+        "--quality-classifier-dim 256",
+        "--quality-classifier-depth 3",
+    ]
+    for seed in (11, 23):
+        for variant_suffix, local_preset, variant_args in variants:
+            run_name = (
+                "mnist_generator_cifar10_rgb_semantic_feature_drift_attribution_"
+                f"{variant_suffix}_n256_resizeconv_train2000_seed{seed}_20e"
+            )
+            args = shlex.split(
+                " ".join(
+                    [
+                        f"--seed {seed}",
+                        f"--preset {local_preset}",
+                        *common,
+                        *variant_args,
+                    ]
+                )
+            )
+            output_dir = VOLUME_MOUNT / "mnist_generator" / run_name
+            args = _with_default_arg(args, "--output-dir", output_dir)
+            entries.append((args, run_name))
+    return entries
+
+
+def _mnist_generator_cifar10_rgb_attribution_probe_sweep() -> list[
+    tuple[list[str], str]
+]:
+    """One-seed RGB HORN attribution controls with feature/dynamics metrics."""
+
+    entries = []
+    variants = [
+        ("horn_recommended", "sparse_horn_cifar10_rgb_recommended"),
+        ("horn_step1", "sparse_horn_cifar10_rgb_recommended_step1"),
+        (
+            "horn_frozen_recurrent",
+            "sparse_horn_cifar10_rgb_recommended_frozen_recurrent",
+        ),
+        (
+            "horn_frozen_conditioning",
+            "sparse_horn_cifar10_rgb_recommended_frozen_conditioning",
+        ),
+        (
+            "horn_no_main_interaction",
+            "sparse_horn_cifar10_rgb_recommended_no_main_interaction",
+        ),
+        ("horn_decoder_only", "sparse_horn_cifar10_rgb_recommended_decoder_only"),
+    ]
+    classifier_args = (
+        "--quality-classifier-kind conv "
+        "--quality-classifier-train-limit 5000 "
+        "--quality-classifier-eval-limit 2000 "
+        "--quality-classifier-epochs 10 "
+        "--quality-classifier-dim 256 "
+        "--quality-classifier-depth 3"
+    )
+    seed = 11
+    for variant_suffix, local_preset in variants:
+        run_name = (
+            "mnist_generator_cifar10_rgb_attribution_"
+            f"{variant_suffix}_n256_resizeconv_train1000_seed{seed}_20e"
+        )
+        args = shlex.split(
+            f"--seed {seed} --preset {local_preset} {classifier_args}"
+        )
+        output_dir = VOLUME_MOUNT / "mnist_generator" / run_name
+        args = _with_default_arg(args, "--output-dir", output_dir)
+        entries.append((args, run_name))
+    return entries
+
+
+def _mnist_generator_cifar10_rgb_sparse_drive_probe_sweep() -> list[
+    tuple[list[str], str]
+]:
+    """CIFAR RGB probe that asks whether main coupling propagates sparse drive."""
+
+    entries = []
+    variants = [
+        ("horn_drive100", "sparse_horn_cifar10_rgb_recommended"),
+        ("horn_drive025", "sparse_horn_cifar10_rgb_recommended_drive025"),
+        ("horn_drive010", "sparse_horn_cifar10_rgb_recommended_drive010"),
+        (
+            "horn_no_main_drive100",
+            "sparse_horn_cifar10_rgb_recommended_no_main_interaction",
+        ),
+        (
+            "horn_no_main_drive025",
+            "sparse_horn_cifar10_rgb_recommended_no_main_interaction_drive025",
+        ),
+        (
+            "horn_no_main_drive010",
+            "sparse_horn_cifar10_rgb_recommended_no_main_interaction_drive010",
+        ),
+    ]
+    classifier_args = (
+        "--quality-classifier-kind conv "
+        "--quality-classifier-train-limit 5000 "
+        "--quality-classifier-eval-limit 2000 "
+        "--quality-classifier-epochs 10 "
+        "--quality-classifier-dim 256 "
+        "--quality-classifier-depth 3"
+    )
+    seed = 11
+    for variant_suffix, local_preset in variants:
+        run_name = (
+            "mnist_generator_cifar10_rgb_sparse_drive_"
+            f"{variant_suffix}_n256_resizeconv_train1000_seed{seed}_20e"
+        )
+        args = shlex.split(
+            f"--seed {seed} --preset {local_preset} {classifier_args}"
+        )
+        output_dir = VOLUME_MOUNT / "mnist_generator" / run_name
+        args = _with_default_arg(args, "--output-dir", output_dir)
+        entries.append((args, run_name))
+    return entries
+
+
+def _mnist_generator_cifar10_rgb_sparse_drive_seed_repeat_sweep() -> list[
+    tuple[list[str], str]
+]:
+    """Repeat the 25% sparse-drive coupling attribution probe across seeds."""
+
+    entries = []
+    variants = [
+        ("horn_drive025", "sparse_horn_cifar10_rgb_recommended_drive025"),
+        (
+            "horn_no_main_drive025",
+            "sparse_horn_cifar10_rgb_recommended_no_main_interaction_drive025",
+        ),
+    ]
+    classifier_args = (
+        "--quality-classifier-kind conv "
+        "--quality-classifier-train-limit 5000 "
+        "--quality-classifier-eval-limit 2000 "
+        "--quality-classifier-epochs 10 "
+        "--quality-classifier-dim 256 "
+        "--quality-classifier-depth 3"
+    )
+    for seed in (7, 11, 23, 37):
+        for variant_suffix, local_preset in variants:
+            run_name = (
+                "mnist_generator_cifar10_rgb_sparse_drive_seed_repeat_"
+                f"{variant_suffix}_n256_resizeconv_train1000_seed{seed}_20e"
+            )
+            args = shlex.split(
+                f"--seed {seed} --preset {local_preset} {classifier_args}"
+            )
+            output_dir = VOLUME_MOUNT / "mnist_generator" / run_name
+            args = _with_default_arg(args, "--output-dir", output_dir)
+            entries.append((args, run_name))
+    return entries
+
+
+def _mnist_generator_cifar10_rgb_structured_drive_probe_sweep() -> list[
+    tuple[list[str], str]
+]:
+    """Compare contiguous and spatial-grid sparse class-drive topologies."""
+
+    entries = []
+    variants = [
+        ("horn_prefix025", "sparse_horn_cifar10_rgb_recommended_drive025"),
+        (
+            "horn_grid025",
+            "sparse_horn_cifar10_rgb_recommended_drive025_spatial_grid",
+        ),
+        (
+            "horn_no_main_prefix025",
+            "sparse_horn_cifar10_rgb_recommended_no_main_interaction_drive025",
+        ),
+        (
+            "horn_no_main_grid025",
+            "sparse_horn_cifar10_rgb_recommended_no_main_interaction_drive025_spatial_grid",
+        ),
+    ]
+    classifier_args = (
+        "--quality-classifier-kind conv "
+        "--quality-classifier-train-limit 5000 "
+        "--quality-classifier-eval-limit 2000 "
+        "--quality-classifier-epochs 10 "
+        "--quality-classifier-dim 256 "
+        "--quality-classifier-depth 3"
+    )
+    for seed in (11, 23):
+        for variant_suffix, local_preset in variants:
+            run_name = (
+                "mnist_generator_cifar10_rgb_structured_drive_"
+                f"{variant_suffix}_n256_resizeconv_train1000_seed{seed}_20e"
+            )
+            args = shlex.split(
+                f"--seed {seed} --preset {local_preset} {classifier_args}"
+            )
+            output_dir = VOLUME_MOUNT / "mnist_generator" / run_name
+            args = _with_default_arg(args, "--output-dir", output_dir)
+            entries.append((args, run_name))
+    return entries
+
+
+def _mnist_generator_cifar10_rgb_coherent_drive_probe_sweep() -> list[
+    tuple[list[str], str]
+]:
+    """Compare top-band and centered-block sparse class-drive regions."""
+
+    entries = []
+    variants = [
+        ("horn_prefix025", "sparse_horn_cifar10_rgb_recommended_drive025"),
+        (
+            "horn_center025",
+            "sparse_horn_cifar10_rgb_recommended_drive025_center_block",
+        ),
+        (
+            "horn_no_main_prefix025",
+            "sparse_horn_cifar10_rgb_recommended_no_main_interaction_drive025",
+        ),
+        (
+            "horn_no_main_center025",
+            "sparse_horn_cifar10_rgb_recommended_no_main_interaction_drive025_center_block",
+        ),
+    ]
+    classifier_args = (
+        "--quality-classifier-kind conv "
+        "--quality-classifier-train-limit 5000 "
+        "--quality-classifier-eval-limit 2000 "
+        "--quality-classifier-epochs 10 "
+        "--quality-classifier-dim 256 "
+        "--quality-classifier-depth 3"
+    )
+    for seed in (11, 23):
+        for variant_suffix, local_preset in variants:
+            run_name = (
+                "mnist_generator_cifar10_rgb_coherent_drive_"
+                f"{variant_suffix}_n256_resizeconv_train1000_seed{seed}_20e"
+            )
+            args = shlex.split(
+                f"--seed {seed} --preset {local_preset} {classifier_args}"
+            )
+            output_dir = VOLUME_MOUNT / "mnist_generator" / run_name
+            args = _with_default_arg(args, "--output-dir", output_dir)
+            entries.append((args, run_name))
+    return entries
+
+
 def _sweep_entries(preset: str) -> list[tuple[list[str], str]]:
     if preset == "mnist_generator_core":
         return _mnist_generator_core_sweep()
@@ -2763,6 +3186,24 @@ def _sweep_entries(preset: str) -> list[tuple[list[str], str]]:
         return _mnist_generator_cifar10_rgb_frontier_probe_sweep()
     if preset == "mnist_generator_cifar10_rgb_feature_metric_audit":
         return _mnist_generator_cifar10_rgb_feature_metric_audit_sweep()
+    if preset == "mnist_generator_cifar10_rgb_judge_audit":
+        return _mnist_generator_cifar10_rgb_judge_audit_sweep()
+    if preset == "mnist_generator_cifar10_rgb_semantic_feature_drift_probe":
+        return _mnist_generator_cifar10_rgb_semantic_feature_drift_probe_sweep()
+    if preset == "mnist_generator_cifar10_rgb_semantic_feature_drift_attribution":
+        return (
+            _mnist_generator_cifar10_rgb_semantic_feature_drift_attribution_sweep()
+        )
+    if preset == "mnist_generator_cifar10_rgb_attribution_probe":
+        return _mnist_generator_cifar10_rgb_attribution_probe_sweep()
+    if preset == "mnist_generator_cifar10_rgb_sparse_drive_probe":
+        return _mnist_generator_cifar10_rgb_sparse_drive_probe_sweep()
+    if preset == "mnist_generator_cifar10_rgb_sparse_drive_seed_repeat":
+        return _mnist_generator_cifar10_rgb_sparse_drive_seed_repeat_sweep()
+    if preset == "mnist_generator_cifar10_rgb_structured_drive_probe":
+        return _mnist_generator_cifar10_rgb_structured_drive_probe_sweep()
+    if preset == "mnist_generator_cifar10_rgb_coherent_drive_probe":
+        return _mnist_generator_cifar10_rgb_coherent_drive_probe_sweep()
     raise ValueError("unknown sweep preset")
 
 
@@ -2795,6 +3236,9 @@ def _write_sweep_csv(results: list[dict[str, Any]], path: Path) -> None:
         "generator.coupling_floor",
         "generator.coupling_bias_strength",
         "generator.conditioning_strength",
+        "generator.conditioning_target_fraction",
+        "generator.conditioning_target_pattern",
+        "generator.conditioning_target_count",
         "generator.train_recurrent_dynamics",
         "generator.train_conditioning_dynamics",
         "generator.readout_mode",
@@ -2803,6 +3247,11 @@ def _write_sweep_csv(results: list[dict[str, Any]], path: Path) -> None:
         "generator.pixel_drift_weight",
         "generator.feature_drift_weight",
         "generator.feature_drift_mode",
+        "generator.learned_feature_kind",
+        "generator.learned_feature_epochs",
+        "generator.learned_feature_dim",
+        "generator.learned_feature_depth",
+        "generator.feature_classifier.classifier_kind",
         "generator.feature_classifier.final_eval_accuracy",
         "generator.feature_classifier.final_eval_loss",
         "generator.feature_classifier.final_train_accuracy",
@@ -2864,12 +3313,43 @@ def _write_sweep_csv(results: list[dict[str, Any]], path: Path) -> None:
         "generator.success_diagnostics.coupling_profile_min",
         "generator.success_diagnostics.coupling_profile_max",
         "generator.success_diagnostics.conditioning_strength",
+        "generator.success_diagnostics.conditioning_target_fraction",
+        "generator.success_diagnostics.conditioning_target_pattern",
+        "generator.success_diagnostics.conditioning_target_count",
+        "generator.success_diagnostics.conditioning_target_effective_fraction",
         "generator.success_diagnostics.samples_per_train_second",
         "generator.success_diagnostics.phase_mean_abs_displacement",
         "generator.success_diagnostics.phase_final_order",
         "generator.success_diagnostics.phase_order_delta",
         "generator.success_diagnostics.state_final_energy",
         "generator.success_diagnostics.state_mean_abs_velocity_displacement",
+        "generator.success_diagnostics.state_energy_initial",
+        "generator.success_diagnostics.state_energy_final",
+        "generator.success_diagnostics.state_energy_delta",
+        "generator.success_diagnostics.state_velocity_rms_initial",
+        "generator.success_diagnostics.state_velocity_rms_final",
+        "generator.success_diagnostics.state_velocity_rms_delta",
+        "generator.success_diagnostics.state_update_rms_initial",
+        "generator.success_diagnostics.state_update_rms_final",
+        "generator.success_diagnostics.state_update_rms_mean",
+        "generator.success_diagnostics.state_update_rms_settling_ratio",
+        "generator.success_diagnostics.state_acceleration_rms_initial",
+        "generator.success_diagnostics.state_acceleration_rms_final",
+        "generator.success_diagnostics.state_acceleration_rms_mean",
+        "generator.success_diagnostics.state_acceleration_rms_settling_ratio",
+        "generator.success_diagnostics.state_path_length_rms",
+        "generator.success_diagnostics.state_net_displacement_rms",
+        "generator.success_diagnostics.state_path_efficiency_ratio",
+        "generator.success_diagnostics.coupling_potential_proxy_initial",
+        "generator.success_diagnostics.coupling_potential_proxy_final",
+        "generator.success_diagnostics.coupling_potential_proxy_delta",
+        "generator.success_diagnostics.output_step_mse_initial",
+        "generator.success_diagnostics.output_step_mse_final",
+        "generator.success_diagnostics.output_step_mse_mean",
+        "generator.success_diagnostics.output_step_mse_settling_ratio",
+        "generator.success_diagnostics.output_path_mse",
+        "generator.success_diagnostics.output_net_mse",
+        "generator.success_diagnostics.output_path_efficiency_ratio",
         "generator.settling.classifier_label_accuracy_best_step",
         "generator.settling.classifier_label_accuracy_best",
         "generator.settling.classifier_label_accuracy_last_minus_first",
@@ -3014,7 +3494,13 @@ def run_mnist_generator_remote(
     }
     with open(result.paths.root / "modal_result.json", "w") as f:
         json.dump(payload, f, indent=2, sort_keys=True)
-    volume.commit()
+    try:
+        volume.commit()
+        payload["volume_commit_ok"] = True
+    except Exception as exc:
+        payload["volume_commit_ok"] = False
+        payload["volume_commit_error"] = repr(exc)
+        print(f"warning: volume.commit failed for {safe_name}: {exc!r}")
     return payload
 
 

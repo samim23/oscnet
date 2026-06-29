@@ -16,6 +16,14 @@ DEFAULT_VARIANT_PATTERNS = (
     re.compile(r"fashion_mnist_frontier_(.+?)_n196"),
     re.compile(r"fashion_mnist_readout_capacity_(.+?)_n196"),
     re.compile(r"fashion_mnist_horn_calibration_(.+?)_n196"),
+    re.compile(r"cifar10_rgb_coherent_drive_(.+?)_n256"),
+    re.compile(r"cifar10_rgb_structured_drive_(.+?)_n256"),
+    re.compile(r"cifar10_rgb_sparse_drive_seed_repeat_(.+?)_n256"),
+    re.compile(r"cifar10_rgb_sparse_drive_(.+?)_n256"),
+    re.compile(r"cifar10_rgb_judge_audit_(.+?)_n256"),
+    re.compile(r"cifar10_rgb_semantic_feature_drift_attribution_(.+?)_n256"),
+    re.compile(r"cifar10_rgb_semantic_feature_drift_(.+?)_n256"),
+    re.compile(r"cifar10_rgb_attribution_(.+?)_n256"),
     re.compile(r"cifar10_rgb_feature_metrics_(.+?)_n256"),
     re.compile(r"cifar10_rgb_frontier_(.+?)_n256"),
     re.compile(r"cifar10_gray_convjudge_frontier_(.+?)_n256"),
@@ -45,12 +53,18 @@ class GeneratorFrontierSummary:
     pixel_mean_mse_mean: float
     pixel_std_mse_mean: float
     state_energy_mean: float
+    state_update_settling_ratio_mean: float
+    state_acceleration_settling_ratio_mean: float
+    output_step_mse_settling_ratio_mean: float
+    coupling_potential_delta_mean: float
     quality_judge_accuracy_mean: float
     coupling_density_mean: float
     total_params_mean: float
     decoder_param_fraction_mean: float
     recurrent_op_fraction_mean: float
     trainable_recurrent_fraction_mean: float
+    conditioning_target_fraction_mean: float
+    conditioning_target_count_mean: float
     samples_per_second_mean: float
     distributional_weight_mean: float
     class_moment_weight_mean: float
@@ -149,6 +163,20 @@ def _summarize_variant(variant: str, rows: Sequence[dict[str, str]]) -> Generato
         state_energy_mean=_mean(
             column("generator.success_diagnostics.state_final_energy")
         ),
+        state_update_settling_ratio_mean=_mean(
+            column("generator.success_diagnostics.state_update_rms_settling_ratio")
+        ),
+        state_acceleration_settling_ratio_mean=_mean(
+            column(
+                "generator.success_diagnostics.state_acceleration_rms_settling_ratio"
+            )
+        ),
+        output_step_mse_settling_ratio_mean=_mean(
+            column("generator.success_diagnostics.output_step_mse_settling_ratio")
+        ),
+        coupling_potential_delta_mean=_mean(
+            column("generator.success_diagnostics.coupling_potential_proxy_delta")
+        ),
         quality_judge_accuracy_mean=_mean(
             column("generator.quality_classifier.final_eval_accuracy")
         ),
@@ -166,6 +194,12 @@ def _summarize_variant(variant: str, rows: Sequence[dict[str, str]]) -> Generato
             column(
                 "generator.success_diagnostics.trainable_recurrent_param_fraction"
             )
+        ),
+        conditioning_target_fraction_mean=_mean(
+            column("generator.success_diagnostics.conditioning_target_effective_fraction")
+        ),
+        conditioning_target_count_mean=_mean(
+            column("generator.success_diagnostics.conditioning_target_count")
         ),
         samples_per_second_mean=_mean(
             column("generator.success_diagnostics.samples_per_train_second")
@@ -259,8 +293,11 @@ def write_frontier_markdown(
     if include_feature_metrics:
         header += "Feature diversity | Feature nearest-real | "
         separator += "---: | ---: | "
-    header += "State energy | Coupling density | Params | Samples/sec |"
-    separator += "---: | ---: | ---: | ---: |"
+    header += (
+        "State energy | Update settle | Output settle | Coupling delta | "
+        "Coupling density | Drive frac | Drive count | Params | Samples/sec |"
+    )
+    separator += "---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"
     lines = [
         f"# {title}",
         "",
@@ -286,7 +323,12 @@ def write_frontier_markdown(
         row.extend(
             [
                 _fmt(summary.state_energy_mean),
+                _fmt(summary.state_update_settling_ratio_mean),
+                _fmt(summary.output_step_mse_settling_ratio_mean),
+                _fmt(summary.coupling_potential_delta_mean),
                 _fmt(summary.coupling_density_mean),
+                _fmt(summary.conditioning_target_fraction_mean),
+                _fmt(summary.conditioning_target_count_mean, digits=0),
                 _fmt(summary.total_params_mean, digits=0),
                 _fmt(summary.samples_per_second_mean),
             ]

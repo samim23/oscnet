@@ -5761,24 +5761,471 @@ OSCNET_MODAL_MAX_CONTAINERS=3 modal run scripts/modal_mnist_generator.py \
 
 | Variant | Generated-label acc | Pixel diversity | Pixel nearest-real MSE | Feature diversity | Feature nearest-real |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| HORN recommended | 0.7402 | 0.9823 | 0.0292 | 0.9832 | 0.1301 |
-| HORN dist .05 | 0.6934 | 1.0814 | 0.0336 | 0.9341 | 0.1523 |
-| StateMLP strength8 | 0.7188 | 0.5228 | 0.0115 | 0.9422 | 0.1333 |
+| HORN recommended | 0.8223 | 0.9823 | 0.0292 | 0.9587 | 0.1350 |
+| HORN dist .05 | 0.7480 | 1.0815 | 0.0336 | 0.9367 | 0.1886 |
+| StateMLP strength8 | 0.8105 | 0.5162 | 0.0113 | 0.8369 | 0.1036 |
 
 Interpretation:
 
 - The HORN advantage is still visible on seed 11: recommended HORN has the
   best generated-label accuracy and much higher pixel diversity than StateMLP.
-- The new feature-space diagnostics make the story less overconfident.
-  StateMLP is much closer to HORN in classifier feature diversity and
-  feature-nearest-real distance than it is in pixel diversity.
-- That means part of HORN's diversity advantage is image/color/texture spread,
-  not automatically semantic diversity. HORN still has the stronger
-  class-conditional settling signal, but future claims should separate
-  pixel-level diversity from feature-space semantic diversity.
+- StateMLP is close on generated-label accuracy and wins nearest-real pixel
+  MSE plus feature-nearest-real distance. It remains the stronger
+  pixel/proximity control, but collapses to much lower sample diversity.
+- The feature-space diagnostics keep the claim honest. HORN's diversity
+  advantage is not automatically equivalent to semantic diversity, but
+  recommended HORN also has higher feature diversity and a better feature
+  pairwise-distance ratio than StateMLP in this run.
 - Practical next metric direction: keep classifier feature metrics in all
   generator sweeps, and add a stronger reusable image embedding judge before
   making broad natural-image claims.
+
+The same rerun also exported the new trajectory-level dynamics columns:
+
+```bash
+python scripts/analyze_mnist_generator_frontier.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_feature_metric_audit.csv \
+  --output-dir outputs/analysis/cifar10_rgb_feature_metric_dynamics_audit \
+  --title "CIFAR-10 RGB feature/dynamics generator audit" \
+  --accuracy-floor 0.3 \
+  --no-plot
+```
+
+| Variant | Update settle | Accel settle | Output settle | Energy delta | Coupling delta |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| HORN recommended | 0.6220 | 0.5950 | 0.1302 | -0.0003 | 0.0031 |
+| HORN dist .05 | 0.6263 | 0.5867 | 0.2292 | -0.0012 | 0.0019 |
+| StateMLP strength8 | 0.3177 | 0.4279 | 0.0347 | 6.6463 | 0.0000 |
+
+Dynamics interpretation:
+
+- All three models reduce update/output motion by the final step. Settling is
+  therefore not unique to HORN; the better claim is sparse coupled HORN
+  preserves much higher diversity while settling.
+- HORN keeps state energy low and slightly decreasing; StateMLP drives its
+  latent state energy up by several orders of magnitude while still producing
+  smooth low-diversity samples. This is a useful attribution clue, not a
+  hardware-energy claim.
+- HORN semantic proxies and diversity peak around 32 steps, while nearest-real
+  pixel MSE keeps improving at 64 steps. That confirms the central measurement
+  lesson: over-settling can improve pixel proximity while hurting class
+  usefulness and diversity.
+
+Generator settling diagnostic implementation:
+
+The generator summary now records trajectory-level settling diagnostics under
+`generator.success_diagnostics` whenever a trace is available. These include
+state-energy proxies, velocity RMS, update RMS, acceleration RMS, weighted
+coupling-disagreement proxies, and per-step output-change MSE.
+
+These are deliberately labelled as diagnostics, not physical proof of a
+Lyapunov energy. The goal is practical: distinguish runs that genuinely settle
+from runs that keep drifting, overshoot, or only look good at one arbitrary
+step count. The most useful next CIFAR RGB tables should include:
+
+- semantic/sample metrics: generated-label accuracy, feature diversity,
+  feature nearest-real distance;
+- diversity/proximity metrics: pixel diversity and nearest-real MSE;
+- dynamics metrics: `state_update_rms_settling_ratio`,
+  `state_acceleration_rms_settling_ratio`,
+  `coupling_potential_proxy_delta`, and `output_step_mse_settling_ratio`.
+
+This makes the next optimization target sharper: improve HORN image quality
+while preserving class consistency, diversity, and actual finite-time settling.
+
+CIFAR-10 RGB attribution probe:
+
+The next seed-11 gate tested whether the RGB HORN result depends on learned
+main recurrent coupling, learned conditioning, and multi-step settling:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=6 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_attribution_probe
+```
+
+The six variants were:
+
+- `horn_recommended`: full HORN recipe.
+- `horn_step1`: one settling step only.
+- `horn_frozen_recurrent`: recurrent frequency/coupling frozen, conditioning
+  trained.
+- `horn_frozen_conditioning`: recurrent dynamics trained, conditioning frozen.
+- `horn_no_main_interaction`: main coupling initialized to zero and frozen,
+  conditioning trained.
+- `horn_decoder_only`: no settling dynamics.
+
+| Variant | Generated-label acc | Pixel diversity | Nearest-real MSE | Feature diversity | Feature nearest-real |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| HORN recommended | 0.7324 | 0.9823 | 0.0292 | 0.9747 | 0.1384 |
+| HORN step1 | 0.5996 | 1.4941 | 0.0677 | 0.9038 | 0.1905 |
+| HORN frozen recurrent | 0.7441 | 1.0036 | 0.0301 | 0.9729 | 0.1275 |
+| HORN frozen conditioning | 0.0898 | 0.7491 | 0.0380 | 0.7222 | 0.2296 |
+| HORN no main interaction | 0.8066 | 0.9251 | 0.0280 | 0.9662 | 0.1568 |
+| HORN decoder only | 0.0977 | 0.7533 | 0.0388 | 0.7442 | 0.2201 |
+
+Dynamics/attribution read:
+
+- Learned conditioning is essential. Freezing conditioning collapses
+  generated-label accuracy to chance, similar to decoder-only.
+- One-step HORN is not enough. It gives high pixel diversity but poor
+  nearest-real and weaker class accuracy, so finite-time settling still matters.
+- Learned main recurrent coupling is not yet essential. Frozen recurrent
+  dynamics remain competitive, and the no-main-interaction control is
+  surprisingly strong. The current RGB generator is therefore better described
+  as a class-driven second-order HORN field with useful settling, not yet as
+  proof that learned sparse oscillator-to-oscillator coupling is doing the
+  core generative work.
+- This is a narrowing result, not a failure. It identifies the next bottleneck:
+  if we want a stronger ONN-native claim, the architecture/objective must make
+  main coupling carry information that a learned class drive plus independent
+  second-order settling cannot already carry.
+
+Immediate follow-up implied by this gate:
+
+- Design a harder coupling-attribution task or architecture where class drive
+  cannot directly organize every oscillator.
+- Candidate interventions: lower-rank or weaker class drive, hierarchical
+  class drive into a small subset of oscillators, local-only readout pressure,
+  or explicit neighbor-consistency losses that require main field propagation.
+- Keep the RGB attribution probe as a regression gate for future HORN changes.
+
+CIFAR-10 RGB quality-judge audit:
+
+The old CIFAR RGB sample-quality judge was a small conv classifier trained on
+5k images for 10 epochs. It reached only about 38-47% real CIFAR eval
+accuracy, so generated-label accuracy from that judge was useful for relative
+comparisons but too weak for strong semantic claims. A stronger residual-conv
+judge was added as an opt-in metric:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=4 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_judge_audit
+```
+
+```bash
+python scripts/analyze_mnist_generator_frontier.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_judge_audit.csv \
+  --output-dir outputs/analysis/cifar10_rgb_judge_audit \
+  --title "CIFAR-10 RGB quality-judge audit" \
+  --accuracy-floor 0.0 \
+  --no-plot
+```
+
+Both judges used the same larger budget: 10k classifier training images, 5k
+eval images, 15 epochs, 256 feature dimensions, depth 3.
+
+| Variant | Judge | Real-CIFAR judge acc | Generated-label acc | Pixel diversity | Nearest-real MSE | Feature diversity | Feature nearest-real |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Coupled HORN prefix 25% | conv | 0.4625 | 0.6738 | 1.1015 | 0.0328 | 0.8563 | 0.2884 |
+| Coupled HORN prefix 25% | residual-conv | 0.6139 | 0.2188 | 1.1014 | 0.0328 | 0.6812 | 0.3310 |
+| No-main prefix 25% | conv | 0.4723 | 0.6523 | 1.1427 | 0.0373 | 0.9024 | 0.3052 |
+| No-main prefix 25% | residual-conv | 0.6020 | 0.1895 | 1.1428 | 0.0373 | 0.7452 | 0.3179 |
+
+Read:
+
+- The residual-conv judge is a better CIFAR classifier than the old conv judge
+  under the same audit budget, so it should become the preferred semantic
+  scoring path for future CIFAR RGB claims.
+- The stronger judge is much stricter on generated samples. Old conv-judge
+  generated-label accuracies around 0.65-0.75 should be treated as weak-judge
+  evidence, not proof of strong CIFAR semantic generation.
+- Pixel metrics are unchanged because the generator runs are the same; the
+  recalibration is semantic/feature-space only.
+- Coupled HORN still beats no-main on nearest-real MSE and residual-conv
+  generated-label accuracy in this one-seed audit, but both variants are far
+  from convincing semantic generation under the stronger judge.
+- This shifts the next research priority: before claiming CIFAR breakthrough,
+  improve generator semantics under the residual-conv judge, or move to a task
+  where the oscillator advantage is not hidden behind weak image classification
+  metrics.
+
+CIFAR-10 RGB residual feature-drift semantic probe:
+
+The next probe asked whether training against a residual-conv learned feature
+space can improve the stricter residual-conv judge, without using the same
+classifier for evaluation. The generator variants used the same HORN
+prefix-25 sparse-drive recipe, but the feature-drift variants trained an
+extra residual-conv feature model on the generator training subset. The quality
+judge was trained independently on 10k CIFAR images for 15 epochs.
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=3 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_semantic_feature_drift_probe
+```
+
+```bash
+python scripts/analyze_mnist_generator_frontier.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_semantic_feature_drift_probe.csv \
+  --output-dir outputs/analysis/cifar10_rgb_semantic_feature_drift_probe \
+  --title "CIFAR-10 RGB residual feature-drift semantic probe" \
+  --accuracy-floor 0.0 \
+  --no-plot
+```
+
+| Variant | Generated-label acc | Pixel diversity | Nearest-real MSE | Feature diversity | Feature nearest-real | Output settling | Samples/sec |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Pixel drift baseline | 0.3145 | 1.0497 | 0.0338 | 0.8501 | 0.3697 | 0.1553 | 488.18 |
+| Residual feature drift 0.25 | 0.4121 | 0.9175 | 0.0259 | 0.8344 | 0.3032 | 0.1194 | 148.90 |
+| Residual feature drift 1.0 | 0.2539 | 0.9124 | 0.0272 | 0.8494 | 0.3528 | 0.1603 | 278.46 |
+
+Read:
+
+- Residual feature drift at weight `0.25` is the first strict-judge semantic
+  improvement after the CIFAR calibration audit. It raises generated-label
+  accuracy from `0.3145` to `0.4121` and improves nearest-real MSE,
+  feature-nearest distance, and output settling.
+- Weight `1.0` overshoots: it keeps pixel proximity better than baseline, but
+  hurts generated-label accuracy and does not improve settling. This looks like
+  a Goldilocks regime, not "more semantic loss is automatically better."
+- The improvement costs diversity and speed. Feature drift makes samples more
+  CIFAR-like under the residual judge but also narrows the output distribution.
+- The training feature classifier itself was weak (`~0.28-0.30` eval
+  accuracy), because it only sees the generator training subset. A stronger
+  feature model or larger feature-training subset may improve the signal, but
+  future runs must keep an independent quality judge to avoid circular
+  evaluation.
+- Next useful probe: repeat the `0.25` feature-drift setting across seeds and
+  against a no-main-interaction control. If the semantic gain survives, the
+  next architecture step is to recover diversity with oscillator-native
+  mechanisms rather than simply increasing feature loss.
+
+CIFAR-10 RGB residual feature-drift attribution repeat:
+
+This repeat tested whether the residual feature-drift gain belongs to coupled
+HORN dynamics or mostly to the better semantic objective. It compared the
+prefix-25 HORN recipe against the matching no-main-interaction control, with
+and without residual feature drift, over two seeds. Scoring used an independent
+residual-conv quality judge.
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=2 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_semantic_feature_drift_attribution
+```
+
+```bash
+python scripts/analyze_mnist_generator_frontier.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_semantic_feature_drift_attribution.csv \
+  --output-dir outputs/analysis/cifar10_rgb_semantic_feature_drift_attribution \
+  --title "CIFAR-10 RGB residual feature-drift attribution" \
+  --accuracy-floor 0.0 \
+  --no-plot
+```
+
+| Variant | Runs | Generated-label acc | Pixel diversity | Nearest-real MSE | Feature diversity | Feature nearest-real | Output settling |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| HORN pixel drift | 2 | 0.2471 | 1.1086 | 0.0356 | 0.7884 | 0.3311 | 0.1475 |
+| HORN residual feature drift 0.25 | 2 | 0.3145 | 1.0286 | 0.0309 | 0.8615 | 0.3912 | 0.1437 |
+| No-main pixel drift | 2 | 0.2080 | 1.0149 | 0.0317 | 0.7668 | 0.3375 | 0.2200 |
+| No-main residual feature drift 0.25 | 2 | 0.2744 | 0.8927 | 0.0260 | 0.8338 | 0.3085 | 0.1824 |
+
+Read:
+
+- Residual feature drift improves generated-label accuracy by about the same
+  amount in both cases: `+0.0674` for coupled HORN and `+0.0664` for the
+  no-main control. That means the semantic target is carrying much of the
+  quality gain; it is not yet clean evidence that main HORN coupling alone
+  solved CIFAR structure.
+- Coupled HORN is still the best strict-judge accuracy and feature-diversity
+  point in this repeat, and it keeps more pixel diversity than the no-main
+  feature-drift control. That is the useful signal: coupling seems to preserve
+  a better diversity/semantic frontier.
+- The no-main feature-drift control wins nearest-real pixel MSE and feature
+  nearest-real distance. Future claims should avoid "HORN simply beats the
+  control" language unless the metric being discussed is named.
+- Next priority is not a blind architecture scale-up. The next controlled move
+  is to improve sharpness or semantics while preserving HORN's diversity
+  advantage, and to keep no-main/one-step/shuffled-drive controls attached.
+
+CIFAR-10 RGB sparse class-drive probe:
+
+The next targeted probe made the class drive sparse instead of letting the
+label inject directly into every oscillator. The hypothesis was simple: if
+main HORN coupling matters, then the coupled field should degrade more
+gracefully than the no-main-interaction control when only 25% or 10% of the
+oscillator pool receives direct class drive.
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=6 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_sparse_drive_probe
+```
+
+```bash
+python scripts/analyze_mnist_generator_frontier.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_sparse_drive_probe.csv \
+  --output-dir outputs/analysis/cifar10_rgb_sparse_drive_probe \
+  --title "CIFAR-10 RGB sparse class-drive HORN probe" \
+  --accuracy-floor 0.3 \
+  --no-plot
+```
+
+| Variant | Direct drive | Generated-label acc | Pixel diversity | Nearest-real MSE | Feature diversity | Feature nearest-real |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| HORN full drive | 256/256 | 0.8555 | 0.9823 | 0.0292 | 0.9641 | 0.1507 |
+| HORN 25% drive | 64/256 | 0.7266 | 1.1014 | 0.0328 | 0.9461 | 0.1432 |
+| HORN 10% drive | 26/256 | 0.3047 | 1.1027 | 0.0383 | 0.8604 | 0.1682 |
+| No-main full drive | 256/256 | 0.7480 | 0.9251 | 0.0280 | 0.9731 | 0.1286 |
+| No-main 25% drive | 64/256 | 0.6348 | 1.1428 | 0.0373 | 0.9150 | 0.1476 |
+| No-main 10% drive | 26/256 | 0.2559 | 1.0389 | 0.0408 | 0.8754 | 0.1891 |
+
+Read:
+
+- This is the cleanest positive coupling-attribution signal so far. With only
+  25% direct class drive, coupled HORN beats the no-main-interaction control on
+  generated-label accuracy, nearest-real MSE, feature diversity, and feature
+  nearest-real distance.
+- The full-drive setting still leaves ambiguity because conditioning reaches
+  every oscillator directly. It remains the best raw semantic setting, but not
+  the cleanest mechanism proof.
+- The 10% setting is probably too starved for the current architecture. Both
+  variants fall near the weak-judge floor, though coupling still improves
+  generated-label accuracy and nearest-real metrics.
+- The useful next target is therefore not arbitrary hyperparameter search. It
+  is structured drive topology: sparse/hierarchical class drive plus local HORN
+  propagation, probably around the 25% regime, where main coupling has room to
+  matter without starving the field.
+
+CIFAR-10 RGB 25% sparse-drive seed repeat:
+
+The 25% sparse-drive setting was repeated across four seeds to check whether
+the coupled-vs-no-main gap was a lucky seed-11 artifact.
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=8 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_sparse_drive_seed_repeat
+```
+
+```bash
+python scripts/analyze_mnist_generator_frontier.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_sparse_drive_seed_repeat.csv \
+  --output-dir outputs/analysis/cifar10_rgb_sparse_drive_seed_repeat \
+  --title "CIFAR-10 RGB 25% sparse-drive seed repeat" \
+  --accuracy-floor 0.3 \
+  --no-plot
+```
+
+| Variant | Runs | Generated-label acc | Pixel diversity | Nearest-real MSE | Feature diversity | Feature nearest-real |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Coupled HORN 25% drive | 4 | 0.7534 ± 0.0477 | 1.0950 ± 0.0329 | 0.0321 ± 0.0023 | 0.9574 ± 0.0135 | 0.1409 ± 0.0177 |
+| No-main 25% drive | 4 | 0.6978 ± 0.0471 | 1.0632 ± 0.0569 | 0.0326 ± 0.0041 | 0.9380 ± 0.0113 | 0.1505 ± 0.0224 |
+
+Paired seed differences, coupled minus no-main:
+
+- Generated-label accuracy: `+0.0557` mean; coupled wins `4/4` seeds.
+- Pixel diversity: `+0.0317` mean; coupled wins `3/4` seeds.
+- Nearest-real MSE: `-0.0004` mean; effectively a wash.
+- Feature diversity: `+0.0194` mean; coupled wins `4/4` seeds.
+- Feature nearest-real MSE: `-0.0096` mean; coupled wins `3/4` seeds.
+- Output settling ratio: `-0.0931` mean; coupled has lower final output
+  change on `4/4` seeds.
+
+Read:
+
+- This strengthens the sparse-drive mechanism result. When only 64 of 256
+  oscillators receive direct class drive, local HORN coupling consistently
+  improves class consistency and feature-space diversity over independent
+  second-order cells.
+- Pixel nearest-real remains nearly tied. The benefit is not "better pixel
+  memorization"; it is semantic consistency plus feature/diversity behavior
+  under a constrained drive topology.
+- The next architecture step should use this result as a design clue:
+  structured sparse or hierarchical class drive, where information is injected
+  into a subset/coarse field and must propagate through local oscillator
+  dynamics.
+
+CIFAR-10 RGB structured sparse-drive probe:
+
+The first structured-drive follow-up compared the existing `prefix` sparse
+drive against a new `spatial_grid` target pattern. Both drive 64 of 256
+oscillators directly, but:
+
+- `prefix` drives one contiguous row-major region of the oscillator grid.
+- `spatial_grid` spreads driven oscillators approximately evenly across the
+  field.
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=8 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_structured_drive_probe
+```
+
+```bash
+python scripts/analyze_mnist_generator_frontier.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_structured_drive_probe.csv \
+  --output-dir outputs/analysis/cifar10_rgb_structured_drive_probe \
+  --title "CIFAR-10 RGB structured sparse-drive probe" \
+  --accuracy-floor 0.3 \
+  --no-plot
+```
+
+| Variant | Runs | Generated-label acc | Pixel diversity | Nearest-real MSE | Feature diversity | Feature nearest-real |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Coupled HORN prefix 25% | 2 | 0.7119 | 1.1238 | 0.0341 | 0.9554 | 0.1535 |
+| Coupled HORN spatial-grid 25% | 2 | 0.7041 | 1.1522 | 0.0367 | 0.9422 | 0.1646 |
+| No-main prefix 25% | 2 | 0.6826 | 1.1142 | 0.0363 | 0.9277 | 0.1719 |
+| No-main spatial-grid 25% | 2 | 0.7021 | 1.0878 | 0.0364 | 0.9429 | 0.1762 |
+
+Read:
+
+- Spatial-grid drive is not an immediate improvement for coupled HORN. It
+  raises pixel diversity, but hurts nearest-real MSE, feature diversity,
+  feature nearest-real distance, and settling relative to the prefix drive.
+- Coupled HORN still beats no-main under prefix drive on both seeds for
+  generated-label accuracy, feature diversity, feature nearest-real distance,
+  output settling, and state energy.
+- Under spatial-grid drive, coupled vs no-main becomes mostly tied on class
+  accuracy and feature diversity. Coupling still improves diversity,
+  feature-nearest, and state energy, but the clean semantic advantage weakens.
+- This suggests the useful mechanism may be closer to a coherent driven patch
+  propagating through local HORN dynamics, rather than scattered label anchors
+  everywhere. The next structured topology should probably be a coarse block,
+  boundary band, or hierarchical coarse-to-fine drive instead of a uniform
+  lattice of driven cells.
+
+CIFAR-10 RGB coherent sparse-drive probe:
+
+The next topology check compared the existing `prefix` drive against a compact
+`center_block` drive. Both inject class drive into 64 of 256 oscillators, but
+`center_block` makes the driven source a centered 8x8 oscillator-grid patch.
+The probe keeps the same two-seed shape as the structured-drive run:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=8 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_coherent_drive_probe
+```
+
+```bash
+python scripts/analyze_mnist_generator_frontier.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_coherent_drive_probe.csv \
+  --output-dir outputs/analysis/cifar10_rgb_coherent_drive_probe \
+  --title "CIFAR-10 RGB coherent sparse-drive probe" \
+  --accuracy-floor 0.3 \
+  --no-plot
+```
+
+| Variant | Runs | Generated-label acc | Pixel diversity | Nearest-real MSE | Feature diversity | Feature nearest-real |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Coupled HORN prefix 25% | 2 | 0.7188 | 1.1238 | 0.0341 | 0.9528 | 0.1529 |
+| Coupled HORN center-block 25% | 2 | 0.7188 | 1.1609 | 0.0361 | 0.9564 | 0.1612 |
+| No-main prefix 25% | 2 | 0.6689 | 1.1142 | 0.0363 | 0.9227 | 0.1613 |
+| No-main center-block 25% | 2 | 0.7148 | 1.0745 | 0.0336 | 0.9374 | 0.1587 |
+
+Paired read:
+
+- Center-block vs prefix for coupled HORN is a diversity tradeoff, not a
+  quality win: equal mean generated-label accuracy, higher pixel diversity,
+  slightly higher feature diversity, but worse nearest-real and feature-nearest
+  distances.
+- Prefix coupled HORN still beats no-main prefix on generated-label accuracy
+  and feature diversity on both seeds, preserving the clean sparse-drive
+  mechanism result.
+- Center-block coupled HORN beats no-main center on feature diversity and
+  pixel diversity on both seeds, but not on pixel/feature nearest-real
+  distance. The no-main center control is surprisingly strong semantically.
+- The practical conclusion is that drive topology matters, but the current
+  best bet is not simply "move class drive to the center." A coherent driven
+  source helps maintain diversity; the top-band/prefix layout remains cleaner
+  for semantic and feature proximity. The next non-random architecture step is
+  likely a small coarse class-driver field or boundary/coarse-to-fine drive,
+  not more scattered anchors.
 
 ## Maintenance Notes
 

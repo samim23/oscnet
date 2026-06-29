@@ -181,6 +181,240 @@ def _model_with_steps(model: eqx.Module, steps: int) -> eqx.Module:
     return stepped_model
 
 
+def _safe_ratio(numerator: float, denominator: float) -> float:
+    """Return a finite ratio when possible, otherwise NaN."""
+
+    if not np.isfinite(numerator) or not np.isfinite(denominator):
+        return float("nan")
+    if abs(denominator) < 1e-12:
+        return float("nan")
+    return float(numerator / denominator)
+
+
+def _series_summary(prefix: str, values: np.ndarray) -> Dict[str, float]:
+    """Summarize a per-step scalar series."""
+
+    values = np.asarray(values, dtype=np.float64)
+    if values.size == 0:
+        return {}
+    summary = {
+        f"{prefix}_initial": float(values[0]),
+        f"{prefix}_final": float(values[-1]),
+        f"{prefix}_mean": _finite_mean(values),
+        f"{prefix}_min": float(np.min(values)),
+        f"{prefix}_max": float(np.max(values)),
+        f"{prefix}_delta": float(values[-1] - values[0]),
+    }
+    if values.size > 1:
+        summary[f"{prefix}_last_minus_first"] = float(values[-1] - values[0])
+        summary[f"{prefix}_settling_ratio"] = _safe_ratio(
+            float(values[-1]),
+            float(values[0]),
+        )
+    return summary
+
+
+def _transition_summary(prefix: str, values: np.ndarray) -> Dict[str, float]:
+    """Summarize a per-transition scalar series."""
+
+    values = np.asarray(values, dtype=np.float64)
+    if values.size == 0:
+        return {
+            f"{prefix}_initial": 0.0,
+            f"{prefix}_final": 0.0,
+            f"{prefix}_mean": 0.0,
+            f"{prefix}_max": 0.0,
+            f"{prefix}_delta": 0.0,
+            f"{prefix}_settling_ratio": float("nan"),
+        }
+    summary = {
+        f"{prefix}_initial": float(values[0]),
+        f"{prefix}_final": float(values[-1]),
+        f"{prefix}_mean": _finite_mean(values),
+        f"{prefix}_max": float(np.max(values)),
+        f"{prefix}_delta": float(values[-1] - values[0]),
+        f"{prefix}_settling_ratio": _safe_ratio(
+            float(values[-1]),
+            float(values[0]),
+        ),
+    }
+    return summary
+
+
+def _coupling_potential_proxy(position_series: np.ndarray, weight: np.ndarray) -> np.ndarray:
+    """Weighted squared-disagreement proxy over a trajectory.
+
+    This is an energy-like diagnostic, not a proof that the dynamics optimize a
+    Lyapunov energy. Absolute effective coupling weights are used so learned
+    sign choices do not make the scalar cancel to near zero.
+    """
+
+    weight = np.abs(np.asarray(weight, dtype=np.float64))
+    denom = float(np.sum(weight))
+    if denom <= 1e-12:
+        return np.zeros((position_series.shape[0],), dtype=np.float64)
+    row_sum = np.sum(weight, axis=1)
+    col_sum = np.sum(weight, axis=0)
+    values = []
+    for state in np.asarray(position_series, dtype=np.float64):
+        squared = state * state
+        left = np.sum(squared * row_sum[None, :], axis=1)
+        right = np.sum(squared * col_sum[None, :], axis=1)
+        cross = np.einsum("bi,ij,bj->b", state, weight, state)
+        values.append(float(np.mean(left + right - 2.0 * cross) / denom))
+    return np.asarray(values, dtype=np.float64)
+
+
+def _decode_trace_outputs(model: eqx.Module, trace: Dict[str, Array]) -> Optional[np.ndarray]:
+    """Decode every recorded state in a trace, when the model supports it."""
+
+    initial = np.asarray(trace["initial_theta"], dtype=np.float32)
+    trajectory = np.asarray(trace["theta_trajectory"], dtype=np.float32)
+    position_series = np.concatenate([initial[None, ...], trajectory], axis=0)
+    if position_series.shape[0] < 2:
+        return None
+
+    decoded = []
+    if "velocity_trajectory" in trace and hasattr(model, "decode_state"):
+        initial_velocity = np.asarray(trace["initial_velocity"], dtype=np.float32)
+        velocity_trajectory = np.asarray(
+            trace["velocity_trajectory"],
+            dtype=np.float32,
+        )
+        velocity_series = np.concatenate(
+            [initial_velocity[None, ...], velocity_trajectory],
+            axis=0,
+        )
+        for position, velocity in zip(position_series, velocity_series):
+            decoded.append(
+                np.asarray(
+                    model.decode_state(
+                        jnp.asarray(position),
+                        jnp.asarray(velocity),
+                    ),
+                    dtype=np.float32,
+                )
+            )
+        return np.stack(decoded, axis=0)
+
+    if hasattr(model, "decode_phase"):
+        for phase in position_series:
+            decoded.append(
+                np.asarray(
+                    model.decode_phase(jnp.asarray(phase)),
+                    dtype=np.float32,
+                )
+            )
+        return np.stack(decoded, axis=0)
+    return None
+
+
+def compute_generator_trace_dynamics(
+    model: eqx.Module,
+    trace: Dict[str, Array],
+) -> Dict[str, float]:
+    """Compute trajectory diagnostics for generator settling behavior.
+
+    The returned values are digital-simulation probes. They are intended to
+    answer practical questions such as "is the state still moving?" and "does
+    the rendered image keep changing?", without claiming physical energy
+    optimality for learned oscillator updates.
+    """
+
+    initial = np.asarray(trace["initial_theta"], dtype=np.float32)
+    trajectory = np.asarray(trace["theta_trajectory"], dtype=np.float32)
+    position_series = np.concatenate([initial[None, ...], trajectory], axis=0)
+    diagnostics: Dict[str, float] = {}
+
+    if "initial_velocity" in trace and "velocity_trajectory" in trace:
+        initial_velocity = np.asarray(trace["initial_velocity"], dtype=np.float32)
+        velocity_trajectory = np.asarray(
+            trace["velocity_trajectory"],
+            dtype=np.float32,
+        )
+        velocity_series = np.concatenate(
+            [initial_velocity[None, ...], velocity_trajectory],
+            axis=0,
+        )
+        state_energy = np.mean(
+            position_series * position_series + velocity_series * velocity_series,
+            axis=(1, 2),
+        )
+        velocity_rms = np.sqrt(np.mean(velocity_series * velocity_series, axis=(1, 2)))
+        diagnostics.update(_series_summary("state_energy", state_energy))
+        diagnostics.update(_series_summary("state_velocity_rms", velocity_rms))
+
+        if position_series.shape[0] > 1:
+            delta_position = np.diff(position_series, axis=0)
+            delta_velocity = np.diff(velocity_series, axis=0)
+            state_update_rms = np.sqrt(
+                np.mean(
+                    delta_position * delta_position
+                    + delta_velocity * delta_velocity,
+                    axis=(1, 2),
+                )
+            )
+            diagnostics.update(
+                _transition_summary("state_update_rms", state_update_rms)
+            )
+            dt = float(getattr(model, "dt", 1.0))
+            acceleration = delta_velocity / max(dt, 1e-8)
+            acceleration_rms = np.sqrt(
+                np.mean(acceleration * acceleration, axis=(1, 2))
+            )
+            diagnostics.update(
+                _transition_summary("state_acceleration_rms", acceleration_rms)
+            )
+            diagnostics["state_path_length_rms"] = float(np.sum(state_update_rms))
+            net_displacement = position_series[-1] - position_series[0]
+            net_velocity_displacement = velocity_series[-1] - velocity_series[0]
+            diagnostics["state_net_displacement_rms"] = float(
+                np.sqrt(
+                    np.mean(
+                        net_displacement * net_displacement
+                        + net_velocity_displacement * net_velocity_displacement
+                    )
+                )
+            )
+            diagnostics["state_path_efficiency_ratio"] = _safe_ratio(
+                diagnostics["state_net_displacement_rms"],
+                diagnostics["state_path_length_rms"],
+            )
+    elif position_series.shape[0] > 1:
+        phase_delta = np.angle(np.exp(1j * np.diff(position_series, axis=0)))
+        phase_update_rms = np.sqrt(np.mean(phase_delta * phase_delta, axis=(1, 2)))
+        diagnostics.update(_transition_summary("phase_update_rms", phase_update_rms))
+
+    if "coupling" in trace and "coupling_profile" in trace:
+        effective_coupling = (
+            np.asarray(trace["coupling"], dtype=np.float32)
+            * np.asarray(trace["coupling_profile"], dtype=np.float32)
+        )
+        if effective_coupling.shape == (
+            position_series.shape[-1],
+            position_series.shape[-1],
+        ):
+            diagnostics.update(
+                _series_summary(
+                    "coupling_potential_proxy",
+                    _coupling_potential_proxy(position_series, effective_coupling),
+                )
+            )
+
+    decoded = _decode_trace_outputs(model, trace)
+    if decoded is not None and decoded.shape[0] > 1:
+        output_step_mse = np.mean(np.diff(decoded, axis=0) ** 2, axis=(1, 2))
+        diagnostics.update(_transition_summary("output_step_mse", output_step_mse))
+        diagnostics["output_path_mse"] = float(np.sum(output_step_mse))
+        diagnostics["output_net_mse"] = float(np.mean((decoded[-1] - decoded[0]) ** 2))
+        diagnostics["output_path_efficiency_ratio"] = _safe_ratio(
+            diagnostics["output_net_mse"],
+            diagnostics["output_path_mse"],
+        )
+
+    return diagnostics
+
+
 def compute_generator_settling_metrics(
     model: eqx.Module,
     *,
@@ -406,6 +640,14 @@ def compute_generator_success_diagnostics(
     estimated_ops_per_sample = (
         estimated_recurrent_ops_per_sample + estimated_decoder_ops_per_sample
     )
+    conditioning_target_mask = tuple(
+        float(value) for value in getattr(model, "conditioning_target_mask", ())
+    )
+    conditioning_target_count = (
+        int(sum(conditioning_target_mask))
+        if conditioning_target_mask
+        else int(model.num_oscillators)
+    )
 
     diagnostics: Dict[str, Any] = {
         "total_params": total_params,
@@ -434,6 +676,14 @@ def compute_generator_success_diagnostics(
         "coupling_floor": float(model.coupling_floor),
         "coupling_bias_strength": float(model.coupling_bias_strength),
         "conditioning_strength": float(model.conditioning_strength),
+        "conditioning_target_fraction": float(model.conditioning_target_fraction),
+        "conditioning_target_pattern": model.conditioning_target_pattern,
+        "conditioning_target_count": conditioning_target_count,
+        "conditioning_target_effective_fraction": (
+            float(conditioning_target_count / model.num_oscillators)
+            if model.num_oscillators > 0
+            else 0.0
+        ),
         "conditioning_mode": model.conditioning_mode,
         "readout_mode": model.readout_mode,
         "num_condition_oscillators": int(model.num_condition_oscillators),
@@ -494,5 +744,6 @@ def compute_generator_success_diagnostics(
             diagnostics["state_final_energy"] = float(
                 np.mean(final**2 + final_velocity**2)
             )
+        diagnostics.update(compute_generator_trace_dynamics(model, trace))
 
     return diagnostics

@@ -131,6 +131,9 @@ class HORNImageGenerator(KuramotoImageGenerator):
 
         anchor = jnp.tanh(self.label_condition_phase[labels.astype(jnp.int32)])
         condition_coupling = self.label_condition_coupling[labels.astype(jnp.int32)]
+        condition_coupling = (
+            condition_coupling * self._conditioning_target_mask_array()[None, :, None]
+        )
         if not self.train_conditioning_dynamics:
             anchor = jax.lax.stop_gradient(anchor)
             condition_coupling = jax.lax.stop_gradient(condition_coupling)
@@ -157,6 +160,9 @@ class HORNImageGenerator(KuramotoImageGenerator):
             return jnp.zeros_like(position)
 
         condition_coupling = self.label_condition_coupling[labels.astype(jnp.int32)]
+        condition_coupling = (
+            condition_coupling * self._conditioning_target_mask_array()[None, :, None]
+        )
         if not self.train_conditioning_dynamics:
             condition_position = jax.lax.stop_gradient(condition_position)
             condition_coupling = jax.lax.stop_gradient(condition_coupling)
@@ -639,6 +645,7 @@ class HORNImageGenerator(KuramotoImageGenerator):
                 if self.label_condition_coupling is None
                 else self.label_condition_coupling
             ),
+            "conditioning_target_mask": self._conditioning_target_mask_array(),
             "spatial_phase_weights": (
                 jnp.zeros((0, 2))
                 if self.spatial_phase_weights is None
@@ -664,4 +671,3 @@ class HORNImageGenerator(KuramotoImageGenerator):
     ) -> Array:
         final_position, final_velocity = self.sample_state(key, batch_size, labels)
         return self.decode_state(final_position, final_velocity)
-

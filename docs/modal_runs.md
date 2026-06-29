@@ -1534,12 +1534,242 @@ OSCNET_MODAL_MAX_CONTAINERS=3 modal run scripts/modal_mnist_generator.py \
 ```
 
 This reruns the three RGB frontier variants for seed 11 only. It exists to
-populate classifier feature-space diversity and nearest-real metrics after
-those diagnostics change, without spending a full 9-job sweep. It writes:
+populate classifier feature-space diversity, nearest-real metrics, and
+trajectory-level settling diagnostics after those measurements change, without
+spending a full 9-job sweep. It writes:
 
 ```text
 outputs/analysis/modal_mnist_generator_cifar10_rgb_feature_metric_audit.csv
 outputs/analysis/modal_mnist_generator_cifar10_rgb_feature_metric_audit.json
+```
+
+The companion analyzer command is:
+
+```bash
+python scripts/analyze_mnist_generator_frontier.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_feature_metric_audit.csv \
+  --output-dir outputs/analysis/cifar10_rgb_feature_metric_dynamics_audit \
+  --title "CIFAR-10 RGB feature/dynamics generator audit" \
+  --accuracy-floor 0.3
+```
+
+Run the CIFAR-10 RGB quality-judge audit:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=4 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_judge_audit
+```
+
+This compares the old `conv` sample-quality judge against the stronger
+`residual_conv` judge on the same coupled HORN 25% prefix-drive run and the
+no-main 25% prefix-drive control. It is a measurement audit: use it before
+making strong CIFAR semantic-generation claims from generated-label accuracy.
+It writes:
+
+```text
+outputs/analysis/modal_mnist_generator_cifar10_rgb_judge_audit.csv
+outputs/analysis/modal_mnist_generator_cifar10_rgb_judge_audit.json
+```
+
+Analyze it with:
+
+```bash
+python scripts/analyze_mnist_generator_frontier.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_judge_audit.csv \
+  --output-dir outputs/analysis/cifar10_rgb_judge_audit \
+  --title "CIFAR-10 RGB quality-judge audit" \
+  --accuracy-floor 0.0
+```
+
+Run the CIFAR-10 RGB residual feature-drift semantic probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=3 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_semantic_feature_drift_probe
+```
+
+This compares the HORN prefix-25 sparse-drive pixel-drift baseline against
+residual-conv learned feature drift at weights `0.25` and `1.0`, while scoring
+with an independently trained residual-conv quality judge. It tests whether a
+semantic feature-drift target can improve strict CIFAR sample quality without
+making the evaluation circular. It writes:
+
+```text
+outputs/analysis/modal_mnist_generator_cifar10_rgb_semantic_feature_drift_probe.csv
+outputs/analysis/modal_mnist_generator_cifar10_rgb_semantic_feature_drift_probe.json
+```
+
+Analyze it with:
+
+```bash
+python scripts/analyze_mnist_generator_frontier.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_semantic_feature_drift_probe.csv \
+  --output-dir outputs/analysis/cifar10_rgb_semantic_feature_drift_probe \
+  --title "CIFAR-10 RGB residual feature-drift semantic probe" \
+  --accuracy-floor 0.0
+```
+
+Run the CIFAR-10 RGB residual feature-drift attribution repeat:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=2 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_semantic_feature_drift_attribution
+```
+
+This repeats the residual feature-drift `0.25` setting against the matching
+no-main-interaction control over two seeds. It is the current guardrail for
+separating "better semantic objective" from "better coupled oscillator
+substrate." It writes:
+
+```text
+outputs/analysis/modal_mnist_generator_cifar10_rgb_semantic_feature_drift_attribution.csv
+outputs/analysis/modal_mnist_generator_cifar10_rgb_semantic_feature_drift_attribution.json
+```
+
+Analyze it with:
+
+```bash
+python scripts/analyze_mnist_generator_frontier.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_semantic_feature_drift_attribution.csv \
+  --output-dir outputs/analysis/cifar10_rgb_semantic_feature_drift_attribution \
+  --title "CIFAR-10 RGB residual feature-drift attribution" \
+  --accuracy-floor 0.0
+```
+
+Run the one-seed CIFAR-10 RGB HORN attribution probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=6 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_attribution_probe
+```
+
+This compares the RGB HORN recipe against one-step, frozen-recurrent,
+frozen-conditioning, no-main-interaction, and decoder-only controls. It is the
+current gate for whether the HORN result depends on learned recurrent coupling
+or mainly on learned class drive plus settling. It writes:
+
+```text
+outputs/analysis/modal_mnist_generator_cifar10_rgb_attribution_probe.csv
+outputs/analysis/modal_mnist_generator_cifar10_rgb_attribution_probe.json
+```
+
+Analyze it with:
+
+```bash
+python scripts/analyze_mnist_generator_frontier.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_attribution_probe.csv \
+  --output-dir outputs/analysis/cifar10_rgb_attribution_probe \
+  --title "CIFAR-10 RGB HORN attribution probe" \
+  --accuracy-floor 0.3
+```
+
+Run the CIFAR-10 RGB sparse class-drive HORN probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=6 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_sparse_drive_probe
+```
+
+This compares full, 25%, and 10% direct class-drive targets for the coupled
+HORN recipe and the no-main-interaction control. It tests whether local HORN
+coupling propagates sparse class drive instead of letting conditioning organize
+every oscillator independently. It writes:
+
+```text
+outputs/analysis/modal_mnist_generator_cifar10_rgb_sparse_drive_probe.csv
+outputs/analysis/modal_mnist_generator_cifar10_rgb_sparse_drive_probe.json
+```
+
+Analyze it with:
+
+```bash
+python scripts/analyze_mnist_generator_frontier.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_sparse_drive_probe.csv \
+  --output-dir outputs/analysis/cifar10_rgb_sparse_drive_probe \
+  --title "CIFAR-10 RGB sparse class-drive HORN probe" \
+  --accuracy-floor 0.3
+```
+
+Run the focused 25% sparse-drive seed repeat:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=8 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_sparse_drive_seed_repeat
+```
+
+This compares only the coupled HORN 25% drive recipe against the no-main
+25% drive control across seeds `7, 11, 23, 37`. It is the current credibility
+gate for whether sparse local HORN coupling improves class-consistent CIFAR RGB
+generation beyond a single seed. It writes:
+
+```text
+outputs/analysis/modal_mnist_generator_cifar10_rgb_sparse_drive_seed_repeat.csv
+outputs/analysis/modal_mnist_generator_cifar10_rgb_sparse_drive_seed_repeat.json
+```
+
+Analyze it with:
+
+```bash
+python scripts/analyze_mnist_generator_frontier.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_sparse_drive_seed_repeat.csv \
+  --output-dir outputs/analysis/cifar10_rgb_sparse_drive_seed_repeat \
+  --title "CIFAR-10 RGB 25% sparse-drive seed repeat" \
+  --accuracy-floor 0.3
+```
+
+Run the structured sparse-drive topology probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=8 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_structured_drive_probe
+```
+
+This compares `prefix` vs `spatial_grid` 25% direct class-drive targets for
+coupled HORN and no-main controls on seeds `11, 23`. It tests whether
+distributed label anchors improve the sparse-drive coupling result or whether
+a contiguous driven region is better. It writes:
+
+```text
+outputs/analysis/modal_mnist_generator_cifar10_rgb_structured_drive_probe.csv
+outputs/analysis/modal_mnist_generator_cifar10_rgb_structured_drive_probe.json
+```
+
+Analyze it with:
+
+```bash
+python scripts/analyze_mnist_generator_frontier.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_structured_drive_probe.csv \
+  --output-dir outputs/analysis/cifar10_rgb_structured_drive_probe \
+  --title "CIFAR-10 RGB structured sparse-drive probe" \
+  --accuracy-floor 0.3
+```
+
+Run the coherent sparse-drive topology probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=8 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_coherent_drive_probe
+```
+
+This compares `prefix` vs `center_block` 25% direct class-drive targets for
+coupled HORN and no-main controls on seeds `11, 23`. It tests whether the
+useful sparse-drive signal prefers a coherent local source region and whether
+moving that source from the top-band/prefix region to the center improves
+semantic quality or mainly changes diversity. It writes:
+
+```text
+outputs/analysis/modal_mnist_generator_cifar10_rgb_coherent_drive_probe.csv
+outputs/analysis/modal_mnist_generator_cifar10_rgb_coherent_drive_probe.json
+```
+
+Analyze it with:
+
+```bash
+python scripts/analyze_mnist_generator_frontier.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_coherent_drive_probe.csv \
+  --output-dir outputs/analysis/cifar10_rgb_coherent_drive_probe \
+  --title "CIFAR-10 RGB coherent sparse-drive probe" \
+  --accuracy-floor 0.3
 ```
 
 To rerun the full four-way attribution matrix in one request:

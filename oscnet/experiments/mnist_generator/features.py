@@ -172,7 +172,161 @@ class ConvImageFeatureClassifier(eqx.Module):
         return jax.vmap(self._logits_single)(images)
 
 
-FeatureClassifier = Union[MNISTFeatureClassifier, ConvImageFeatureClassifier]
+class ResidualConvBlock(eqx.Module):
+    """Small residual image block used by the stronger diagnostic classifier."""
+
+    conv1: eqx.nn.Conv2d
+    conv2: eqx.nn.Conv2d
+    skip: eqx.nn.Conv2d | None
+
+    def __init__(
+        self,
+        *,
+        in_channels: int,
+        out_channels: int,
+        stride: int,
+        key: jax.random.PRNGKey,
+    ):
+        conv1_key, conv2_key, skip_key = jax.random.split(key, 3)
+        self.conv1 = eqx.nn.Conv2d(
+            int(in_channels),
+            int(out_channels),
+            kernel_size=3,
+            stride=int(stride),
+            padding=1,
+            key=conv1_key,
+        )
+        self.conv2 = eqx.nn.Conv2d(
+            int(out_channels),
+            int(out_channels),
+            kernel_size=3,
+            stride=1,
+            padding=1,
+            key=conv2_key,
+        )
+        self.skip = (
+            eqx.nn.Conv2d(
+                int(in_channels),
+                int(out_channels),
+                kernel_size=1,
+                stride=int(stride),
+                padding=0,
+                key=skip_key,
+            )
+            if int(in_channels) != int(out_channels) or int(stride) != 1
+            else None
+        )
+
+    def __call__(self, image: Array) -> Array:
+        residual = image if self.skip is None else self.skip(image)
+        hidden = jax.nn.gelu(self.conv1(image))
+        hidden = self.conv2(hidden)
+        return jax.nn.gelu(hidden + residual)
+
+
+class ResidualConvImageFeatureClassifier(eqx.Module):
+    """Residual convolutional classifier for stronger image-quality diagnostics."""
+
+    stem: eqx.nn.Conv2d
+    blocks: Tuple[ResidualConvBlock, ...]
+    hidden_layer: eqx.nn.Linear
+    output_layer: eqx.nn.Linear
+    image_shape: Tuple[int, ...] = eqx.field(static=True)
+    image_channels: int = eqx.field(static=True)
+    feature_dim: int = eqx.field(static=True)
+    num_classes: int = eqx.field(static=True)
+
+    def __init__(
+        self,
+        *,
+        image_dim: int = 28 * 28,
+        image_shape: Tuple[int, ...] = (28, 28),
+        feature_dim: int = 128,
+        depth: int = 3,
+        num_classes: int = 10,
+        key: jax.random.PRNGKey,
+    ):
+        if feature_dim < 1:
+            raise ValueError("feature_dim must be positive")
+        if depth < 1:
+            raise ValueError("residual conv feature classifier depth must be positive")
+        if num_classes < 1:
+            raise ValueError("num_classes must be positive")
+        height, width, channels = _image_hw_channels(
+            tuple(int(size) for size in image_shape)
+        )
+        if height * width * channels != int(image_dim):
+            raise ValueError("image_shape must match image_dim")
+        keys = jax.random.split(key, depth + 3)
+        base_channels = min(int(feature_dim), max(16, int(feature_dim) // 4))
+        self.stem = eqx.nn.Conv2d(
+            channels,
+            base_channels,
+            kernel_size=3,
+            stride=1,
+            padding=1,
+            key=keys[0],
+        )
+        blocks = []
+        in_channels = base_channels
+        for layer_index in range(int(depth)):
+            out_channels = min(int(feature_dim), base_channels * (2**layer_index))
+            stride = 1 if layer_index == 0 else 2
+            blocks.append(
+                ResidualConvBlock(
+                    in_channels=in_channels,
+                    out_channels=out_channels,
+                    stride=stride,
+                    key=keys[layer_index + 1],
+                )
+            )
+            in_channels = out_channels
+        self.blocks = tuple(blocks)
+        self.hidden_layer = eqx.nn.Linear(
+            int(in_channels),
+            int(feature_dim),
+            key=keys[-2],
+        )
+        self.output_layer = eqx.nn.Linear(
+            int(feature_dim),
+            int(num_classes),
+            key=keys[-1],
+        )
+        self.image_shape = (height, width, channels)
+        self.image_channels = channels
+        self.feature_dim = int(feature_dim)
+        self.num_classes = int(num_classes)
+
+    def _features_single(self, image: Array) -> Array:
+        height, width, channels = _image_hw_channels(self.image_shape)
+        hidden = image.reshape(channels, height, width)
+        hidden = jax.nn.gelu(self.stem(hidden))
+        for block in self.blocks:
+            hidden = block(hidden)
+        hidden = jnp.mean(hidden, axis=(1, 2))
+        hidden = jax.nn.gelu(self.hidden_layer(hidden))
+        norm = jnp.linalg.norm(hidden)
+        return hidden / jnp.maximum(norm, 1e-6)
+
+    def features(self, images: Array) -> Array:
+        """Return normalized penultimate features for a batch of flat images."""
+
+        return jax.vmap(self._features_single)(images)
+
+    def _logits_single(self, image: Array) -> Array:
+        return self.output_layer(self._features_single(image))
+
+    def __call__(self, images: Array) -> Array:
+        """Return class logits for a batch of flat images."""
+
+        return jax.vmap(self._logits_single)(images)
+
+
+FeatureClassifier = Union[
+    MNISTFeatureClassifier,
+    ConvImageFeatureClassifier,
+    ResidualConvImageFeatureClassifier,
+]
 
 
 def _build_feature_classifier(
@@ -204,7 +358,16 @@ def _build_feature_classifier(
             num_classes=int(num_classes),
             key=key,
         )
-    raise ValueError("classifier_kind must be 'mlp' or 'conv'")
+    if classifier_kind == "residual_conv":
+        return ResidualConvImageFeatureClassifier(
+            image_dim=int(image_dim),
+            image_shape=tuple(int(size) for size in image_shape),
+            feature_dim=int(feature_dim),
+            depth=int(depth),
+            num_classes=int(num_classes),
+            key=key,
+        )
+    raise ValueError("classifier_kind must be 'mlp', 'conv', or 'residual_conv'")
 
 
 def make_projection_matrix(
@@ -510,7 +673,7 @@ def mnist_feature_map(
     images: Array,
     *,
     mode: str = "structural",
-    feature_model: Optional[MNISTFeatureClassifier] = None,
+    feature_model: Optional[FeatureClassifier] = None,
 ) -> Array:
     """Map flat MNIST images into the configured feature space."""
 

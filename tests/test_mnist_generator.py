@@ -11,15 +11,17 @@ from oscnet.experiments.mnist_generator import (
     MNISTFeatureClassifier,
     MNISTGeneratorExperimentConfig,
     RECOMMENDED_GENERATOR_PRESET,
+    ResidualConvImageFeatureClassifier,
     build_arg_parser,
     build_mnist_generator_model,
     conditional_feature_drift_loss,
     conditional_pixel_drift_loss,
     config_from_args,
     compute_class_prototypes,
+    compute_generator_quality_metrics,
     compute_generator_settling_metrics,
     compute_generator_success_diagnostics,
-    compute_generator_quality_metrics,
+    compute_generator_trace_dynamics,
     generator_distribution_loss,
     generator_loss,
     make_projection_matrix,
@@ -160,8 +162,21 @@ def test_sparse_horn_mnist_control_presets_share_recipe():
         "sparse_horn_cifar10_gray_recommended_dist005": "horn",
         "sparse_horn_cifar10_gray_state_mlp_strength8": "state_mlp",
         "sparse_horn_cifar10_rgb_recommended": "horn",
+        "sparse_horn_cifar10_rgb_recommended_drive025": "horn",
+        "sparse_horn_cifar10_rgb_recommended_drive025_spatial_grid": "horn",
+        "sparse_horn_cifar10_rgb_recommended_drive025_center_block": "horn",
+        "sparse_horn_cifar10_rgb_recommended_drive010": "horn",
         "sparse_horn_cifar10_rgb_recommended_dist005": "horn",
         "sparse_horn_cifar10_rgb_state_mlp_strength8": "state_mlp",
+        "sparse_horn_cifar10_rgb_recommended_step1": "horn",
+        "sparse_horn_cifar10_rgb_recommended_frozen_recurrent": "horn",
+        "sparse_horn_cifar10_rgb_recommended_frozen_conditioning": "horn",
+        "sparse_horn_cifar10_rgb_recommended_no_main_interaction": "horn",
+        "sparse_horn_cifar10_rgb_recommended_no_main_interaction_drive025": "horn",
+        "sparse_horn_cifar10_rgb_recommended_no_main_interaction_drive025_spatial_grid": "horn",
+        "sparse_horn_cifar10_rgb_recommended_no_main_interaction_drive025_center_block": "horn",
+        "sparse_horn_cifar10_rgb_recommended_no_main_interaction_drive010": "horn",
+        "sparse_horn_cifar10_rgb_recommended_decoder_only": "horn_decoder_only",
         "sparse_horn_mnist_state_mlp_class_coupling_strong_dist005": "state_mlp",
         "sparse_horn_mnist_state_mlp_class_coupling_strong_dist01": "state_mlp",
         "sparse_horn_mnist_state_mlp_class_coupling_strong_dist01_class": "state_mlp",
@@ -359,6 +374,108 @@ def test_sparse_horn_mnist_control_presets_share_recipe():
     assert cifar_rgb_model.resize_conv_output is not None
     assert cifar_rgb_model.resize_conv_output.out_channels == 3
 
+    cifar_rgb_drive025 = config_from_args(
+        parse_args(["--preset", "sparse_horn_cifar10_rgb_recommended_drive025"])
+    )
+    assert cifar_rgb_drive025.conditioning_target_fraction == 0.25
+
+    cifar_rgb_drive025_grid = config_from_args(
+        parse_args(
+            ["--preset", "sparse_horn_cifar10_rgb_recommended_drive025_spatial_grid"]
+        )
+    )
+    assert cifar_rgb_drive025_grid.conditioning_target_fraction == 0.25
+    assert cifar_rgb_drive025_grid.conditioning_target_pattern == "spatial_grid"
+
+    cifar_rgb_drive025_center = config_from_args(
+        parse_args(
+            ["--preset", "sparse_horn_cifar10_rgb_recommended_drive025_center_block"]
+        )
+    )
+    assert cifar_rgb_drive025_center.conditioning_target_fraction == 0.25
+    assert cifar_rgb_drive025_center.conditioning_target_pattern == "center_block"
+
+    cifar_rgb_drive010 = config_from_args(
+        parse_args(["--preset", "sparse_horn_cifar10_rgb_recommended_drive010"])
+    )
+    assert cifar_rgb_drive010.conditioning_target_fraction == 0.10
+
+    cifar_rgb_step1 = config_from_args(
+        parse_args(["--preset", "sparse_horn_cifar10_rgb_recommended_step1"])
+    )
+    assert cifar_rgb_step1.steps == 1
+    assert cifar_rgb_step1.train_settling_steps == (1,)
+
+    cifar_rgb_frozen_recurrent = config_from_args(
+        parse_args(
+            ["--preset", "sparse_horn_cifar10_rgb_recommended_frozen_recurrent"]
+        )
+    )
+    assert cifar_rgb_frozen_recurrent.train_recurrent_dynamics is False
+    assert cifar_rgb_frozen_recurrent.train_conditioning_dynamics is True
+
+    cifar_rgb_frozen_conditioning = config_from_args(
+        parse_args(
+            ["--preset", "sparse_horn_cifar10_rgb_recommended_frozen_conditioning"]
+        )
+    )
+    assert cifar_rgb_frozen_conditioning.train_recurrent_dynamics is True
+    assert cifar_rgb_frozen_conditioning.train_conditioning_dynamics is False
+
+    cifar_rgb_no_main = config_from_args(
+        parse_args(
+            ["--preset", "sparse_horn_cifar10_rgb_recommended_no_main_interaction"]
+        )
+    )
+    assert cifar_rgb_no_main.coupling_init_scale == 0.0
+    assert cifar_rgb_no_main.train_recurrent_dynamics is False
+    assert cifar_rgb_no_main.train_conditioning_dynamics is True
+
+    cifar_rgb_no_main_drive025 = config_from_args(
+        parse_args(
+            [
+                "--preset",
+                "sparse_horn_cifar10_rgb_recommended_no_main_interaction_drive025",
+            ]
+        )
+    )
+    assert cifar_rgb_no_main_drive025.conditioning_target_fraction == 0.25
+    assert cifar_rgb_no_main_drive025.coupling_init_scale == 0.0
+    assert cifar_rgb_no_main_drive025.train_recurrent_dynamics is False
+
+    cifar_rgb_no_main_drive025_grid = config_from_args(
+        parse_args(
+            [
+                "--preset",
+                "sparse_horn_cifar10_rgb_recommended_no_main_interaction_drive025_spatial_grid",
+            ]
+        )
+    )
+    assert cifar_rgb_no_main_drive025_grid.conditioning_target_fraction == 0.25
+    assert cifar_rgb_no_main_drive025_grid.conditioning_target_pattern == "spatial_grid"
+    assert cifar_rgb_no_main_drive025_grid.coupling_init_scale == 0.0
+
+    cifar_rgb_no_main_drive025_center = config_from_args(
+        parse_args(
+            [
+                "--preset",
+                "sparse_horn_cifar10_rgb_recommended_no_main_interaction_drive025_center_block",
+            ]
+        )
+    )
+    assert cifar_rgb_no_main_drive025_center.conditioning_target_fraction == 0.25
+    assert (
+        cifar_rgb_no_main_drive025_center.conditioning_target_pattern
+        == "center_block"
+    )
+    assert cifar_rgb_no_main_drive025_center.coupling_init_scale == 0.0
+
+    cifar_rgb_decoder = config_from_args(
+        parse_args(["--preset", "sparse_horn_cifar10_rgb_recommended_decoder_only"])
+    )
+    assert cifar_rgb_decoder.model_family == "horn_decoder_only"
+    assert cifar_rgb_decoder.train_settling_steps == ()
+
     state_mlp_dist = config_from_args(
         parse_args(
             [
@@ -378,6 +495,117 @@ def test_sparse_horn_mnist_control_presets_share_recipe():
     )
     assert anchor.conditioning_mode == "class_coupling"
     assert anchor.label_phase_scale == 0.5
+
+
+def test_sparse_conditioning_target_fraction_masks_direct_class_drive():
+    config = config_from_args(
+        parse_args(
+            [
+                "--preset",
+                "sparse_horn_cifar10_rgb_recommended_drive025",
+                "--epochs",
+                "1",
+                "--train-limit",
+                "8",
+                "--eval-limit",
+                "8",
+            ]
+        )
+    )
+    model = build_mnist_generator_model(config, jax.random.PRNGKey(0))
+
+    mask = jnp.asarray(model.conditioning_target_mask)
+    assert mask.shape == (256,)
+    assert int(jnp.sum(mask)) == 64
+    assert jnp.all(mask[:64] == 1.0)
+    assert jnp.all(mask[64:] == 0.0)
+
+    labels = jnp.array([0, 1])
+    position = jnp.ones((2, model.num_oscillators))
+    drive = model._horn_static_conditioning_drive(position, labels)
+
+    assert jnp.max(jnp.abs(drive[:, 64:])) == 0.0
+    assert jnp.max(jnp.abs(drive[:, :64])) > 0.0
+
+    diagnostics = compute_generator_success_diagnostics(model)
+    assert diagnostics["conditioning_target_fraction"] == 0.25
+    assert diagnostics["conditioning_target_pattern"] == "prefix"
+    assert diagnostics["conditioning_target_count"] == 64
+    assert diagnostics["conditioning_target_effective_fraction"] == 0.25
+
+
+def test_spatial_grid_conditioning_target_pattern_distributes_drive():
+    config = config_from_args(
+        parse_args(
+            [
+                "--preset",
+                "sparse_horn_cifar10_rgb_recommended_drive025_spatial_grid",
+                "--epochs",
+                "1",
+                "--train-limit",
+                "8",
+                "--eval-limit",
+                "8",
+            ]
+        )
+    )
+    model = build_mnist_generator_model(config, jax.random.PRNGKey(0))
+
+    mask = jnp.asarray(model.conditioning_target_mask)
+    assert mask.shape == (256,)
+    assert int(jnp.sum(mask)) == 64
+    assert model.conditioning_target_pattern == "spatial_grid"
+    assert jnp.sum(mask[:64]) < 64
+    assert jnp.sum(mask[64:]) > 0
+
+    labels = jnp.array([0, 1])
+    position = jnp.ones((2, model.num_oscillators))
+    drive = model._horn_static_conditioning_drive(position, labels)
+
+    assert jnp.max(jnp.abs(drive * (1.0 - mask)[None, :])) == 0.0
+    assert jnp.max(jnp.abs(drive * mask[None, :])) > 0.0
+
+    diagnostics = compute_generator_success_diagnostics(model)
+    assert diagnostics["conditioning_target_pattern"] == "spatial_grid"
+    assert diagnostics["conditioning_target_count"] == 64
+
+
+def test_center_block_conditioning_target_pattern_uses_center_patch():
+    config = config_from_args(
+        parse_args(
+            [
+                "--preset",
+                "sparse_horn_cifar10_rgb_recommended_drive025_center_block",
+                "--epochs",
+                "1",
+                "--train-limit",
+                "8",
+                "--eval-limit",
+                "8",
+            ]
+        )
+    )
+    model = build_mnist_generator_model(config, jax.random.PRNGKey(0))
+
+    mask = jnp.asarray(model.conditioning_target_mask).reshape(16, 16)
+    assert mask.shape == (16, 16)
+    assert int(jnp.sum(mask)) == 64
+    assert model.conditioning_target_pattern == "center_block"
+    assert jnp.all(mask[4:12, 4:12] == 1.0)
+    assert jnp.sum(mask[:4, :]) == 0.0
+    assert jnp.sum(mask[:, :4]) == 0.0
+
+    flat_mask = mask.reshape(-1)
+    labels = jnp.array([0, 1])
+    position = jnp.ones((2, model.num_oscillators))
+    drive = model._horn_static_conditioning_drive(position, labels)
+
+    assert jnp.max(jnp.abs(drive * (1.0 - flat_mask)[None, :])) == 0.0
+    assert jnp.max(jnp.abs(drive * flat_mask[None, :])) > 0.0
+
+    diagnostics = compute_generator_success_diagnostics(model)
+    assert diagnostics["conditioning_target_pattern"] == "center_block"
+    assert diagnostics["conditioning_target_count"] == 64
 
 
 def test_unknown_idx_dataset_loading_is_rejected():
@@ -486,21 +714,24 @@ def test_quality_classifier_limits_parse_without_changing_generator_limits():
                 "32",
                 "--eval-limit",
                 "16",
-            "--quality-classifier-train-limit",
-            "5000",
-            "--quality-classifier-eval-limit",
-            "2000",
-            "--quality-classifier-kind",
-            "conv",
-        ]
-    )
+                "--quality-classifier-train-limit",
+                "5000",
+                "--quality-classifier-eval-limit",
+                "2000",
+                "--quality-classifier-kind",
+                "residual_conv",
+                "--learned-feature-kind",
+                "residual_conv",
+            ]
+        )
     )
 
     assert parsed.train_limit == 32
     assert parsed.eval_limit == 16
     assert parsed.quality_classifier_train_limit == 5000
     assert parsed.quality_classifier_eval_limit == 2000
-    assert parsed.quality_classifier_kind == "conv"
+    assert parsed.quality_classifier_kind == "residual_conv"
+    assert parsed.learned_feature_kind == "residual_conv"
 
 
 def test_conditional_generator_loss_uses_class_terms():
@@ -782,6 +1013,27 @@ def test_conv_image_feature_classifier_smoke():
     assert bool(jnp.all(jnp.isfinite(features)))
 
 
+def test_residual_conv_image_feature_classifier_smoke():
+    images = jnp.linspace(0.0, 1.0, 5 * 3 * 32 * 32).reshape(5, 3 * 32 * 32)
+    classifier = ResidualConvImageFeatureClassifier(
+        image_dim=3 * 32 * 32,
+        image_shape=(32, 32, 3),
+        feature_dim=12,
+        depth=2,
+        num_classes=4,
+        key=jax.random.PRNGKey(72),
+    )
+
+    logits = classifier(images)
+    features = classifier.features(images)
+
+    assert logits.shape == (5, 4)
+    assert features.shape == (5, 12)
+    assert classifier.image_channels == 3
+    assert bool(jnp.all(jnp.isfinite(logits)))
+    assert bool(jnp.all(jnp.isfinite(features)))
+
+
 def test_train_mnist_feature_classifier_smoke():
     images = jnp.linspace(0.0, 1.0, 12 * 28 * 28).reshape(12, 28 * 28)
     labels = jnp.asarray([0, 1, 2, 3] * 3, dtype=jnp.int32)
@@ -834,6 +1086,35 @@ def test_train_conv_feature_classifier_smoke():
     assert classifier.features(images[:2]).shape == (2, 12)
     assert history["epochs"] == 1
     assert history["classifier_kind"] == "conv"
+    assert 0.0 <= history["final_eval_accuracy"] <= 1.0
+    assert history["final_eval_loss"] >= 0.0
+
+
+def test_train_residual_conv_feature_classifier_smoke():
+    images = jnp.linspace(0.0, 1.0, 12 * 3 * 16 * 16).reshape(12, 3 * 16 * 16)
+    labels = jnp.asarray([0, 1, 2, 3] * 3, dtype=jnp.int32)
+
+    classifier, history = train_mnist_feature_classifier(
+        images,
+        labels,
+        images[:8],
+        labels[:8],
+        key=jax.random.PRNGKey(16),
+        num_classes=4,
+        feature_dim=12,
+        depth=1,
+        epochs=1,
+        batch_size=4,
+        learning_rate=1e-3,
+        weight_decay=0.0,
+        max_grad_norm=1.0,
+        classifier_kind="residual_conv",
+        image_shape=(16, 16, 3),
+    )
+
+    assert classifier.features(images[:2]).shape == (2, 12)
+    assert history["epochs"] == 1
+    assert history["classifier_kind"] == "residual_conv"
     assert 0.0 <= history["final_eval_accuracy"] <= 1.0
     assert history["final_eval_loss"] >= 0.0
 
@@ -1070,6 +1351,16 @@ def test_horn_image_generator_samples_and_traces_state():
     assert trace["velocity_trajectory"].shape == (2, 3, 8)
     assert diagnostics["dynamics_family"] == "horn"
     assert diagnostics["state_final_energy"] >= 0.0
+    assert diagnostics["state_energy_final"] >= 0.0
+    assert diagnostics["state_velocity_rms_final"] >= 0.0
+    assert diagnostics["state_update_rms_mean"] >= 0.0
+    assert diagnostics["state_acceleration_rms_mean"] >= 0.0
+    assert diagnostics["coupling_potential_proxy_final"] >= 0.0
+    assert diagnostics["output_step_mse_mean"] >= 0.0
+
+    trace_dynamics = compute_generator_trace_dynamics(model, trace)
+    assert trace_dynamics["state_energy_final"] == diagnostics["state_energy_final"]
+    assert trace_dynamics["output_step_mse_mean"] >= 0.0
 
 
 def test_generator_settling_metrics_score_multiple_step_depths():
@@ -1161,6 +1452,8 @@ def test_state_mlp_image_generator_is_non_oscillatory_control():
     assert diagnostics["transition_params"] > 0
     assert diagnostics["recurrent_params"] == diagnostics["transition_params"]
     assert diagnostics["state_mean_abs_velocity_displacement"] >= 0.0
+    assert diagnostics["state_update_rms_mean"] >= 0.0
+    assert diagnostics["output_step_mse_mean"] >= 0.0
 
 
 def test_mnist_generator_resize_conv_synthetic_training_smoke(tmp_path):
@@ -1253,6 +1546,8 @@ def test_mnist_generator_horn_synthetic_training_smoke(tmp_path):
     assert summary["generator"]["settling"]["steps"] == [0, 1]
     assert diagnostics["dynamics_family"] == "horn"
     assert "state_final_energy" in diagnostics
+    assert "state_update_rms_settling_ratio" in diagnostics
+    assert "output_step_mse_settling_ratio" in diagnostics
     assert summary["final_eval_loss"] >= 0.0
 
 
@@ -1348,7 +1643,9 @@ def test_mnist_generator_learned_feature_drift_synthetic_training_smoke(tmp_path
     assert (result.paths.metrics / "feature_classifier.json").exists()
     assert summary["generator"]["loss"] == "pixel_feature_drift"
     assert summary["generator"]["feature_drift_mode"] == "learned"
+    assert summary["generator"]["learned_feature_kind"] == "mlp"
     assert summary["generator"]["feature_classifier"]["epochs"] == 1
+    assert summary["generator"]["feature_classifier"]["classifier_kind"] == "mlp"
     assert summary["final_eval_feature_drift_loss"] >= 0.0
 
 
@@ -1386,6 +1683,8 @@ def test_generator_success_diagnostics_expose_attribution_proxies():
     assert diagnostics["trainable_recurrent_param_fraction"] > 0.0
     assert diagnostics["samples_per_train_second"] == 4.0
     assert diagnostics["phase_mean_abs_displacement"] >= 0.0
+    assert diagnostics["phase_update_rms_mean"] >= 0.0
+    assert diagnostics["output_step_mse_mean"] >= 0.0
 
 
 def test_generator_success_diagnostics_count_spatial_basis_as_decoder():

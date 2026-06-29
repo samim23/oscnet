@@ -128,6 +128,12 @@ def build_arg_parser(preset: str = "none") -> argparse.ArgumentParser:
     parser.add_argument("--coupling-floor", type=float, default=0.0)
     parser.add_argument("--coupling-bias-strength", type=float, default=0.0)
     parser.add_argument("--conditioning-strength", type=float, default=1.0)
+    parser.add_argument("--conditioning-target-fraction", type=float, default=1.0)
+    parser.add_argument(
+        "--conditioning-target-pattern",
+        choices=["prefix", "spatial_grid", "center_block"],
+        default="prefix",
+    )
     parser.add_argument("--horn-frequency", type=float, default=1.0)
     parser.add_argument("--horn-damping", type=float, default=0.15)
     parser.add_argument("--horn-nonlinearity", type=float, default=0.05)
@@ -206,6 +212,15 @@ def build_arg_parser(preset: str = "none") -> argparse.ArgumentParser:
         default="structural",
     )
     parser.add_argument("--learned-feature-epochs", type=int, default=0)
+    parser.add_argument(
+        "--learned-feature-kind",
+        choices=["mlp", "conv", "residual_conv"],
+        default="mlp",
+        help=(
+            "Classifier architecture for learned feature-drift training. "
+            "Use 'residual_conv' for stronger CIFAR semantic feature drift."
+        ),
+    )
     parser.add_argument("--learned-feature-dim", type=int, default=128)
     parser.add_argument("--learned-feature-depth", type=int, default=2)
     parser.add_argument("--learned-feature-learning-rate", type=float, default=1e-3)
@@ -213,11 +228,12 @@ def build_arg_parser(preset: str = "none") -> argparse.ArgumentParser:
     parser.add_argument("--quality-classifier-epochs", type=int, default=0)
     parser.add_argument(
         "--quality-classifier-kind",
-        choices=["mlp", "conv"],
+        choices=["mlp", "conv", "residual_conv"],
         default="mlp",
         help=(
             "Classifier architecture for generated-label quality metrics. "
-            "Use 'conv' for image datasets where the flat MLP judge is weak."
+            "Use 'conv' or 'residual_conv' for image datasets where the flat "
+            "MLP judge is weak."
         ),
     )
     parser.add_argument("--quality-classifier-dim", type=int, default=128)
@@ -325,6 +341,8 @@ def config_from_args(args: argparse.Namespace) -> MNISTGeneratorExperimentConfig
         coupling_floor=args.coupling_floor,
         coupling_bias_strength=args.coupling_bias_strength,
         conditioning_strength=args.conditioning_strength,
+        conditioning_target_fraction=args.conditioning_target_fraction,
+        conditioning_target_pattern=args.conditioning_target_pattern,
         horn_frequency=args.horn_frequency,
         horn_damping=args.horn_damping,
         horn_nonlinearity=args.horn_nonlinearity,
@@ -359,6 +377,7 @@ def config_from_args(args: argparse.Namespace) -> MNISTGeneratorExperimentConfig
         feature_drift_weight=args.feature_drift_weight,
         feature_drift_mode=args.feature_drift_mode,
         learned_feature_epochs=args.learned_feature_epochs,
+        learned_feature_kind=args.learned_feature_kind,
         learned_feature_dim=args.learned_feature_dim,
         learned_feature_depth=args.learned_feature_depth,
         learned_feature_learning_rate=args.learned_feature_learning_rate,

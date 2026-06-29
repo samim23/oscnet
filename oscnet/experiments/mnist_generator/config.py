@@ -26,6 +26,8 @@ class MNISTGeneratorExperimentConfig:
     coupling_floor: float = 0.0
     coupling_bias_strength: float = 0.0
     conditioning_strength: float = 1.0
+    conditioning_target_fraction: float = 1.0
+    conditioning_target_pattern: str = "prefix"
     horn_frequency: float = 1.0
     horn_damping: float = 0.15
     horn_nonlinearity: float = 0.05
@@ -60,6 +62,7 @@ class MNISTGeneratorExperimentConfig:
     feature_drift_weight: float = 1.0
     feature_drift_mode: str = "structural"
     learned_feature_epochs: int = 0
+    learned_feature_kind: str = "mlp"
     learned_feature_dim: int = 128
     learned_feature_depth: int = 2
     learned_feature_learning_rate: float = 1e-3

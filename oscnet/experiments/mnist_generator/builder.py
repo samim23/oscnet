@@ -73,6 +73,8 @@ def build_mnist_generator_model(
         "coupling_floor": config.coupling_floor,
         "coupling_bias_strength": config.coupling_bias_strength,
         "conditioning_strength": config.conditioning_strength,
+        "conditioning_target_fraction": config.conditioning_target_fraction,
+        "conditioning_target_pattern": config.conditioning_target_pattern,
         "train_dynamics": train_dynamics,
         "train_recurrent_dynamics": train_recurrent_dynamics,
         "train_conditioning_dynamics": train_conditioning_dynamics,

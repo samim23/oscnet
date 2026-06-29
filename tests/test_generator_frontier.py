@@ -73,6 +73,62 @@ def test_infer_generator_variant_handles_known_modal_sweeps():
         )
         == "state_mlp_strength8"
     )
+    assert (
+        infer_generator_variant(
+            "mnist_generator_cifar10_rgb_attribution_"
+            "horn_no_main_interaction_n256_resizeconv_train1000_seed11_20e"
+        )
+        == "horn_no_main_interaction"
+    )
+    assert (
+        infer_generator_variant(
+            "mnist_generator_cifar10_rgb_sparse_drive_"
+            "horn_no_main_drive025_n256_resizeconv_train1000_seed11_20e"
+        )
+        == "horn_no_main_drive025"
+    )
+    assert (
+        infer_generator_variant(
+            "mnist_generator_cifar10_rgb_sparse_drive_seed_repeat_"
+            "horn_drive025_n256_resizeconv_train1000_seed37_20e"
+        )
+        == "horn_drive025"
+    )
+    assert (
+        infer_generator_variant(
+            "mnist_generator_cifar10_rgb_judge_audit_"
+            "horn_prefix025_resconvjudge_n256_resizeconv_train1000_seed11_20e"
+        )
+        == "horn_prefix025_resconvjudge"
+    )
+    assert (
+        infer_generator_variant(
+            "mnist_generator_cifar10_rgb_semantic_feature_drift_"
+            "horn_resfeat025_n256_resizeconv_train2000_seed11_20e"
+        )
+        == "horn_resfeat025"
+    )
+    assert (
+        infer_generator_variant(
+            "mnist_generator_cifar10_rgb_semantic_feature_drift_attribution_"
+            "horn_no_main_resfeat025_n256_resizeconv_train2000_seed23_20e"
+        )
+        == "horn_no_main_resfeat025"
+    )
+    assert (
+        infer_generator_variant(
+            "mnist_generator_cifar10_rgb_structured_drive_"
+            "horn_grid025_n256_resizeconv_train1000_seed23_20e"
+        )
+        == "horn_grid025"
+    )
+    assert (
+        infer_generator_variant(
+            "mnist_generator_cifar10_rgb_coherent_drive_"
+            "horn_center025_n256_resizeconv_train1000_seed23_20e"
+        )
+        == "horn_center025"
+    )
 
 
 def test_generator_frontier_marks_non_dominated_tradeoff(tmp_path: Path):
@@ -118,7 +174,9 @@ def test_generator_frontier_marks_non_dominated_tradeoff(tmp_path: Path):
     write_frontier_markdown(summaries, md_path)
 
     assert "pareto_frontier" in csv_path.read_text()
-    assert "Frontier variants" in md_path.read_text()
+    markdown = md_path.read_text()
+    assert "Update settle" in markdown
+    assert "Frontier variants" in markdown
 
 
 def test_read_generator_sweep_csv_groups_by_variant(tmp_path: Path):

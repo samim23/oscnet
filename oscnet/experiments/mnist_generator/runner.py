@@ -340,14 +340,15 @@ def run_mnist_generator_experiment(
         )
     paths = prepare_experiment_paths(config.run, asdict(config))
     key = jax.random.PRNGKey(config.run.seed)
-    key, model_key, projection_key, feature_key = jax.random.split(key, 4)
+    key, model_key, projection_key, feature_key, quality_key = jax.random.split(key, 5)
     feature_model: Optional[FeatureClassifier] = None
     feature_classifier_metrics: Dict[str, Any] = {}
     quality_classifier_model: Optional[FeatureClassifier] = None
     quality_classifier_metrics: Dict[str, Any] = {}
     if config.feature_drift_mode == "learned":
         logger.info(
-            "training learned feature classifier epochs=%s feature_dim=%s",
+            "training learned feature classifier kind=%s epochs=%s feature_dim=%s",
+            config.learned_feature_kind,
             config.learned_feature_epochs,
             config.learned_feature_dim,
         )
@@ -365,6 +366,7 @@ def run_mnist_generator_experiment(
             learning_rate=config.learned_feature_learning_rate,
             weight_decay=config.learned_feature_weight_decay,
             max_grad_norm=config.run.max_grad_norm,
+            classifier_kind=config.learned_feature_kind,
             image_shape=config.image_shape,
         )
         write_json(
@@ -376,9 +378,10 @@ def run_mnist_generator_experiment(
             feature_classifier_metrics["final_eval_accuracy"],
             feature_classifier_metrics["final_eval_loss"],
         )
-        quality_classifier_model = feature_model
-        quality_classifier_metrics = feature_classifier_metrics
-    if config.quality_classifier_epochs > 0 and quality_classifier_model is None:
+        if config.quality_classifier_epochs <= 0:
+            quality_classifier_model = feature_model
+            quality_classifier_metrics = feature_classifier_metrics
+    if config.quality_classifier_epochs > 0:
         quality_train_images = train_images
         quality_train_labels = train_labels
         quality_eval_images = eval_images
@@ -425,7 +428,7 @@ def run_mnist_generator_experiment(
                 quality_train_labels,
                 quality_eval_images,
                 quality_eval_labels,
-                key=feature_key,
+                key=quality_key,
                 num_classes=config.num_classes,
                 feature_dim=config.quality_classifier_dim,
                 depth=config.quality_classifier_depth,
@@ -814,6 +817,10 @@ def run_mnist_generator_experiment(
             "pixel_drift_weight": config.pixel_drift_weight,
             "feature_drift_weight": config.feature_drift_weight,
             "feature_drift_mode": config.feature_drift_mode,
+            "learned_feature_kind": config.learned_feature_kind,
+            "learned_feature_epochs": config.learned_feature_epochs,
+            "learned_feature_dim": config.learned_feature_dim,
+            "learned_feature_depth": config.learned_feature_depth,
             "feature_classifier": feature_classifier_metrics,
             "quality_classifier": quality_classifier_metrics,
             "quality_classifier_epochs": config.quality_classifier_epochs,
@@ -846,6 +853,15 @@ def run_mnist_generator_experiment(
             "coupling_floor": float(model.coupling_floor),
             "coupling_bias_strength": float(model.coupling_bias_strength),
             "conditioning_strength": float(model.conditioning_strength),
+            "conditioning_target_fraction": float(
+                model.conditioning_target_fraction
+            ),
+            "conditioning_target_pattern": model.conditioning_target_pattern,
+            "conditioning_target_count": int(
+                sum(getattr(model, "conditioning_target_mask", ()))
+                if getattr(model, "conditioning_target_mask", ())
+                else model.num_oscillators
+            ),
             "dynamics_family": str(getattr(model, "dynamics_family", "kuramoto")),
             "horn_frequency": config.horn_frequency,
             "horn_damping": config.horn_damping,
