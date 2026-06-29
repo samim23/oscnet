@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import math
 import re
 import statistics
 from dataclasses import dataclass, fields
@@ -23,6 +24,8 @@ DEFAULT_VARIANT_PATTERNS = (
     re.compile(r"cifar10_rgb_judge_audit_(.+?)_n256"),
     re.compile(r"cifar10_rgb_semantic_feature_drift_attribution_(.+?)_n256"),
     re.compile(r"cifar10_rgb_semantic_feature_drift_(.+?)_n256"),
+    re.compile(r"cifar10_rgb_attractor_robustness_seed_repeat_(.+?)_n256"),
+    re.compile(r"cifar10_rgb_attractor_robustness_(.+?)_n256"),
     re.compile(r"cifar10_rgb_attribution_(.+?)_n256"),
     re.compile(r"cifar10_rgb_feature_metrics_(.+?)_n256"),
     re.compile(r"cifar10_rgb_frontier_(.+?)_n256"),
@@ -57,6 +60,14 @@ class GeneratorFrontierSummary:
     state_acceleration_settling_ratio_mean: float
     output_step_mse_settling_ratio_mean: float
     coupling_potential_delta_mean: float
+    attractor_label_accuracy_mean: float
+    attractor_class_success_fraction_mean: float
+    attractor_pixel_within_class_pairwise_mse_mean: float
+    attractor_pixel_separation_ratio_mean: float
+    attractor_pixel_diversity_score_mean: float
+    attractor_feature_within_class_distance_mean: float
+    attractor_feature_separation_ratio_mean: float
+    attractor_feature_diversity_score_mean: float
     quality_judge_accuracy_mean: float
     coupling_density_mean: float
     total_params_mean: float
@@ -101,6 +112,14 @@ def _pstdev(values: Iterable[object]) -> float:
     return statistics.pstdev(nums)
 
 
+def _collapse_aware_score(accuracy: object, spread: object) -> Optional[float]:
+    accuracy_value = _to_float(accuracy)
+    spread_value = _to_float(spread)
+    if accuracy_value is None or spread_value is None or spread_value < 0.0:
+        return None
+    return float(accuracy_value * math.log1p(spread_value))
+
+
 def infer_generator_variant(run_name: str, variant_regex: str | None = None) -> str:
     """Infer a compact variant label from a Modal generator run name."""
 
@@ -140,6 +159,25 @@ def _summarize_variant(variant: str, rows: Sequence[dict[str, str]]) -> Generato
     def column(name: str) -> List[object]:
         return [row.get(name, "") for row in rows]
 
+    def score_column(
+        direct_name: str,
+        accuracy_name: str,
+        spread_name: str,
+    ) -> List[object]:
+        values: List[object] = []
+        for row in rows:
+            direct_value = _to_float(row.get(direct_name, ""))
+            if direct_value is not None:
+                values.append(direct_value)
+                continue
+            score = _collapse_aware_score(
+                row.get(accuracy_name, ""),
+                row.get(spread_name, ""),
+            )
+            if score is not None:
+                values.append(score)
+        return values
+
     return GeneratorFrontierSummary(
         variant=variant,
         runs=len(rows),
@@ -176,6 +214,44 @@ def _summarize_variant(variant: str, rows: Sequence[dict[str, str]]) -> Generato
         ),
         coupling_potential_delta_mean=_mean(
             column("generator.success_diagnostics.coupling_potential_proxy_delta")
+        ),
+        attractor_label_accuracy_mean=_mean(
+            column("generator.attractor_robustness.label_accuracy")
+        ),
+        attractor_class_success_fraction_mean=_mean(
+            column("generator.attractor_robustness.class_success_fraction")
+        ),
+        attractor_pixel_within_class_pairwise_mse_mean=_mean(
+            column("generator.attractor_robustness.pixel_within_class_pairwise_mse")
+        ),
+        attractor_pixel_separation_ratio_mean=_mean(
+            column("generator.attractor_robustness.pixel_separation_ratio")
+        ),
+        attractor_pixel_diversity_score_mean=_mean(
+            score_column(
+                "generator.attractor_robustness."
+                "pixel_attractor_diversity_score",
+                "generator.attractor_robustness.label_accuracy",
+                "generator.attractor_robustness.pixel_within_class_pairwise_mse",
+            )
+        ),
+        attractor_feature_within_class_distance_mean=_mean(
+            column(
+                "generator.attractor_robustness."
+                "feature_within_class_pairwise_distance"
+            )
+        ),
+        attractor_feature_separation_ratio_mean=_mean(
+            column("generator.attractor_robustness.feature_separation_ratio")
+        ),
+        attractor_feature_diversity_score_mean=_mean(
+            score_column(
+                "generator.attractor_robustness."
+                "feature_attractor_diversity_score",
+                "generator.attractor_robustness.label_accuracy",
+                "generator.attractor_robustness."
+                "feature_within_class_pairwise_distance",
+            )
         ),
         quality_judge_accuracy_mean=_mean(
             column("generator.quality_classifier.final_eval_accuracy")
@@ -288,11 +364,20 @@ def write_frontier_markdown(
         == summary.feature_nearest_real_mse_mean
         for summary in summaries
     )
+    include_attractor_metrics = any(
+        summary.attractor_label_accuracy_mean == summary.attractor_label_accuracy_mean
+        or summary.attractor_pixel_within_class_pairwise_mse_mean
+        == summary.attractor_pixel_within_class_pairwise_mse_mean
+        for summary in summaries
+    )
     header = "| Variant | Runs | Frontier | Acc | Diversity | Nearest-real MSE | "
     separator = "| --- | ---: | :---: | ---: | ---: | ---: | "
     if include_feature_metrics:
         header += "Feature diversity | Feature nearest-real | "
         separator += "---: | ---: | "
+    if include_attractor_metrics:
+        header += "Attractor acc | Basin score | Attractor within | Attractor sep | "
+        separator += "---: | ---: | ---: | ---: | "
     header += (
         "State energy | Update settle | Output settle | Coupling delta | "
         "Coupling density | Drive frac | Drive count | Params | Samples/sec |"
@@ -318,6 +403,15 @@ def write_frontier_markdown(
                 [
                     _fmt(summary.feature_diversity_ratio_mean),
                     _fmt(summary.feature_nearest_real_mse_mean),
+                ]
+            )
+        if include_attractor_metrics:
+            row.extend(
+                [
+                    _fmt(summary.attractor_label_accuracy_mean),
+                    _fmt(summary.attractor_pixel_diversity_score_mean),
+                    _fmt(summary.attractor_pixel_within_class_pairwise_mse_mean),
+                    _fmt(summary.attractor_pixel_separation_ratio_mean),
                 ]
             )
         row.extend(

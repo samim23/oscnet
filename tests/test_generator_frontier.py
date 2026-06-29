@@ -117,6 +117,20 @@ def test_infer_generator_variant_handles_known_modal_sweeps():
     )
     assert (
         infer_generator_variant(
+            "mnist_generator_cifar10_rgb_attractor_robustness_"
+            "state_mlp_resfeat025_n256_resizeconv_train2000_seed11_20e"
+        )
+        == "state_mlp_resfeat025"
+    )
+    assert (
+        infer_generator_variant(
+            "mnist_generator_cifar10_rgb_attractor_robustness_seed_repeat_"
+            "horn_resfeat025_n256_resizeconv_train2000_seed23_20e"
+        )
+        == "horn_resfeat025"
+    )
+    assert (
+        infer_generator_variant(
             "mnist_generator_cifar10_rgb_structured_drive_"
             "horn_grid025_n256_resizeconv_train1000_seed23_20e"
         )
@@ -138,11 +152,15 @@ def test_generator_frontier_marks_non_dominated_tradeoff(tmp_path: Path):
                 "generator.classifier_label_accuracy": "1.0",
                 "generator.diversity_ratio": "1.10",
                 "generator.nearest_real_mse": "0.052",
+                "generator.attractor_robustness.label_accuracy": "0.75",
+                "generator.attractor_robustness.pixel_within_class_pairwise_mse": "4.0",
             },
             {
                 "generator.classifier_label_accuracy": "1.0",
                 "generator.diversity_ratio": "1.20",
                 "generator.nearest_real_mse": "0.056",
+                "generator.attractor_robustness.label_accuracy": "0.80",
+                "generator.attractor_robustness.pixel_within_class_pairwise_mse": "5.0",
             },
         ],
         "state_mlp": [
@@ -167,6 +185,7 @@ def test_generator_frontier_marks_non_dominated_tradeoff(tmp_path: Path):
     assert by_variant["horn"].pareto_frontier is True
     assert by_variant["state_mlp"].pareto_frontier is True
     assert by_variant["dominated"].pareto_frontier is False
+    assert by_variant["horn"].attractor_pixel_diversity_score_mean > 0.0
 
     csv_path = tmp_path / "frontier.csv"
     md_path = tmp_path / "frontier.md"
@@ -176,6 +195,7 @@ def test_generator_frontier_marks_non_dominated_tradeoff(tmp_path: Path):
     assert "pareto_frontier" in csv_path.read_text()
     markdown = md_path.read_text()
     assert "Update settle" in markdown
+    assert "Basin score" in markdown
     assert "Frontier variants" in markdown
 
 

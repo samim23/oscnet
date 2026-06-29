@@ -23,6 +23,7 @@ from .losses import (
     sliced_wasserstein_loss,
 )
 from .metrics import (
+    compute_generator_attractor_robustness,
     compute_generator_quality_metrics,
     compute_generator_settling_metrics,
     compute_generator_success_diagnostics,
@@ -45,6 +46,7 @@ __all__ = [
     "build_arg_parser",
     "build_mnist_generator_model",
     "compute_class_prototypes",
+    "compute_generator_attractor_robustness",
     "compute_generator_quality_metrics",
     "compute_generator_settling_metrics",
     "compute_generator_success_diagnostics",

@@ -202,6 +202,14 @@ SWEEP_CSVS = {
         "outputs/analysis/"
         "modal_mnist_generator_cifar10_rgb_semantic_feature_drift_attribution.csv"
     ),
+    "mnist_generator_cifar10_rgb_attractor_robustness_probe": Path(
+        "outputs/analysis/"
+        "modal_mnist_generator_cifar10_rgb_attractor_robustness_probe.csv"
+    ),
+    "mnist_generator_cifar10_rgb_attractor_robustness_seed_repeat": Path(
+        "outputs/analysis/"
+        "modal_mnist_generator_cifar10_rgb_attractor_robustness_seed_repeat.csv"
+    ),
     "mnist_generator_cifar10_rgb_attribution_probe": Path(
         "outputs/analysis/"
         "modal_mnist_generator_cifar10_rgb_attribution_probe.csv"
@@ -2877,6 +2885,93 @@ def _mnist_generator_cifar10_rgb_semantic_feature_drift_attribution_sweep() -> l
     return entries
 
 
+def _mnist_generator_cifar10_rgb_attractor_robustness_probe_sweep() -> list[
+    tuple[list[str], str]
+]:
+    """Compact strict-judge attractor-basin probe for current RGB candidates."""
+
+    return _mnist_generator_cifar10_rgb_attractor_robustness_entries(
+        seeds=(11,),
+        name_prefix="mnist_generator_cifar10_rgb_attractor_robustness",
+    )
+
+
+def _mnist_generator_cifar10_rgb_attractor_robustness_seed_repeat_sweep() -> list[
+    tuple[list[str], str]
+]:
+    """Two-seed repeat of the compact attractor-basin RGB probe."""
+
+    return _mnist_generator_cifar10_rgb_attractor_robustness_entries(
+        seeds=(11, 23),
+        name_prefix="mnist_generator_cifar10_rgb_attractor_robustness_seed_repeat",
+    )
+
+
+def _mnist_generator_cifar10_rgb_attractor_robustness_entries(
+    *,
+    seeds: tuple[int, ...],
+    name_prefix: str,
+) -> list[tuple[list[str], str]]:
+    """Build strict-judge attractor-basin probe entries."""
+
+    entries = []
+    feature_args = [
+        "--loss-mode pixel_feature_drift",
+        "--pixel-drift-weight 0.5",
+        "--feature-drift-weight 0.25",
+        "--feature-drift-mode learned",
+        "--learned-feature-kind residual_conv",
+        "--learned-feature-epochs 10",
+        "--learned-feature-dim 256",
+        "--learned-feature-depth 3",
+    ]
+    variants = [
+        (
+            "horn_resfeat025",
+            "sparse_horn_cifar10_rgb_recommended_drive025",
+        ),
+        (
+            "horn_no_main_resfeat025",
+            "sparse_horn_cifar10_rgb_recommended_no_main_interaction_drive025",
+        ),
+        (
+            "state_mlp_resfeat025",
+            "sparse_horn_cifar10_rgb_state_mlp_strength8",
+        ),
+    ]
+    common = [
+        "--train-limit 2000",
+        "--eval-limit 1000",
+        "--quality-classifier-kind residual_conv",
+        "--quality-classifier-train-limit 10000",
+        "--quality-classifier-eval-limit 5000",
+        "--quality-classifier-epochs 15",
+        "--quality-classifier-dim 256",
+        "--quality-classifier-depth 3",
+        "--attractor-variants-per-class 8",
+    ]
+    for seed in seeds:
+        for variant_suffix, local_preset in variants:
+            run_name = (
+                f"{name_prefix}_{variant_suffix}_n256_resizeconv_train2000_"
+                f"seed{seed}_20e"
+            )
+            args = shlex.split(
+                " ".join(
+                    [
+                        f"--seed {seed}",
+                        f"--preset {local_preset}",
+                        *common,
+                        *feature_args,
+                    ]
+                )
+            )
+            output_dir = VOLUME_MOUNT / "mnist_generator" / run_name
+            args = _with_default_arg(args, "--output-dir", output_dir)
+            entries.append((args, run_name))
+    return entries
+
+
 def _mnist_generator_cifar10_rgb_attribution_probe_sweep() -> list[
     tuple[list[str], str]
 ]:
@@ -3194,6 +3289,10 @@ def _sweep_entries(preset: str) -> list[tuple[list[str], str]]:
         return (
             _mnist_generator_cifar10_rgb_semantic_feature_drift_attribution_sweep()
         )
+    if preset == "mnist_generator_cifar10_rgb_attractor_robustness_probe":
+        return _mnist_generator_cifar10_rgb_attractor_robustness_probe_sweep()
+    if preset == "mnist_generator_cifar10_rgb_attractor_robustness_seed_repeat":
+        return _mnist_generator_cifar10_rgb_attractor_robustness_seed_repeat_sweep()
     if preset == "mnist_generator_cifar10_rgb_attribution_probe":
         return _mnist_generator_cifar10_rgb_attribution_probe_sweep()
     if preset == "mnist_generator_cifar10_rgb_sparse_drive_probe":
@@ -3292,6 +3391,7 @@ def _write_sweep_csv(results: list[dict[str, Any]], path: Path) -> None:
         "generator.num_projections",
         "generator.drift_gamma",
         "generator.train_settling_steps",
+        "generator.attractor_variants_per_class",
         "generator.resize_conv_seed_size",
         "generator.resize_conv_upsamples",
         "generator.resize_conv_min_channels",
@@ -3350,6 +3450,26 @@ def _write_sweep_csv(results: list[dict[str, Any]], path: Path) -> None:
         "generator.success_diagnostics.output_path_mse",
         "generator.success_diagnostics.output_net_mse",
         "generator.success_diagnostics.output_path_efficiency_ratio",
+        "generator.attractor_robustness.num_classes",
+        "generator.attractor_robustness.variants_per_class",
+        "generator.attractor_robustness.sample_count",
+        "generator.attractor_robustness.label_accuracy",
+        "generator.attractor_robustness.label_confidence",
+        "generator.attractor_robustness.max_confidence",
+        "generator.attractor_robustness.entropy",
+        "generator.attractor_robustness.class_success_fraction",
+        "generator.attractor_robustness.class_accuracy_min",
+        "generator.attractor_robustness.class_accuracy_max",
+        "generator.attractor_robustness.pixel_within_class_pairwise_mse",
+        "generator.attractor_robustness.pixel_within_class_std",
+        "generator.attractor_robustness.pixel_between_class_centroid_mse",
+        "generator.attractor_robustness.pixel_separation_ratio",
+        "generator.attractor_robustness.pixel_attractor_diversity_score",
+        "generator.attractor_robustness.feature_within_class_pairwise_distance",
+        "generator.attractor_robustness.feature_within_class_std",
+        "generator.attractor_robustness.feature_between_class_centroid_distance",
+        "generator.attractor_robustness.feature_separation_ratio",
+        "generator.attractor_robustness.feature_attractor_diversity_score",
         "generator.settling.classifier_label_accuracy_best_step",
         "generator.settling.classifier_label_accuracy_best",
         "generator.settling.classifier_label_accuracy_last_minus_first",

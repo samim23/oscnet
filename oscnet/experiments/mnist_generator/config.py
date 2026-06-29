@@ -81,6 +81,7 @@ class MNISTGeneratorExperimentConfig:
     drift_gamma: float = 0.2
     drift_temperatures: Tuple[float, ...] = (0.02, 0.05, 0.2)
     eval_sample_count: int = 128
+    attractor_variants_per_class: int = 4
     train_settling_steps: Tuple[int, ...] = ()
     settling_steps: Tuple[int, ...] = ()
     dataset_name: str = "mnist"

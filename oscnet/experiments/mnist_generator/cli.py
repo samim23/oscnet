@@ -255,6 +255,15 @@ def build_arg_parser(preset: str = "none") -> argparse.ArgumentParser:
     parser.add_argument("--output-bias-init", type=float, default=-2.0)
     parser.add_argument("--eval-sample-count", type=int, default=128)
     parser.add_argument(
+        "--attractor-variants-per-class",
+        type=int,
+        default=4,
+        help=(
+            "Number of same-label initial-state samples used for the final "
+            "attractor robustness diagnostic. Set to 0 to disable."
+        ),
+    )
+    parser.add_argument(
         "--train-settling-steps",
         type=_parse_int_tuple,
         default=(),
@@ -396,6 +405,7 @@ def config_from_args(args: argparse.Namespace) -> MNISTGeneratorExperimentConfig
         drift_gamma=args.drift_gamma,
         drift_temperatures=args.drift_temperatures,
         eval_sample_count=args.eval_sample_count,
+        attractor_variants_per_class=args.attractor_variants_per_class,
         train_settling_steps=args.train_settling_steps,
         settling_steps=args.settling_steps,
         dataset_name=args.dataset_name,

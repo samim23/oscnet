@@ -5833,6 +5833,29 @@ step count. The most useful next CIFAR RGB tables should include:
 This makes the next optimization target sharper: improve HORN image quality
 while preserving class consistency, diversity, and actual finite-time settling.
 
+Attractor robustness diagnostic:
+
+The generator summary also records `generator.attractor_robustness` for
+conditional runs. This samples several independent initial oscillator states per
+class label and measures whether they remain class-consistent while preserving
+within-class diversity. The useful fields are:
+
+- `label_accuracy` and `class_success_fraction`: whether repeated same-label
+  initial states stay inside the intended class basin under the quality judge.
+- `pixel_within_class_pairwise_mse` and
+  `feature_within_class_pairwise_distance`: diversity inside each class basin.
+- `pixel_separation_ratio` and `feature_separation_ratio`: how separated class
+  centroids are relative to within-class spread.
+- `pixel_attractor_diversity_score` and
+  `feature_attractor_diversity_score`: collapse-aware basin scores computed as
+  label accuracy times `log1p` within-class spread. These penalize prototype
+  collapse while still requiring class consistency.
+
+This is an ONN-native probe for the "class attractor basin" story. A strong
+generator should not merely maximize label accuracy by collapsing to one
+prototype per class; it should keep label-consistent samples diverse under
+perturbed initial states.
+
 CIFAR-10 RGB attribution probe:
 
 The next seed-11 gate tested whether the RGB HORN result depends on learned
@@ -6035,6 +6058,97 @@ Read:
 - Next priority is not a blind architecture scale-up. The next controlled move
   is to improve sharpness or semantics while preserving HORN's diversity
   advantage, and to keep no-main/one-step/shuffled-drive controls attached.
+
+CIFAR-10 RGB attractor robustness probe:
+
+After adding `generator.attractor_robustness`, a compact one-seed probe tested
+the current residual feature-drift recipe against the no-main HORN control and
+a StateMLP control. All variants used the stricter residual-conv quality judge
+and `8` independent initial states per class label.
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=2 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_attractor_robustness_probe
+```
+
+```bash
+python scripts/analyze_mnist_generator_frontier.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_attractor_robustness_probe.csv \
+  --output-dir outputs/analysis/cifar10_rgb_attractor_robustness_probe \
+  --title "CIFAR-10 RGB attractor robustness probe" \
+  --accuracy-floor 0.0 \
+  --no-plot
+```
+
+| Variant | Generated-label acc | Pixel diversity | Nearest-real MSE | Feature diversity | Feature nearest-real | Attractor acc | Within-class pixel spread | Feature separation ratio | Samples/sec |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| HORN residual feature drift 0.25 | 0.4062 | 0.9964 | 0.0305 | 0.8844 | 0.2810 | 0.3750 | 65.1837 | 2.7199 | 571.85 |
+| No-main residual feature drift 0.25 | 0.3477 | 0.8558 | 0.0246 | 0.8768 | 0.3470 | 0.2750 | 37.0479 | 2.1206 | 558.75 |
+| StateMLP residual feature drift 0.25 | 0.3867 | 0.5232 | 0.0137 | 0.8592 | 0.2782 | 0.4000 | 0.0056 | 6456.0593 | 203.85 |
+
+Read:
+
+- Coupled HORN is the best overall class/diversity point in this probe:
+  highest generated-label accuracy, highest pixel diversity, highest feature
+  diversity, best HORN/no-main attractor accuracy, and much higher same-label
+  within-class spread than StateMLP.
+- StateMLP gets competitive generated-label and attractor accuracy, but the
+  attractor probe exposes severe class-basin collapse: same-label initial
+  states produce nearly identical outputs (`within-class pixel spread 0.0056`).
+  Its huge separation ratio is therefore not a win; it is the denominator
+  collapsing.
+- The preferred single-number basin proxy is therefore the attractor diversity
+  score, not raw separation ratio. For the rows above, the derived pixel scores
+  are approximately `1.57` for coupled HORN, `1.01` for no-main HORN, and
+  `0.002` for StateMLP.
+- No-main HORN remains strong on nearest-real pixel MSE, but it has lower
+  attractor accuracy and lower within-class spread than coupled HORN. This is
+  useful one-seed support for the hypothesis that sparse local HORN coupling
+  preserves a richer generative basin than class drive alone.
+- This is still one seed and CIFAR semantic accuracy is modest. The next
+  valuable move is to improve sharpness/semantics while explicitly preserving
+  HORN's within-class attractor diversity.
+
+CIFAR-10 RGB attractor robustness seed repeat:
+
+The two-seed repeat reran the same three variants over seeds `11` and `23` in
+one CSV, using the same strict residual-conv judge and `8` initial-state
+samples per class.
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=2 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_attractor_robustness_seed_repeat
+```
+
+```bash
+python scripts/analyze_mnist_generator_frontier.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_attractor_robustness_seed_repeat.csv \
+  --output-dir outputs/analysis/cifar10_rgb_attractor_robustness_seed_repeat \
+  --title "CIFAR-10 RGB attractor robustness seed repeat" \
+  --accuracy-floor 0.0 \
+  --no-plot
+```
+
+| Variant | Runs | Generated-label acc | Pixel diversity | Nearest-real MSE | Feature diversity | Attractor acc | Basin score | Within-class pixel spread |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| HORN residual feature drift 0.25 | 2 | 0.3408 | 1.0805 | 0.0331 | 0.8791 | 0.3438 | 1.4915 | 73.9303 |
+| No-main residual feature drift 0.25 | 2 | 0.3896 | 0.8758 | 0.0238 | 0.8712 | 0.3938 | 1.3596 | 35.0789 |
+| StateMLP residual feature drift 0.25 | 2 | 0.1904 | 0.5265 | 0.0127 | 0.7532 | 0.2000 | 0.0010 | 0.0069 |
+
+Read:
+
+- The important HORN-vs-StateMLP finding survives: StateMLP has much lower
+  diversity and effectively collapsed same-label basins, while HORN keeps
+  nontrivial within-class variation.
+- Coupled HORN keeps the best collapse-aware basin score and highest pixel
+  diversity across the two seeds. That supports the "richer attractor basin"
+  story more directly than raw generated-label accuracy.
+- No-main HORN wins generated-label accuracy and nearest-real MSE on this
+  two-seed average. So the coupling claim should be precise: coupling is not
+  simply improving all quality metrics; it appears to preserve richer basin
+  diversity at a cost to pixel closeness and sometimes class accuracy.
+- The next architecture target is therefore sharper coupled HORN: improve
+  semantics/pixel quality without losing the basin score advantage.
 
 CIFAR-10 RGB sparse class-drive probe:
 

@@ -177,4 +177,5 @@ def _checkpoint_hyperparams(config: MNISTGeneratorExperimentConfig) -> Dict[str,
         "drift_temperatures": config.drift_temperatures,
         "train_settling_steps": config.train_settling_steps,
         "settling_steps": config.settling_steps,
+        "attractor_variants_per_class": config.attractor_variants_per_class,
     }

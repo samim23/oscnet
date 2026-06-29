@@ -18,6 +18,7 @@ from oscnet.experiments.mnist_generator import (
     conditional_pixel_drift_loss,
     config_from_args,
     compute_class_prototypes,
+    compute_generator_attractor_robustness,
     compute_generator_quality_metrics,
     compute_generator_settling_metrics,
     compute_generator_success_diagnostics,
@@ -722,6 +723,8 @@ def test_quality_classifier_limits_parse_without_changing_generator_limits():
                 "residual_conv",
                 "--learned-feature-kind",
                 "residual_conv",
+                "--attractor-variants-per-class",
+                "3",
             ]
         )
     )
@@ -732,6 +735,7 @@ def test_quality_classifier_limits_parse_without_changing_generator_limits():
     assert parsed.quality_classifier_eval_limit == 2000
     assert parsed.quality_classifier_kind == "residual_conv"
     assert parsed.learned_feature_kind == "residual_conv"
+    assert parsed.attractor_variants_per_class == 3
 
 
 def test_conditional_generator_loss_uses_class_terms():
@@ -1392,6 +1396,48 @@ def test_generator_settling_metrics_score_multiple_step_depths():
     assert "nearest_real_mse_last_minus_first" in metrics
 
 
+def test_generator_attractor_robustness_scores_same_label_variants():
+    from oscnet.models import HORNImageGenerator
+
+    model = HORNImageGenerator(
+        num_oscillators=8,
+        image_shape=(8, 8),
+        decoder_hidden_dim=12,
+        decoder_depth=1,
+        steps=1,
+        num_classes=3,
+        conditioning_mode="phase_shift",
+        key=jax.random.PRNGKey(890),
+    )
+    classifier = MNISTFeatureClassifier(
+        image_dim=64,
+        num_classes=3,
+        feature_dim=8,
+        depth=1,
+        key=jax.random.PRNGKey(891),
+    )
+
+    metrics = compute_generator_attractor_robustness(
+        model,
+        key=jax.random.PRNGKey(892),
+        batch_size=2,
+        variants_per_class=3,
+        num_classes=3,
+        classifier=classifier,
+    )
+
+    assert metrics["num_classes"] == 3.0
+    assert metrics["variants_per_class"] == 3.0
+    assert metrics["sample_count"] == 9.0
+    assert 0.0 <= metrics["label_accuracy"] <= 1.0
+    assert metrics["pixel_within_class_pairwise_mse"] >= 0.0
+    assert metrics["pixel_between_class_centroid_mse"] >= 0.0
+    assert metrics["pixel_attractor_diversity_score"] >= 0.0
+    assert metrics["feature_within_class_pairwise_distance"] >= 0.0
+    assert metrics["feature_attractor_diversity_score"] >= 0.0
+    assert "feature_separation_ratio" in metrics
+
+
 def test_horn_resize_conv_generator_decodes_spatial_state_seed():
     from oscnet.models import HORNImageGenerator
 
@@ -1525,6 +1571,7 @@ def test_mnist_generator_horn_synthetic_training_smoke(tmp_path):
         quality_classifier_dim=8,
         quality_classifier_depth=1,
         eval_sample_count=2,
+        attractor_variants_per_class=1,
         train_settling_steps=(0, 1),
         settling_steps=(0, 1),
         data_source="synthetic",
@@ -1544,6 +1591,10 @@ def test_mnist_generator_horn_synthetic_training_smoke(tmp_path):
     assert summary["generator"]["quality_classifier_kind"] == "conv"
     assert "classifier_label_accuracy" in summary["generator"]
     assert summary["generator"]["settling"]["steps"] == [0, 1]
+    assert summary["generator"]["attractor_variants_per_class"] == 1
+    assert "attractor_robustness" in summary["generator"]
+    assert summary["generator"]["attractor_robustness"]["sample_count"] == 10.0
+    assert "label_accuracy" in summary["generator"]["attractor_robustness"]
     assert diagnostics["dynamics_family"] == "horn"
     assert "state_final_energy" in diagnostics
     assert "state_update_rms_settling_ratio" in diagnostics

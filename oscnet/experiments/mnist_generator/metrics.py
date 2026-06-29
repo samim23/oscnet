@@ -499,6 +499,172 @@ def compute_generator_settling_metrics(
     return metrics
 
 
+def _mean_pairwise_distance(values: np.ndarray) -> float:
+    """Mean off-diagonal squared L2 distance for a small group."""
+
+    values = np.asarray(values, dtype=np.float32).reshape(values.shape[0], -1)
+    if values.shape[0] < 2:
+        return float("nan")
+    pairwise = _pairwise_squared_l2(values, values)
+    np.fill_diagonal(pairwise, np.nan)
+    return _finite_mean(pairwise)
+
+
+def _centroid_distance(centroids: np.ndarray) -> float:
+    """Mean off-diagonal squared L2 distance between class centroids."""
+
+    centroids = np.asarray(centroids, dtype=np.float32).reshape(
+        centroids.shape[0],
+        -1,
+    )
+    if centroids.shape[0] < 2:
+        return float("nan")
+    pairwise = _pairwise_squared_l2(centroids, centroids)
+    np.fill_diagonal(pairwise, np.nan)
+    return _finite_mean(pairwise)
+
+
+def _attractor_diversity_score(label_accuracy: float, spread: float) -> float:
+    """Collapse-aware basin score: class consistency times log spread."""
+
+    if not np.isfinite(label_accuracy) or not np.isfinite(spread) or spread < 0.0:
+        return float("nan")
+    return float(label_accuracy * np.log1p(spread))
+
+
+def compute_generator_attractor_robustness(
+    model: eqx.Module,
+    *,
+    key: jax.random.PRNGKey,
+    batch_size: int,
+    variants_per_class: int = 4,
+    num_classes: Optional[int] = None,
+    classifier: Optional[FeatureClassifier] = None,
+) -> Dict[str, float]:
+    """Probe class-attractor consistency under repeated initial states.
+
+    For each class, this samples several independent initial oscillator states
+    with the same label. A useful class attractor should keep those samples
+    class-consistent while preserving nonzero within-class diversity. These are
+    diagnostics, not proof of a physical attractor.
+    """
+
+    variants = int(variants_per_class)
+    if variants <= 0:
+        return {}
+    classes = int(num_classes if num_classes is not None else model.num_classes)
+    if classes <= 0:
+        return {}
+
+    labels = jnp.repeat(jnp.arange(classes, dtype=jnp.int32), variants)
+    generated = sample_generator_images(
+        model,
+        key=key,
+        sample_count=int(labels.shape[0]),
+        batch_size=batch_size,
+        labels=labels,
+    )
+    clipped = np.clip(np.asarray(generated, dtype=np.float32), 0.0, 1.0)
+    flat = clipped.reshape(clipped.shape[0], -1)
+    labels_np = np.asarray(labels, dtype=np.int32)
+
+    per_class_pairwise = []
+    per_class_std = []
+    class_centroids = []
+    for label in range(classes):
+        group = flat[labels_np == label]
+        if group.size == 0:
+            continue
+        per_class_pairwise.append(_mean_pairwise_distance(group))
+        per_class_std.append(float(np.mean(np.std(group, axis=0))))
+        class_centroids.append(np.mean(group, axis=0))
+
+    within_pixel_distance = _finite_mean(np.asarray(per_class_pairwise))
+    between_pixel_distance = _centroid_distance(np.asarray(class_centroids))
+    metrics: Dict[str, float] = {
+        "num_classes": float(classes),
+        "variants_per_class": float(variants),
+        "sample_count": float(labels.shape[0]),
+        "pixel_within_class_pairwise_mse": within_pixel_distance,
+        "pixel_within_class_std": _finite_mean(np.asarray(per_class_std)),
+        "pixel_between_class_centroid_mse": between_pixel_distance,
+        "pixel_separation_ratio": _safe_ratio(
+            between_pixel_distance,
+            within_pixel_distance,
+        ),
+    }
+
+    if classifier is None:
+        return metrics
+
+    labels_jnp = labels.astype(jnp.int32)
+    clipped_jnp = jnp.asarray(flat, dtype=jnp.float32)
+    logits = classifier(clipped_jnp)
+    probabilities = jax.nn.softmax(logits, axis=-1)
+    predicted = jnp.argmax(probabilities, axis=-1)
+    intended_probability = probabilities[jnp.arange(labels_jnp.shape[0]), labels_jnp]
+    entropy = -jnp.sum(
+        probabilities * jnp.log(jnp.maximum(probabilities, 1e-8)),
+        axis=-1,
+    )
+    correct = np.asarray(predicted == labels_jnp, dtype=np.float32)
+    label_accuracy = float(
+        jnp.mean((predicted == labels_jnp).astype(jnp.float32))
+    )
+    per_class_accuracy = [
+        float(np.mean(correct[labels_np == label]))
+        for label in range(classes)
+        if np.any(labels_np == label)
+    ]
+    metrics.update(
+        {
+            "label_accuracy": label_accuracy,
+            "label_confidence": float(jnp.mean(intended_probability)),
+            "max_confidence": float(jnp.mean(jnp.max(probabilities, axis=-1))),
+            "entropy": float(jnp.mean(entropy)),
+            "class_success_fraction": float(
+                np.mean(np.asarray(per_class_accuracy) >= 0.5)
+            ),
+            "class_accuracy_min": float(np.min(per_class_accuracy)),
+            "class_accuracy_max": float(np.max(per_class_accuracy)),
+            "pixel_attractor_diversity_score": _attractor_diversity_score(
+                label_accuracy,
+                within_pixel_distance,
+            ),
+        }
+    )
+
+    features = np.asarray(classifier.features(clipped_jnp), dtype=np.float32)
+    feature_pairwise = []
+    feature_std = []
+    feature_centroids = []
+    for label in range(classes):
+        group = features[labels_np == label]
+        if group.size == 0:
+            continue
+        feature_pairwise.append(_mean_pairwise_distance(group))
+        feature_std.append(float(np.mean(np.std(group, axis=0))))
+        feature_centroids.append(np.mean(group, axis=0))
+    within_feature_distance = _finite_mean(np.asarray(feature_pairwise))
+    between_feature_distance = _centroid_distance(np.asarray(feature_centroids))
+    metrics.update(
+        {
+            "feature_within_class_pairwise_distance": within_feature_distance,
+            "feature_within_class_std": _finite_mean(np.asarray(feature_std)),
+            "feature_between_class_centroid_distance": between_feature_distance,
+            "feature_separation_ratio": _safe_ratio(
+                between_feature_distance,
+                within_feature_distance,
+            ),
+            "feature_attractor_diversity_score": _attractor_diversity_score(
+                label_accuracy,
+                within_feature_distance,
+            ),
+        }
+    )
+    return metrics
+
+
 def _array_size(value: Optional[Array]) -> int:
     if value is None:
         return 0

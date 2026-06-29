@@ -39,6 +39,7 @@ from .features import (
 from .losses import generator_loss
 from .metrics import (
     _model_with_steps,
+    compute_generator_attractor_robustness,
     compute_generator_quality_metrics,
     compute_generator_settling_metrics,
     compute_generator_success_diagnostics,
@@ -294,6 +295,8 @@ def run_mnist_generator_experiment(
         raise ValueError("train_settling_steps must be non-negative")
     if any(step < 0 for step in config.settling_steps):
         raise ValueError("settling_steps must be non-negative")
+    if config.attractor_variants_per_class < 0:
+        raise ValueError("attractor_variants_per_class must be non-negative")
     uses_feature_drift = config.loss_mode in ("feature_drift", "pixel_feature_drift")
     uses_drift_loss = config.loss_mode in (
         "pixel_drift",
@@ -795,6 +798,16 @@ def run_mnist_generator_experiment(
         * int(config.train_limit or train_images.shape[0]),
         total_train_seconds=total_train_seconds,
     )
+    attractor_robustness = compute_generator_attractor_robustness(
+        model,
+        key=jax.random.fold_in(key, 55_000),
+        batch_size=config.run.batch_size,
+        variants_per_class=(
+            config.attractor_variants_per_class if config.conditional else 0
+        ),
+        num_classes=config.num_classes,
+        classifier=quality_classifier_model,
+    )
     summary = {
         "final_train_loss": metrics["train_loss"][-1],
         "final_eval_loss": metrics["eval_loss"][-1],
@@ -845,6 +858,7 @@ def run_mnist_generator_experiment(
             "drift_gamma": config.drift_gamma,
             "drift_temperatures": list(config.drift_temperatures),
             "train_settling_steps": list(config.train_settling_steps),
+            "attractor_variants_per_class": config.attractor_variants_per_class,
             "distributional_not_paired_reconstruction": True,
             "conditional": config.conditional,
             "label_phase_scale": config.label_phase_scale,
@@ -879,6 +893,7 @@ def run_mnist_generator_experiment(
             "resize_conv_upsamples": config.resize_conv_upsamples,
             "resize_conv_min_channels": config.resize_conv_min_channels,
             "settling": settling,
+            "attractor_robustness": attractor_robustness,
             **quality,
             "success_diagnostics": success_diagnostics,
         },

@@ -283,6 +283,16 @@ sample throughput, and phase-trajectory movement/order proxies. These are
 digital-simulation diagnostics for attribution and efficiency comparison, not
 physical energy measurements.
 
+Conditional generator runs also write `attractor_robustness` diagnostics by
+default. These sample repeated initial states for each class label and measure
+label consistency, within-class diversity, and class separation. Use:
+
+```bash
+--attractor-variants-per-class 4
+```
+
+Set the value to `0` to skip this diagnostic on very fast smoke runs.
+
 For generator runs where visual quality or class conditioning matters, add a
 small frozen classifier quality pass:
 
@@ -1633,6 +1643,63 @@ python scripts/analyze_mnist_generator_frontier.py \
   --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_semantic_feature_drift_attribution.csv \
   --output-dir outputs/analysis/cifar10_rgb_semantic_feature_drift_attribution \
   --title "CIFAR-10 RGB residual feature-drift attribution" \
+  --accuracy-floor 0.0
+```
+
+Run the compact CIFAR-10 RGB attractor robustness probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=2 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_attractor_robustness_probe
+```
+
+This compares the residual feature-drift `0.25` coupled HORN recipe against
+the matching no-main HORN control and StateMLP control. It uses the
+residual-conv quality judge and `--attractor-variants-per-class 8` to check
+whether same-label initial-state perturbations remain class-consistent without
+collapsing to one prototype per class. The analyzer reports a collapse-aware
+`Basin score`, computed as attractor label accuracy times `log1p` same-class
+pixel spread. It writes:
+
+```text
+outputs/analysis/modal_mnist_generator_cifar10_rgb_attractor_robustness_probe.csv
+outputs/analysis/modal_mnist_generator_cifar10_rgb_attractor_robustness_probe.json
+```
+
+Analyze it with:
+
+```bash
+python scripts/analyze_mnist_generator_frontier.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_attractor_robustness_probe.csv \
+  --output-dir outputs/analysis/cifar10_rgb_attractor_robustness_probe \
+  --title "CIFAR-10 RGB attractor robustness probe" \
+  --accuracy-floor 0.0
+```
+
+Run the two-seed CIFAR-10 RGB attractor robustness repeat:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=2 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_attractor_robustness_seed_repeat
+```
+
+This runs the same coupled HORN, no-main HORN, and StateMLP residual
+feature-drift variants for seeds `11` and `23`. Use it when changing the HORN
+generator or feature-drift objective and checking whether the basin-score
+advantage survives more than one seed. It writes:
+
+```text
+outputs/analysis/modal_mnist_generator_cifar10_rgb_attractor_robustness_seed_repeat.csv
+outputs/analysis/modal_mnist_generator_cifar10_rgb_attractor_robustness_seed_repeat.json
+```
+
+Analyze it with:
+
+```bash
+python scripts/analyze_mnist_generator_frontier.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_attractor_robustness_seed_repeat.csv \
+  --output-dir outputs/analysis/cifar10_rgb_attractor_robustness_seed_repeat \
+  --title "CIFAR-10 RGB attractor robustness seed repeat" \
   --accuracy-floor 0.0
 ```
 
