@@ -90,13 +90,14 @@ IMAGE_DATASET_SHAPES = {
     "mnist": (28, 28),
     "fashion_mnist": (28, 28),
     "cifar10_gray": (32, 32),
+    "cifar10_rgb": (32, 32, 3),
 }
 
-DIRECT_DATASET_NAMES = frozenset((*IDX_DATASET_URLS, "cifar10_gray"))
+DIRECT_DATASET_NAMES = frozenset((*IDX_DATASET_URLS, "cifar10_gray", "cifar10_rgb"))
 
 
-def image_shape_for_dataset(dataset_name: str) -> Tuple[int, int]:
-    """Return the flat grayscale image shape used by image-generator harnesses."""
+def image_shape_for_dataset(dataset_name: str) -> Tuple[int, ...]:
+    """Return the flat image shape used by image-generator harnesses."""
 
     try:
         return IMAGE_DATASET_SHAPES[dataset_name]
@@ -265,6 +266,8 @@ def _load_mnist_idx(cache_dir: Path) -> Tuple[np.ndarray, np.ndarray, np.ndarray
 def _read_cifar10_batch(
     archive: tarfile.TarFile,
     member_suffix: str,
+    *,
+    mode: str = "gray",
 ) -> Tuple[np.ndarray, np.ndarray]:
     member = next(
         item for item in archive.getmembers() if item.name.endswith(member_suffix)
@@ -277,6 +280,11 @@ def _read_cifar10_batch(
     data_key = b"data" if b"data" in batch else "data"
     label_key = b"labels" if b"labels" in batch else "labels"
     images = batch[data_key].reshape(-1, 3, 32, 32).astype(np.float32) / 255.0
+    if mode == "rgb":
+        labels = np.asarray(batch[label_key], dtype=np.int32)
+        return images.reshape(-1, 3 * 32 * 32), labels
+    if mode != "gray":
+        raise ValueError("CIFAR-10 mode must be 'gray' or 'rgb'")
     gray = (
         0.2989 * images[:, 0]
         + 0.5870 * images[:, 1]
@@ -286,8 +294,10 @@ def _read_cifar10_batch(
     return gray.reshape(-1, 32 * 32), labels
 
 
-def _load_cifar10_gray(
+def _load_cifar10(
     cache_dir: Path,
+    *,
+    mode: str,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     archive_path = cache_dir / Path(CIFAR10_PYTHON_URL).name
     _download_file(CIFAR10_PYTHON_URL, archive_path)
@@ -298,10 +308,15 @@ def _load_cifar10_gray(
             images, labels = _read_cifar10_batch(
                 archive,
                 f"data_batch_{index}",
+                mode=mode,
             )
             train_images.append(images)
             train_labels.append(labels)
-        eval_images, eval_labels = _read_cifar10_batch(archive, "test_batch")
+        eval_images, eval_labels = _read_cifar10_batch(
+            archive,
+            "test_batch",
+            mode=mode,
+        )
     return (
         np.concatenate(train_images, axis=0),
         np.concatenate(train_labels, axis=0),
@@ -317,7 +332,9 @@ def _load_direct_image_dataset(
     if dataset_name in IDX_DATASET_URLS:
         return _load_idx_dataset(IDX_DATASET_URLS[dataset_name], cache_dir)
     if dataset_name == "cifar10_gray":
-        return _load_cifar10_gray(cache_dir)
+        return _load_cifar10(cache_dir, mode="gray")
+    if dataset_name == "cifar10_rgb":
+        return _load_cifar10(cache_dir, mode="rgb")
     known = "', '".join(sorted(DIRECT_DATASET_NAMES))
     raise ValueError(
         f"direct dataset loading is only available for dataset_name in '{known}'"
@@ -331,16 +348,19 @@ def _flatten_loaded_images(images: np.ndarray, dataset_name: str) -> np.ndarray:
     if images.ndim == 4 and images.shape[-1] == 1:
         images = images[..., 0]
     elif images.ndim == 4 and images.shape[-1] == 3:
-        if dataset_name != "cifar10_gray":
+        if dataset_name == "cifar10_rgb":
+            images = np.transpose(images, (0, 3, 1, 2))
+        elif dataset_name == "cifar10_gray":
+            images = (
+                0.2989 * images[..., 0]
+                + 0.5870 * images[..., 1]
+                + 0.1140 * images[..., 2]
+            )
+        else:
             raise ValueError(
                 f"dataset {dataset_name!r} produced RGB images; use an explicit "
                 "grayscale dataset_name or add RGB generator support"
             )
-        images = (
-            0.2989 * images[..., 0]
-            + 0.5870 * images[..., 1]
-            + 0.1140 * images[..., 2]
-        )
     return images.reshape(images.shape[0], -1)
 
 
@@ -412,7 +432,7 @@ def load_mnist_data(
         )
 
     expected_shape = image_shape_for_dataset(dataset_name)
-    expected_dim = expected_shape[0] * expected_shape[1]
+    expected_dim = int(np.prod(expected_shape))
     if train_images.shape[-1] != expected_dim or eval_images.shape[-1] != expected_dim:
         raise ValueError(
             f"dataset {dataset_name!r} should produce flat images of length "

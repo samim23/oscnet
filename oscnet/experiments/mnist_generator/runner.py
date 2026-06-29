@@ -32,7 +32,6 @@ from .common import Array, _logger, _tree_norm
 from .config import MNISTGeneratorExperimentConfig
 from .features import (
     FeatureClassifier,
-    MNISTFeatureClassifier,
     compute_class_prototypes,
     make_projection_matrix,
     train_mnist_feature_classifier,
@@ -58,7 +57,7 @@ def _train_step(
     sample_key: jax.random.PRNGKey,
     projections: Array,
     prototypes: Optional[Array],
-    feature_model: Optional[MNISTFeatureClassifier],
+    feature_model: Optional[FeatureClassifier],
     optimizer: optax.GradientTransformation,
     max_grad_norm: float,
     moment_weight: float,
@@ -143,7 +142,7 @@ def _eval_step(
     sample_key: jax.random.PRNGKey,
     projections: Array,
     prototypes: Optional[Array],
-    feature_model: Optional[MNISTFeatureClassifier],
+    feature_model: Optional[FeatureClassifier],
     moment_weight: float,
     pixel_marginal_weight: float,
     class_moment_weight: float,
@@ -192,7 +191,7 @@ def evaluate_generator_loss(
     pixel_marginal_weight: float,
     labels: Optional[Array] = None,
     prototypes: Optional[Array] = None,
-    feature_model: Optional[MNISTFeatureClassifier] = None,
+    feature_model: Optional[FeatureClassifier] = None,
     class_moment_weight: float = 0.0,
     prototype_weight: float = 0.0,
     loss_mode: str = "distributional",
@@ -326,7 +325,7 @@ def run_mnist_generator_experiment(
     )
     train_labels = train_labels.astype(jnp.int32)
     eval_labels = eval_labels.astype(jnp.int32)
-    expected_image_dim = int(config.image_shape[0]) * int(config.image_shape[1])
+    expected_image_dim = int(np.prod(tuple(int(size) for size in config.image_shape)))
     if train_images.shape[-1] != expected_image_dim:
         raise ValueError(
             f"dataset {config.dataset_name!r} produced image_dim={train_images.shape[-1]}, "
@@ -342,7 +341,7 @@ def run_mnist_generator_experiment(
     paths = prepare_experiment_paths(config.run, asdict(config))
     key = jax.random.PRNGKey(config.run.seed)
     key, model_key, projection_key, feature_key = jax.random.split(key, 4)
-    feature_model: Optional[MNISTFeatureClassifier] = None
+    feature_model: Optional[FeatureClassifier] = None
     feature_classifier_metrics: Dict[str, Any] = {}
     quality_classifier_model: Optional[FeatureClassifier] = None
     quality_classifier_metrics: Dict[str, Any] = {}
@@ -366,6 +365,7 @@ def run_mnist_generator_experiment(
             learning_rate=config.learned_feature_learning_rate,
             weight_decay=config.learned_feature_weight_decay,
             max_grad_norm=config.run.max_grad_norm,
+            image_shape=config.image_shape,
         )
         write_json(
             paths.metrics / "feature_classifier.json",

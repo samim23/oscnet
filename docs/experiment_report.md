@@ -5685,6 +5685,101 @@ should be an embedding/FID-like metric or a stronger classifier trained once
 per dataset, but this conv judge is already enough to confirm that the HORN
 transfer signal is not just an artifact of the weaker flat MLP evaluator.
 
+CIFAR-10 RGB gate:
+
+Full-color CIFAR-10 uses the same sparse HORN frontier:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=8 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_frontier_probe
+```
+
+Implemented support:
+
+- `dataset_name="cifar10_rgb"` direct loader, returning channel-first flat RGB
+  vectors of length `3072`.
+- Channel-aware generator image metadata, resize-conv output channels, sample
+  grids, and convolutional generated-label judge.
+- RGB presets:
+  `sparse_horn_cifar10_rgb_recommended`,
+  `sparse_horn_cifar10_rgb_recommended_dist005`, and
+  `sparse_horn_cifar10_rgb_state_mlp_strength8`.
+
+Modal result, seeds 11/12/13, train1000/20e:
+
+| Variant | Judge acc | Generated-label acc | Diversity | Nearest-real MSE | Mean MSE | Std MSE | State energy | Samples/sec |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| HORN recommended | 0.3945 | 0.8522 | 1.0183 | 0.0292 | 0.0032 | 0.0034 | 0.0082 | 202.9 |
+| HORN dist .05 | 0.3899 | 0.7552 | 1.1147 | 0.0358 | 0.0025 | 0.0023 | 0.0064 | 229.2 |
+| StateMLP strength8 | 0.3959 | 0.5143 | 0.5409 | 0.0116 | 0.0020 | 0.0156 | 5.8934 | 704.3 |
+
+Artifact command:
+
+```bash
+python scripts/analyze_mnist_generator_frontier.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_frontier_probe.csv \
+  --output-dir outputs/analysis/cifar10_rgb_generator_frontier \
+  --title "CIFAR-10 RGB generator quality/diversity frontier" \
+  --accuracy-floor 0.3
+```
+
+Representative seed-11 sample grids were pulled to
+`outputs/analysis/cifar10_rgb_generator_frontier_samples/`.
+
+Interpretation:
+
+- The HORN advantage survives full color. Recommended HORN has much stronger
+  generated-label proxy (`0.8522` vs `0.5143`) and almost double the diversity
+  ratio (`1.0183` vs `0.5409`) compared with the matched StateMLP control.
+- StateMLP still wins raw nearest-real pixel MSE (`0.0116` vs HORN `0.0292`)
+  and runs about 3.5x faster. This is still a semantic/diversity/settling
+  frontier, not a raw pixel-proximity win.
+- Visual inspection matches the metrics. HORN RGB samples are blurry but have
+  stronger object/background separation and class-colored structure. StateMLP
+  samples are smoother and more averaged, which helps nearest-real MSE but
+  visibly suppresses diversity.
+- `dist .05` is again the explicit high-diversity HORN point. It increases
+  diversity but loses semantic proxy and nearest-real MSE against recommended
+  HORN.
+
+Updated read: the current HORN generator result is no longer merely a MNIST or
+grayscale artifact. The setup has now survived MNIST, Fashion-MNIST,
+CIFAR-gray, and CIFAR RGB as the high-diversity/semantic-settling side of the
+frontier. It still does not produce sharp natural images, so the next
+breakthrough path is likely architecture/evaluator scale rather than more
+small MNIST knob tuning.
+
+CIFAR-10 RGB feature-space audit:
+
+After adding classifier feature-space diagnostics, a cheaper seed-11 RGB audit
+reran the three RGB frontier variants:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=3 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_feature_metric_audit
+```
+
+| Variant | Generated-label acc | Pixel diversity | Pixel nearest-real MSE | Feature diversity | Feature nearest-real |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| HORN recommended | 0.7402 | 0.9823 | 0.0292 | 0.9832 | 0.1301 |
+| HORN dist .05 | 0.6934 | 1.0814 | 0.0336 | 0.9341 | 0.1523 |
+| StateMLP strength8 | 0.7188 | 0.5228 | 0.0115 | 0.9422 | 0.1333 |
+
+Interpretation:
+
+- The HORN advantage is still visible on seed 11: recommended HORN has the
+  best generated-label accuracy and much higher pixel diversity than StateMLP.
+- The new feature-space diagnostics make the story less overconfident.
+  StateMLP is much closer to HORN in classifier feature diversity and
+  feature-nearest-real distance than it is in pixel diversity.
+- That means part of HORN's diversity advantage is image/color/texture spread,
+  not automatically semantic diversity. HORN still has the stronger
+  class-conditional settling signal, but future claims should separate
+  pixel-level diversity from feature-space semantic diversity.
+- Practical next metric direction: keep classifier feature metrics in all
+  generator sweeps, and add a stronger reusable image embedding judge before
+  making broad natural-image claims.
+
 ## Maintenance Notes
 
 - Put numerical benchmark summaries in this file and/or `outputs/analysis`.

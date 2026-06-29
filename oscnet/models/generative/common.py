@@ -24,15 +24,33 @@ def _activation(name: str):
     raise ValueError("output_activation must be 'identity', 'sigmoid', or 'tanh'")
 
 
+def _image_hw_channels(image_shape: Tuple[int, ...]) -> Tuple[int, int, int]:
+    """Normalize image shape metadata to height, width, channels."""
+
+    if len(image_shape) == 2:
+        height, width = image_shape
+        channels = 1
+    elif len(image_shape) == 3:
+        height, width, channels = image_shape
+    else:
+        raise ValueError("image_shape must be (height, width) or (height, width, channels)")
+    height, width, channels = int(height), int(width), int(channels)
+    if height < 1 or width < 1 or channels < 1:
+        raise ValueError("image_shape dimensions must be positive")
+    return height, width, channels
+
+
 def _spatial_basis_matrix(
     *,
     num_oscillators: int,
-    image_shape: Tuple[int, int],
+    image_shape: Tuple[int, ...],
     sigma: float,
 ) -> Array:
     """Build fixed Gaussian pixel bases for spatial phase-field readout."""
 
-    height, width = image_shape
+    height, width, channels = _image_hw_channels(image_shape)
+    if channels != 1:
+        raise ValueError("spatial_basis decoder currently supports grayscale images")
     grid_rows = max(1, int(math.floor(math.sqrt(num_oscillators))))
     grid_cols = max(1, int(math.ceil(num_oscillators / grid_rows)))
     pixel_y, pixel_x = jnp.meshgrid(
@@ -62,13 +80,15 @@ def _spatial_basis_matrix(
 def _local_basis_tensor(
     *,
     num_oscillators: int,
-    image_shape: Tuple[int, int],
+    image_shape: Tuple[int, ...],
     patch_size: int,
     sigma: float,
 ) -> Array:
     """Build fixed local Gaussian patch bases around oscillator centers."""
 
-    height, width = image_shape
+    height, width, channels = _image_hw_channels(image_shape)
+    if channels != 1:
+        raise ValueError("local_basis decoder currently supports grayscale images")
     grid_rows = max(1, int(math.floor(math.sqrt(num_oscillators))))
     grid_cols = max(1, int(math.ceil(num_oscillators / grid_rows)))
     pixel_y, pixel_x = jnp.meshgrid(
@@ -170,5 +190,4 @@ def _local_radius_coupling_profile(
 def _softplus_inverse(value: float) -> float:
     value = max(float(value), 1e-6)
     return math.log(math.expm1(value))
-
 

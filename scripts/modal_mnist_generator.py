@@ -184,6 +184,13 @@ SWEEP_CSVS = {
         "outputs/analysis/"
         "modal_mnist_generator_cifar10_gray_convjudge_frontier_probe.csv"
     ),
+    "mnist_generator_cifar10_rgb_frontier_probe": Path(
+        "outputs/analysis/modal_mnist_generator_cifar10_rgb_frontier_probe.csv"
+    ),
+    "mnist_generator_cifar10_rgb_feature_metric_audit": Path(
+        "outputs/analysis/"
+        "modal_mnist_generator_cifar10_rgb_feature_metric_audit.csv"
+    ),
 }
 
 REMOTE_PACKAGES = [
@@ -2595,6 +2602,74 @@ def _mnist_generator_cifar10_gray_convjudge_frontier_probe_sweep() -> list[
     return entries
 
 
+def _mnist_generator_cifar10_rgb_frontier_probe_sweep() -> list[
+    tuple[list[str], str]
+]:
+    """First full-color CIFAR-10 HORN-vs-control frontier probe."""
+
+    entries = []
+    variants = [
+        ("horn_recommended", "sparse_horn_cifar10_rgb_recommended"),
+        ("horn_dist005", "sparse_horn_cifar10_rgb_recommended_dist005"),
+        ("state_mlp_strength8", "sparse_horn_cifar10_rgb_state_mlp_strength8"),
+    ]
+    classifier_args = (
+        "--quality-classifier-kind conv "
+        "--quality-classifier-train-limit 5000 "
+        "--quality-classifier-eval-limit 2000 "
+        "--quality-classifier-epochs 10 "
+        "--quality-classifier-dim 256 "
+        "--quality-classifier-depth 3"
+    )
+    for seed in (11, 12, 13):
+        for variant_suffix, local_preset in variants:
+            run_name = (
+                "mnist_generator_cifar10_rgb_frontier_"
+                f"{variant_suffix}_n256_resizeconv_train1000_seed{seed}_20e"
+            )
+            args = shlex.split(
+                f"--seed {seed} --preset {local_preset} {classifier_args}"
+            )
+            output_dir = VOLUME_MOUNT / "mnist_generator" / run_name
+            args = _with_default_arg(args, "--output-dir", output_dir)
+            entries.append((args, run_name))
+    return entries
+
+
+def _mnist_generator_cifar10_rgb_feature_metric_audit_sweep() -> list[
+    tuple[list[str], str]
+]:
+    """One-seed RGB frontier audit with classifier feature-space metrics."""
+
+    entries = []
+    variants = [
+        ("horn_recommended", "sparse_horn_cifar10_rgb_recommended"),
+        ("horn_dist005", "sparse_horn_cifar10_rgb_recommended_dist005"),
+        ("state_mlp_strength8", "sparse_horn_cifar10_rgb_state_mlp_strength8"),
+    ]
+    classifier_args = (
+        "--quality-classifier-kind conv "
+        "--quality-classifier-train-limit 5000 "
+        "--quality-classifier-eval-limit 2000 "
+        "--quality-classifier-epochs 10 "
+        "--quality-classifier-dim 256 "
+        "--quality-classifier-depth 3"
+    )
+    seed = 11
+    for variant_suffix, local_preset in variants:
+        run_name = (
+            "mnist_generator_cifar10_rgb_feature_metrics_"
+            f"{variant_suffix}_n256_resizeconv_train1000_seed{seed}_20e"
+        )
+        args = shlex.split(
+            f"--seed {seed} --preset {local_preset} {classifier_args}"
+        )
+        output_dir = VOLUME_MOUNT / "mnist_generator" / run_name
+        args = _with_default_arg(args, "--output-dir", output_dir)
+        entries.append((args, run_name))
+    return entries
+
+
 def _sweep_entries(preset: str) -> list[tuple[list[str], str]]:
     if preset == "mnist_generator_core":
         return _mnist_generator_core_sweep()
@@ -2684,6 +2759,10 @@ def _sweep_entries(preset: str) -> list[tuple[list[str], str]]:
         return _mnist_generator_cifar10_gray_frontier_probe_sweep()
     if preset == "mnist_generator_cifar10_gray_convjudge_frontier_probe":
         return _mnist_generator_cifar10_gray_convjudge_frontier_probe_sweep()
+    if preset == "mnist_generator_cifar10_rgb_frontier_probe":
+        return _mnist_generator_cifar10_rgb_frontier_probe_sweep()
+    if preset == "mnist_generator_cifar10_rgb_feature_metric_audit":
+        return _mnist_generator_cifar10_rgb_feature_metric_audit_sweep()
     raise ValueError("unknown sweep preset")
 
 
@@ -2748,6 +2827,12 @@ def _write_sweep_csv(results: list[dict[str, Any]], path: Path) -> None:
         "generator.classifier_label_confidence",
         "generator.classifier_max_confidence",
         "generator.classifier_entropy",
+        "generator.classifier_feature_mean_mse",
+        "generator.classifier_feature_std_mse",
+        "generator.classifier_feature_diversity_ratio",
+        "generator.classifier_feature_nearest_real_mse",
+        "generator.classifier_feature_real_nearest_real_mse",
+        "generator.classifier_feature_pairwise_distance_ratio",
         "generator.drift_queue_size",
         "generator.drift_queue_num_pos",
         "generator.distributional_weight",
@@ -2791,6 +2876,15 @@ def _write_sweep_csv(results: list[dict[str, Any]], path: Path) -> None:
         "generator.settling.classifier_label_confidence_best_step",
         "generator.settling.classifier_label_confidence_best",
         "generator.settling.classifier_label_confidence_last_minus_first",
+        "generator.settling.classifier_feature_diversity_ratio_best_step",
+        "generator.settling.classifier_feature_diversity_ratio_best",
+        "generator.settling.classifier_feature_diversity_ratio_last_minus_first",
+        "generator.settling.classifier_feature_nearest_real_mse_best_step",
+        "generator.settling.classifier_feature_nearest_real_mse_best",
+        "generator.settling.classifier_feature_nearest_real_mse_last_minus_first",
+        "generator.settling.classifier_feature_pairwise_distance_ratio_best_step",
+        "generator.settling.classifier_feature_pairwise_distance_ratio_best",
+        "generator.settling.classifier_feature_pairwise_distance_ratio_last_minus_first",
         "generator.settling.diversity_ratio_best_step",
         "generator.settling.diversity_ratio_best",
         "generator.settling.diversity_ratio_last_minus_first",
@@ -2806,6 +2900,16 @@ def _write_sweep_csv(results: list[dict[str, Any]], path: Path) -> None:
         "generator.settling.by_step.step_032.classifier_label_accuracy",
         "generator.settling.by_step.step_048.classifier_label_accuracy",
         "generator.settling.by_step.step_064.classifier_label_accuracy",
+        "generator.settling.by_step.step_000.classifier_feature_diversity_ratio",
+        "generator.settling.by_step.step_016.classifier_feature_diversity_ratio",
+        "generator.settling.by_step.step_032.classifier_feature_diversity_ratio",
+        "generator.settling.by_step.step_048.classifier_feature_diversity_ratio",
+        "generator.settling.by_step.step_064.classifier_feature_diversity_ratio",
+        "generator.settling.by_step.step_000.classifier_feature_nearest_real_mse",
+        "generator.settling.by_step.step_016.classifier_feature_nearest_real_mse",
+        "generator.settling.by_step.step_032.classifier_feature_nearest_real_mse",
+        "generator.settling.by_step.step_048.classifier_feature_nearest_real_mse",
+        "generator.settling.by_step.step_064.classifier_feature_nearest_real_mse",
         "generator.settling.by_step.step_000.diversity_ratio",
         "generator.settling.by_step.step_016.diversity_ratio",
         "generator.settling.by_step.step_032.diversity_ratio",

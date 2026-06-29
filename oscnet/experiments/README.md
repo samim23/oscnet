@@ -169,6 +169,27 @@ What to keep honest:
 
   The conv judge remains modest in absolute CIFAR-gray accuracy, but it is a
   better image-native diagnostic than the flat MLP judge.
+- The current color gate is CIFAR-10 RGB. This uses the same sparse HORN/StateMLP
+  frontier recipe, but keeps all three CIFAR channels and bumps the resize-conv
+  readout floor to `ch16`:
+
+  ```bash
+  python examples/image_mnist_generator.py --preset sparse_horn_cifar10_rgb_recommended
+  python examples/image_mnist_generator.py --preset sparse_horn_cifar10_rgb_recommended_dist005
+  python examples/image_mnist_generator.py --preset sparse_horn_cifar10_rgb_state_mlp_strength8
+  ```
+
+  Or run the compact Modal sweep:
+
+  ```bash
+  OSCNET_MODAL_MAX_CONTAINERS=8 modal run scripts/modal_mnist_generator.py \
+    --sweep-preset mnist_generator_cifar10_rgb_frontier_probe
+  ```
+
+  Current result: the HORN semantic/diversity advantage survives full color,
+  while StateMLP remains the raw nearest-pixel and throughput control. Samples
+  are still blurry, so this is a transfer-frontier result, not a solved CIFAR
+  generator.
 - Detailed results and caveats live in `docs/experiment_report.md`.
 
 ## Harness Menu

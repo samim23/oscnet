@@ -12,8 +12,10 @@ import numpy as np
 import optax
 
 from oscnet.experiments.harness import iter_input_target_batches
+from oscnet.models.generative.common import _image_hw_channels
 
 from .common import Array, _tree_norm
+
 
 class MNISTFeatureClassifier(eqx.Module):
     """Small MLP classifier used as a frozen MNIST feature target."""
@@ -86,7 +88,8 @@ class ConvImageFeatureClassifier(eqx.Module):
     conv_layers: Tuple[eqx.nn.Conv2d, ...]
     hidden_layer: eqx.nn.Linear
     output_layer: eqx.nn.Linear
-    image_shape: Tuple[int, int] = eqx.field(static=True)
+    image_shape: Tuple[int, ...] = eqx.field(static=True)
+    image_channels: int = eqx.field(static=True)
     feature_dim: int = eqx.field(static=True)
     num_classes: int = eqx.field(static=True)
 
@@ -94,7 +97,7 @@ class ConvImageFeatureClassifier(eqx.Module):
         self,
         *,
         image_dim: int = 28 * 28,
-        image_shape: Tuple[int, int] = (28, 28),
+        image_shape: Tuple[int, ...] = (28, 28),
         feature_dim: int = 128,
         depth: int = 3,
         num_classes: int = 10,
@@ -106,12 +109,12 @@ class ConvImageFeatureClassifier(eqx.Module):
             raise ValueError("conv feature classifier depth must be positive")
         if num_classes < 1:
             raise ValueError("num_classes must be positive")
-        height, width = (int(size) for size in image_shape)
-        if height * width != int(image_dim):
+        height, width, channels = _image_hw_channels(tuple(int(size) for size in image_shape))
+        if height * width * channels != int(image_dim):
             raise ValueError("image_shape must match image_dim")
         keys = jax.random.split(key, depth + 2)
         conv_layers = []
-        in_channels = 1
+        in_channels = channels
         current_height = height
         current_width = width
         for layer_index in range(depth):
@@ -141,13 +144,14 @@ class ConvImageFeatureClassifier(eqx.Module):
             int(num_classes),
             key=keys[-1],
         )
-        self.image_shape = (height, width)
+        self.image_shape = (height, width, channels)
+        self.image_channels = channels
         self.feature_dim = int(feature_dim)
         self.num_classes = int(num_classes)
 
     def _features_single(self, image: Array) -> Array:
-        height, width = self.image_shape
-        hidden = image.reshape(1, height, width)
+        height, width, channels = _image_hw_channels(self.image_shape)
+        hidden = image.reshape(channels, height, width)
         for layer in self.conv_layers:
             hidden = jax.nn.gelu(layer(hidden))
         hidden = jax.nn.gelu(self.hidden_layer(hidden.reshape(-1)))
@@ -175,7 +179,7 @@ def _build_feature_classifier(
     *,
     classifier_kind: str,
     image_dim: int,
-    image_shape: Tuple[int, int],
+    image_shape: Tuple[int, ...],
     feature_dim: int,
     depth: int,
     num_classes: int,
@@ -317,7 +321,7 @@ def train_mnist_feature_classifier(
     weight_decay: float,
     max_grad_norm: float,
     classifier_kind: str = "mlp",
-    image_shape: Tuple[int, int] = (28, 28),
+    image_shape: Tuple[int, ...] = (28, 28),
 ) -> Tuple[FeatureClassifier, Dict[str, Any]]:
     """Train a small feature classifier that will be frozen for drift loss."""
 
@@ -419,7 +423,7 @@ def _average_pool_square(images: Array, factor: int) -> Array:
 def mnist_structural_features(
     images: Array,
     *,
-    image_shape: Tuple[int, int] = (28, 28),
+    image_shape: Tuple[int, ...] = (28, 28),
 ) -> Array:
     """Differentiable fixed features for MNIST-scale structural drift.
 
@@ -429,10 +433,18 @@ def mnist_structural_features(
     about shape-level organization rather than only raw pixel proximity.
     """
 
-    height, width = (int(size) for size in image_shape)
-    if images.shape[-1] != height * width:
+    height, width, channels = _image_hw_channels(tuple(int(size) for size in image_shape))
+    if images.shape[-1] != height * width * channels:
         raise ValueError("images must be flat vectors matching image_shape")
-    grid = images.reshape(images.shape[0], height, width)
+    grid = images.reshape(images.shape[0], channels, height, width)
+    if channels == 3:
+        grid = (
+            0.2989 * grid[:, 0]
+            + 0.5870 * grid[:, 1]
+            + 0.1140 * grid[:, 2]
+        )
+    else:
+        grid = jnp.mean(grid, axis=1)
     pool_factor = 4 if height % 4 == 0 and width % 4 == 0 else 2
     pooled = _average_pool_square(grid, pool_factor).reshape(images.shape[0], -1)
 

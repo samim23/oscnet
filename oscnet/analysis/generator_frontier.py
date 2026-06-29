@@ -16,6 +16,8 @@ DEFAULT_VARIANT_PATTERNS = (
     re.compile(r"fashion_mnist_frontier_(.+?)_n196"),
     re.compile(r"fashion_mnist_readout_capacity_(.+?)_n196"),
     re.compile(r"fashion_mnist_horn_calibration_(.+?)_n196"),
+    re.compile(r"cifar10_rgb_feature_metrics_(.+?)_n256"),
+    re.compile(r"cifar10_rgb_frontier_(.+?)_n256"),
     re.compile(r"cifar10_gray_convjudge_frontier_(.+?)_n256"),
     re.compile(r"cifar10_gray_frontier_(.+?)_n256"),
     re.compile(r"state_mlp_strength8_diversity_(.+?)_n196"),
@@ -37,6 +39,9 @@ class GeneratorFrontierSummary:
     diversity_ratio_std: float
     nearest_real_mse_mean: float
     nearest_real_mse_std: float
+    feature_diversity_ratio_mean: float
+    feature_nearest_real_mse_mean: float
+    feature_pairwise_distance_ratio_mean: float
     pixel_mean_mse_mean: float
     pixel_std_mse_mean: float
     state_energy_mean: float
@@ -130,6 +135,15 @@ def _summarize_variant(variant: str, rows: Sequence[dict[str, str]]) -> Generato
         diversity_ratio_std=_pstdev(column("generator.diversity_ratio")),
         nearest_real_mse_mean=_mean(column("generator.nearest_real_mse")),
         nearest_real_mse_std=_pstdev(column("generator.nearest_real_mse")),
+        feature_diversity_ratio_mean=_mean(
+            column("generator.classifier_feature_diversity_ratio")
+        ),
+        feature_nearest_real_mse_mean=_mean(
+            column("generator.classifier_feature_nearest_real_mse")
+        ),
+        feature_pairwise_distance_ratio_mean=_mean(
+            column("generator.classifier_feature_pairwise_distance_ratio")
+        ),
         pixel_mean_mse_mean=_mean(column("generator.pixel_mean_mse")),
         pixel_std_mse_mean=_mean(column("generator.pixel_std_mse")),
         state_energy_mean=_mean(
@@ -234,30 +248,52 @@ def write_frontier_markdown(
 
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
+    include_feature_metrics = any(
+        summary.feature_diversity_ratio_mean == summary.feature_diversity_ratio_mean
+        or summary.feature_nearest_real_mse_mean
+        == summary.feature_nearest_real_mse_mean
+        for summary in summaries
+    )
+    header = "| Variant | Runs | Frontier | Acc | Diversity | Nearest-real MSE | "
+    separator = "| --- | ---: | :---: | ---: | ---: | ---: | "
+    if include_feature_metrics:
+        header += "Feature diversity | Feature nearest-real | "
+        separator += "---: | ---: | "
+    header += "State energy | Coupling density | Params | Samples/sec |"
+    separator += "---: | ---: | ---: | ---: |"
     lines = [
         f"# {title}",
         "",
-        "| Variant | Runs | Frontier | Acc | Diversity | Nearest-real MSE | "
-        "State energy | Coupling density | Params | Samples/sec |",
-        "| --- | ---: | :---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        header,
+        separator,
     ]
     for summary in summaries:
-        lines.append(
-            "| "
-            + " | ".join(
+        row = [
+            summary.variant,
+            str(summary.runs),
+            "yes" if summary.pareto_frontier else "",
+            _fmt(summary.generated_accuracy_mean),
+            _fmt(summary.diversity_ratio_mean),
+            _fmt(summary.nearest_real_mse_mean),
+        ]
+        if include_feature_metrics:
+            row.extend(
                 [
-                    summary.variant,
-                    str(summary.runs),
-                    "yes" if summary.pareto_frontier else "",
-                    _fmt(summary.generated_accuracy_mean),
-                    _fmt(summary.diversity_ratio_mean),
-                    _fmt(summary.nearest_real_mse_mean),
-                    _fmt(summary.state_energy_mean),
-                    _fmt(summary.coupling_density_mean),
-                    _fmt(summary.total_params_mean, digits=0),
-                    _fmt(summary.samples_per_second_mean),
+                    _fmt(summary.feature_diversity_ratio_mean),
+                    _fmt(summary.feature_nearest_real_mse_mean),
                 ]
             )
+        row.extend(
+            [
+                _fmt(summary.state_energy_mean),
+                _fmt(summary.coupling_density_mean),
+                _fmt(summary.total_params_mean, digits=0),
+                _fmt(summary.samples_per_second_mean),
+            ]
+        )
+        lines.append(
+            "| "
+            + " | ".join(row)
             + " |"
         )
     lines.extend(

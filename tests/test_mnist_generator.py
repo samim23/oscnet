@@ -159,6 +159,9 @@ def test_sparse_horn_mnist_control_presets_share_recipe():
         "sparse_horn_cifar10_gray_recommended": "horn",
         "sparse_horn_cifar10_gray_recommended_dist005": "horn",
         "sparse_horn_cifar10_gray_state_mlp_strength8": "state_mlp",
+        "sparse_horn_cifar10_rgb_recommended": "horn",
+        "sparse_horn_cifar10_rgb_recommended_dist005": "horn",
+        "sparse_horn_cifar10_rgb_state_mlp_strength8": "state_mlp",
         "sparse_horn_mnist_state_mlp_class_coupling_strong_dist005": "state_mlp",
         "sparse_horn_mnist_state_mlp_class_coupling_strong_dist01": "state_mlp",
         "sparse_horn_mnist_state_mlp_class_coupling_strong_dist01_class": "state_mlp",
@@ -172,7 +175,7 @@ def test_sparse_horn_mnist_control_presets_share_recipe():
         assert parsed.decoder_mode == "resize_conv"
         assert parsed.readout_mode == "mean_relative"
         assert parsed.loss_mode == "pixel_drift"
-        if parsed.dataset_name == "cifar10_gray":
+        if parsed.dataset_name in ("cifar10_gray", "cifar10_rgb"):
             assert parsed.train_limit == 1000
         else:
             assert parsed.train_limit == 500
@@ -339,6 +342,22 @@ def test_sparse_horn_mnist_control_presets_share_recipe():
     cifar_model = build_mnist_generator_model(cifar, jax.random.PRNGKey(0))
     assert cifar_model.image_shape == (32, 32)
     assert cifar_model.image_dim == 32 * 32
+
+    cifar_rgb = config_from_args(
+        parse_args(["--preset", "sparse_horn_cifar10_rgb_recommended"])
+    )
+    assert cifar_rgb.dataset_name == "cifar10_rgb"
+    assert cifar_rgb.image_shape == (32, 32, 3)
+    assert cifar_rgb.resize_conv_seed_size == 8
+    assert cifar_rgb.resize_conv_min_channels == 16
+    assert cifar_rgb.quality_classifier_kind == "conv"
+    assert cifar_rgb.train_limit == 1000
+
+    cifar_rgb_model = build_mnist_generator_model(cifar_rgb, jax.random.PRNGKey(0))
+    assert cifar_rgb_model.image_shape == (32, 32, 3)
+    assert cifar_rgb_model.image_dim == 3 * 32 * 32
+    assert cifar_rgb_model.resize_conv_output is not None
+    assert cifar_rgb_model.resize_conv_output.out_channels == 3
 
     state_mlp_dist = config_from_args(
         parse_args(
@@ -734,13 +753,19 @@ def test_generator_quality_metrics_can_use_classifier_labels():
     assert 0.0 <= metrics["classifier_label_confidence"] <= 1.0
     assert 0.0 <= metrics["classifier_max_confidence"] <= 1.0
     assert metrics["classifier_entropy"] >= 0.0
+    assert metrics["classifier_feature_mean_mse"] >= 0.0
+    assert metrics["classifier_feature_std_mse"] >= 0.0
+    assert metrics["classifier_feature_diversity_ratio"] >= 0.0
+    assert metrics["classifier_feature_nearest_real_mse"] >= 0.0
+    assert metrics["classifier_feature_real_nearest_real_mse"] >= 0.0
+    assert metrics["classifier_feature_pairwise_distance_ratio"] >= 0.0
 
 
 def test_conv_image_feature_classifier_smoke():
-    images = jnp.linspace(0.0, 1.0, 5 * 32 * 32).reshape(5, 32 * 32)
+    images = jnp.linspace(0.0, 1.0, 5 * 3 * 32 * 32).reshape(5, 3 * 32 * 32)
     classifier = ConvImageFeatureClassifier(
-        image_dim=32 * 32,
-        image_shape=(32, 32),
+        image_dim=3 * 32 * 32,
+        image_shape=(32, 32, 3),
         feature_dim=12,
         depth=2,
         num_classes=4,
@@ -752,6 +777,7 @@ def test_conv_image_feature_classifier_smoke():
 
     assert logits.shape == (5, 4)
     assert features.shape == (5, 12)
+    assert classifier.image_channels == 3
     assert bool(jnp.all(jnp.isfinite(logits)))
     assert bool(jnp.all(jnp.isfinite(features)))
 

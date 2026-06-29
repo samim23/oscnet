@@ -8,7 +8,7 @@ import jax
 import jax.numpy as jnp
 
 from .common import Array
-from .features import MNISTFeatureClassifier, mnist_feature_map
+from .features import FeatureClassifier, mnist_feature_map
 
 def sliced_wasserstein_loss(real: Array, generated: Array, projections: Array) -> Array:
     """Compare two batches by sorted random one-dimensional projections."""
@@ -235,7 +235,7 @@ def conditional_feature_drift_loss(
     gamma_real: Optional[Array] = None,
     gamma_labels: Optional[Array] = None,
     feature_mode: str = "structural",
-    feature_model: Optional[MNISTFeatureClassifier] = None,
+    feature_model: Optional[FeatureClassifier] = None,
     temperatures: Sequence[float] = (0.02, 0.05, 0.2),
     gamma: float = 0.2,
 ) -> Array:
@@ -278,7 +278,7 @@ def generator_distribution_loss(
     *,
     labels: Optional[Array] = None,
     prototypes: Optional[Array] = None,
-    feature_model: Optional[MNISTFeatureClassifier] = None,
+    feature_model: Optional[FeatureClassifier] = None,
     num_classes: int = 0,
     moment_weight: float = 0.1,
     pixel_marginal_weight: float = 1.0,
@@ -329,7 +329,7 @@ def generator_loss(
     gamma_batch: Optional[Array] = None,
     gamma_labels: Optional[Array] = None,
     prototypes: Optional[Array] = None,
-    feature_model: Optional[MNISTFeatureClassifier] = None,
+    feature_model: Optional[FeatureClassifier] = None,
     num_classes: int = 0,
     moment_weight: float = 0.1,
     pixel_marginal_weight: float = 1.0,
@@ -411,5 +411,4 @@ def generator_loss(
         "total_loss": total,
     }
     return total, parts
-
 

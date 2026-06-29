@@ -13,6 +13,22 @@ import numpy as np
 from .common import Array
 from .features import FeatureClassifier
 
+
+def _pairwise_squared_l2(x: np.ndarray, y: np.ndarray) -> np.ndarray:
+    """Pairwise squared L2 distances without materializing a 3D tensor."""
+
+    x_sq = np.sum(x * x, axis=-1, keepdims=True)
+    y_sq = np.sum(y * y, axis=-1, keepdims=True).T
+    return np.maximum(x_sq + y_sq - 2.0 * (x @ y.T), 0.0)
+
+
+def _finite_mean(values: np.ndarray) -> float:
+    """Mean over finite values, or NaN if none exist."""
+
+    finite = values[np.isfinite(values)]
+    return float(np.mean(finite)) if finite.size else float("nan")
+
+
 def sample_generator_images(
     model: eqx.Module,
     *,
@@ -94,7 +110,9 @@ def compute_generator_quality_metrics(
         )
     if labels is not None and classifier is not None:
         labels_jnp = labels[: gen.shape[0]].astype(jnp.int32)
-        logits = classifier(jnp.asarray(clipped, dtype=jnp.float32))
+        real_jnp = jnp.asarray(real, dtype=jnp.float32)
+        clipped_jnp = jnp.asarray(clipped, dtype=jnp.float32)
+        logits = classifier(clipped_jnp)
         probabilities = jax.nn.softmax(logits, axis=-1)
         predicted = jnp.argmax(probabilities, axis=-1)
         intended_probability = probabilities[
@@ -115,6 +133,41 @@ def compute_generator_quality_metrics(
                     jnp.mean(jnp.max(probabilities, axis=-1))
                 ),
                 "classifier_entropy": float(jnp.mean(entropy)),
+            }
+        )
+        real_features = np.asarray(classifier.features(real_jnp), dtype=np.float32)
+        gen_features = np.asarray(classifier.features(clipped_jnp), dtype=np.float32)
+        feature_real_mean = real_features.mean(axis=0)
+        feature_gen_mean = gen_features.mean(axis=0)
+        feature_real_std = real_features.std(axis=0)
+        feature_gen_std = gen_features.std(axis=0)
+        feature_pairwise = _pairwise_squared_l2(gen_features, real_features)
+        feature_nearest_real = np.min(feature_pairwise, axis=1)
+        feature_real_pairwise = _pairwise_squared_l2(real_features, real_features)
+        np.fill_diagonal(feature_real_pairwise, np.inf)
+        feature_gen_pairwise = _pairwise_squared_l2(gen_features, gen_features)
+        np.fill_diagonal(feature_gen_pairwise, np.inf)
+        real_pairwise_mean = _finite_mean(np.min(feature_real_pairwise, axis=1))
+        feature_real_pairwise_mean = _finite_mean(feature_real_pairwise)
+        metrics.update(
+            {
+                "classifier_feature_mean_mse": float(
+                    np.mean((feature_gen_mean - feature_real_mean) ** 2)
+                ),
+                "classifier_feature_std_mse": float(
+                    np.mean((feature_gen_std - feature_real_std) ** 2)
+                ),
+                "classifier_feature_diversity_ratio": float(
+                    np.mean(feature_gen_std) / (np.mean(feature_real_std) + 1e-8)
+                ),
+                "classifier_feature_nearest_real_mse": float(
+                    np.mean(feature_nearest_real)
+                ),
+                "classifier_feature_real_nearest_real_mse": real_pairwise_mean,
+                "classifier_feature_pairwise_distance_ratio": float(
+                    _finite_mean(feature_gen_pairwise)
+                    / (feature_real_pairwise_mean + 1e-8)
+                ),
             }
         )
     return metrics
@@ -177,6 +230,9 @@ def compute_generator_settling_metrics(
     for metric_name in (
         "classifier_label_accuracy",
         "classifier_label_confidence",
+        "classifier_feature_diversity_ratio",
+        "classifier_feature_nearest_real_mse",
+        "classifier_feature_pairwise_distance_ratio",
         "prototype_nearest_accuracy",
         "diversity_ratio",
         "nearest_real_mse",
@@ -191,7 +247,12 @@ def compute_generator_settling_metrics(
         if not values:
             continue
         best_step, best_value = max(values, key=lambda item: float(item[1]))
-        if metric_name in ("nearest_real_mse", "pixel_mean_mse", "pixel_std_mse"):
+        if metric_name in (
+            "nearest_real_mse",
+            "pixel_mean_mse",
+            "pixel_std_mse",
+            "classifier_feature_nearest_real_mse",
+        ):
             best_step, best_value = min(values, key=lambda item: float(item[1]))
         first_value = by_step[first_key].get(metric_name)
         last_value = by_step[last_key].get(metric_name)

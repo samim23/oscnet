@@ -199,6 +199,23 @@ grayscale CIFAR-like objects, so this is evidence of transfer, not solved
 natural-image generation. For CIFAR-gray semantic metrics, prefer adding
 `--quality-classifier-kind conv`; the flat MLP judge underfits this dataset.
 
+CIFAR-10 RGB is the current color gate. It keeps the same HORN-vs-StateMLP
+frontier recipe, but uses full channel-first RGB images and a slightly wider
+resize-conv readout:
+
+```bash
+python examples/image_mnist_generator.py --preset sparse_horn_cifar10_rgb_recommended
+python examples/image_mnist_generator.py --preset sparse_horn_cifar10_rgb_recommended_dist005
+python examples/image_mnist_generator.py --preset sparse_horn_cifar10_rgb_state_mlp_strength8
+```
+
+These presets use `--dataset-name cifar10_rgb`, infer `--image-shape 32,32,3`,
+and default generated-label diagnostics to the convolutional judge. This is the
+current hard gate for whether the HORN semantic/diversity signal survives real
+color rather than only grayscale silhouettes. Current read: HORN keeps the
+semantic/diversity advantage in RGB, while StateMLP remains closer by
+nearest-real pixel MSE and faster.
+
 ## Example Menu
 
 | Example | What it runs |

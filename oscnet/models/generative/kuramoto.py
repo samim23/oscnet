@@ -9,6 +9,7 @@ from .common import (
     Tuple,
     _activation,
     _distance_decay_coupling_profile,
+    _image_hw_channels,
     _local_basis_tensor,
     _local_radius_coupling_profile,
     _softplus_inverse,
@@ -44,7 +45,7 @@ class KuramotoImageGenerator(eqx.Module):
     local_patch_weights: Optional[Array]
     spatial_output_bias: Optional[Array]
     num_oscillators: int = eqx.field(static=True)
-    image_shape: Tuple[int, int] = eqx.field(static=True)
+    image_shape: Tuple[int, ...] = eqx.field(static=True)
     image_dim: int = eqx.field(static=True)
     num_classes: int = eqx.field(static=True)
     num_condition_oscillators: int = eqx.field(static=True)
@@ -73,7 +74,7 @@ class KuramotoImageGenerator(eqx.Module):
         self,
         *,
         num_oscillators: int = 64,
-        image_shape: Tuple[int, int] = (28, 28),
+        image_shape: Tuple[int, ...] = (28, 28),
         decoder_hidden_dim: int = 128,
         decoder_depth: int = 2,
         steps: int = 8,
@@ -167,7 +168,8 @@ class KuramotoImageGenerator(eqx.Module):
 
         self.num_oscillators = int(num_oscillators)
         self.image_shape = tuple(int(size) for size in image_shape)
-        self.image_dim = int(image_shape[0] * image_shape[1])
+        image_height, image_width, image_channels = _image_hw_channels(self.image_shape)
+        self.image_dim = int(image_height * image_width * image_channels)
         self.num_classes = int(num_classes)
         self.num_condition_oscillators = int(num_condition_oscillators)
         self.steps = int(steps)
@@ -201,7 +203,7 @@ class KuramotoImageGenerator(eqx.Module):
         if self.decoder_mode == "resize_conv":
             target_h = seed_h * (2**self.resize_conv_upsamples)
             target_w = seed_w * (2**self.resize_conv_upsamples)
-            if (target_h, target_w) != self.image_shape:
+            if (target_h, target_w) != (image_height, image_width):
                 raise ValueError(
                     "resize_conv seed shape and upsample count must produce "
                     f"image_shape={self.image_shape}; got {(target_h, target_w)}"
@@ -390,7 +392,7 @@ class KuramotoImageGenerator(eqx.Module):
                 current_channels = next_channels
             output_conv = eqx.nn.Conv2d(
                 current_channels,
-                1,
+                image_channels,
                 kernel_size=3,
                 padding=1,
                 key=decoder_keys[2 * self.resize_conv_upsamples],

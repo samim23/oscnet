@@ -39,15 +39,17 @@ def _parse_int_tuple(value: str | Sequence[int]) -> Tuple[int, ...]:
     return values
 
 
-def _parse_image_shape(value: str | Sequence[int] | None) -> Tuple[int, int] | None:
+def _parse_image_shape(value: str | Sequence[int] | None) -> Tuple[int, ...] | None:
     if value is None:
         return None
     if isinstance(value, str):
         parts = tuple(int(part.strip()) for part in value.split(",") if part.strip())
     else:
         parts = tuple(int(part) for part in value)
-    if len(parts) != 2 or any(part < 1 for part in parts):
-        raise argparse.ArgumentTypeError("expected image shape like '28,28'")
+    if len(parts) not in (2, 3) or any(part < 1 for part in parts):
+        raise argparse.ArgumentTypeError(
+            "expected image shape like '28,28' or '32,32,3'"
+        )
     return parts
 
 
@@ -167,8 +169,8 @@ def build_arg_parser(preset: str = "none") -> argparse.ArgumentParser:
         type=_parse_image_shape,
         default=None,
         help=(
-            "Flat grayscale image shape as 'height,width'. Defaults to the "
-            "shape implied by --dataset-name."
+            "Flat image shape as 'height,width' or 'height,width,channels'. "
+            "Defaults to the shape implied by --dataset-name."
         ),
     )
     parser.add_argument("--spatial-basis-sigma", type=float, default=0.0)
@@ -262,11 +264,11 @@ def build_arg_parser(preset: str = "none") -> argparse.ArgumentParser:
     parser.add_argument(
         "--dataset-name",
         "--dataset",
-        choices=["mnist", "fashion_mnist", "cifar10_gray"],
+        choices=["mnist", "fashion_mnist", "cifar10_gray", "cifar10_rgb"],
         default="mnist",
         help=(
-            "Flat grayscale dataset to load. MNIST and Fashion-MNIST use IDX; "
-            "cifar10_gray uses the CIFAR-10 Python archive converted to grayscale."
+            "Flat image dataset to load. MNIST and Fashion-MNIST use IDX; "
+            "CIFAR-10 can be loaded as grayscale or channel-first RGB."
         ),
     )
     parser.add_argument("--train-limit", type=int, default=10_000)

@@ -1508,6 +1508,40 @@ outputs/analysis/modal_mnist_generator_cifar10_gray_convjudge_frontier_probe.csv
 outputs/analysis/modal_mnist_generator_cifar10_gray_convjudge_frontier_probe.json
 ```
 
+Run the CIFAR-10 RGB generator frontier gate:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=8 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_frontier_probe
+```
+
+This keeps the CIFAR-gray frontier design but loads channel-first RGB images,
+uses `image_shape=(32, 32, 3)`, and compares recommended HORN, HORN `dist005`,
+and the matched StateMLP strength-8 control with a convolutional quality
+judge. It is the current hard gate for whether the sparse HORN
+semantic/diversity frontier survives full color. It writes:
+
+```text
+outputs/analysis/modal_mnist_generator_cifar10_rgb_frontier_probe.csv
+outputs/analysis/modal_mnist_generator_cifar10_rgb_frontier_probe.json
+```
+
+Run the one-seed CIFAR-10 RGB feature-metric audit:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=3 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_feature_metric_audit
+```
+
+This reruns the three RGB frontier variants for seed 11 only. It exists to
+populate classifier feature-space diversity and nearest-real metrics after
+those diagnostics change, without spending a full 9-job sweep. It writes:
+
+```text
+outputs/analysis/modal_mnist_generator_cifar10_rgb_feature_metric_audit.csv
+outputs/analysis/modal_mnist_generator_cifar10_rgb_feature_metric_audit.json
+```
+
 To rerun the full four-way attribution matrix in one request:
 
 ```bash

@@ -12,6 +12,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from oscnet.experiments.harness import ExperimentPaths, save_loss_curve, save_metrics_csv, write_json
+from oscnet.models.generative.common import _image_hw_channels
 
 from .common import Array
 from .config import MNISTGeneratorExperimentConfig
@@ -21,22 +22,34 @@ def _save_image_grid(
     images: Array,
     path: Path,
     *,
-    image_shape: Tuple[int, int],
+    image_shape: Tuple[int, ...],
     columns: int = 8,
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    height, width, channels = _image_hw_channels(tuple(int(size) for size in image_shape))
+    if channels not in (1, 3):
+        raise ValueError("sample grids support grayscale or RGB images")
     images_np = np.asarray(images, dtype=np.float32).reshape(
         -1,
-        int(image_shape[0]),
-        int(image_shape[1]),
+        channels,
+        height,
+        width,
     )
+    if channels == 3:
+        images_np = np.transpose(images_np, (0, 2, 3, 1))
+    else:
+        images_np = images_np[:, 0]
     rows = int(np.ceil(images_np.shape[0] / columns))
     fig, axes = plt.subplots(rows, columns, figsize=(columns, rows))
     axes_np = np.asarray(axes).reshape(rows, columns)
     for index, axis in enumerate(axes_np.flat):
         axis.axis("off")
         if index < images_np.shape[0]:
-            axis.imshow(np.clip(images_np[index], 0.0, 1.0), cmap="gray", vmin=0, vmax=1)
+            image = np.clip(images_np[index], 0.0, 1.0)
+            if channels == 1:
+                axis.imshow(image, cmap="gray", vmin=0, vmax=1)
+            else:
+                axis.imshow(image, vmin=0, vmax=1)
     fig.tight_layout(pad=0.05)
     fig.savefig(path, dpi=150)
     plt.close(fig)

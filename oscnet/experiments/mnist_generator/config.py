@@ -42,7 +42,7 @@ class MNISTGeneratorExperimentConfig:
     conditioning_mode: str = "phase_shift"
     readout_mode: str = "absolute"
     decoder_mode: str = "mlp"
-    image_shape: Tuple[int, int] = (28, 28)
+    image_shape: Tuple[int, ...] = (28, 28)
     spatial_basis_sigma: float = 0.0
     local_patch_size: int = 5
     resize_conv_seed_size: int = 7
