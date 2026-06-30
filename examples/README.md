@@ -226,7 +226,10 @@ The newer `multiscale16_64_local050_fb005` preset extends this into an explicit
 layered HORN stack with two auxiliary populations, local horizontal coupling,
 and weak bidirectional vertical coupling. Compare it with
 `multiscale16_64_no_vertical` when testing whether layered settling matters
-beyond the added oscillator banks.
+beyond the added oscillator banks. Current two-seed result: the no-vertical
+auxiliary banks improve generated-label accuracy over plain normalized-local
+HORN, while active weak vertical coupling improves nearest-real proximity but
+hurts class consistency/basin quality.
 
 ## Example Menu
 

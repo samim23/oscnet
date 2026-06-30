@@ -29,6 +29,7 @@ DEFAULT_VARIANT_PATTERNS = (
     re.compile(r"cifar10_rgb_coarse_to_fine_local_repeat_(.+?)_n256"),
     re.compile(r"cifar10_rgb_coarse_to_fine_dynamics_(.+?)_n256"),
     re.compile(r"cifar10_rgb_coarse_to_fine_(.+?)_n256"),
+    re.compile(r"cifar10_rgb_multiscale_layered_(.+?)_n256"),
     re.compile(r"cifar10_rgb_normlocal_radius_(.+?)_n256"),
     re.compile(r"cifar10_rgb_normlocal_(.+?)_n256"),
     re.compile(r"cifar10_rgb_normdist_(.+?)_n256"),

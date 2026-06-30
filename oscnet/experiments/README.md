@@ -222,11 +222,13 @@ What to keep honest:
   it does not make C2F visibly win; full `output_feedback_mode="image"` feedback
   is available for tiny probes but is too expensive to put inside every
   `resize_conv` settling step at CIFAR scale.
-  The next scaffold is `multiscale_horn`: an explicit layered oscillator stack
-  with horizontal per-layer coupling and vertical inter-layer coupling. Use
-  `sparse_horn_cifar10_rgb_multiscale16_64_local050_fb005` against
-  `sparse_horn_cifar10_rgb_multiscale16_64_no_vertical` to test whether
-  bidirectional vertical settling adds value beyond extra auxiliary banks.
+  The newer `multiscale_horn` scaffold exposes explicit horizontal per-layer
+  coupling and vertical inter-layer coupling. The first two-seed probe found
+  that no-vertical auxiliary HORN banks improve generated-label accuracy over
+  plain normalized-local HORN, while weak bidirectional vertical coupling
+  improves nearest-real proximity but hurts class consistency and basin score.
+  Treat it as infrastructure for better selective/gated vertical mechanisms,
+  not a new default recipe.
 - Detailed results and caveats live in `docs/experiment_report.md`.
 
 ## Harness Menu

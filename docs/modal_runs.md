@@ -2177,6 +2177,29 @@ OSCNET_MODAL_MAX_CONTAINERS=3 modal run scripts/modal_mnist_phase_flow.py \
   --print-only
 ```
 
+## CIFAR RGB Multiscale Layered HORN Probe
+
+Two-seed probe for the `MultiscaleHORNImageGenerator` scaffold:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=6 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_multiscale_layered_probe
+```
+
+This writes:
+
+```text
+outputs/analysis/modal_mnist_generator_cifar10_rgb_multiscale_layered_probe.csv
+outputs/analysis/modal_mnist_generator_cifar10_rgb_multiscale_layered_probe.frontier.md
+outputs/analysis/modal_mnist_generator_cifar10_rgb_multiscale_layered_probe.paired.md
+outputs/analysis/multiscale_layered_grids/multiscale_layered_contact_sheet.png
+```
+
+Current read: no-vertical auxiliary HORN banks improved generated-label
+accuracy over plain normalized-local HORN, but weak bidirectional vertical
+coupling mainly improved nearest-real proximity and settling while reducing
+class consistency and basin score.
+
 ## Configuration
 
 Set environment variables before `modal run` to change the remote worker:

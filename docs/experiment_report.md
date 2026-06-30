@@ -7092,11 +7092,52 @@ oscillator-field problem instead of another single C2F variant:
 - Diagnostics count auxiliary/vertical params and ops separately and report
   per-layer energy/update/coupling proxies plus vertical disagreement proxies.
 
-The first disciplined probe should compare
-`sparse_horn_cifar10_rgb_multiscale16_64_local050_fb005` with
-`sparse_horn_cifar10_rgb_multiscale16_64_no_vertical`. This asks whether
-vertical layered settling adds value beyond simply giving the model more
-auxiliary oscillator banks.
+The first disciplined probe compared
+`sparse_horn_cifar10_rgb_multiscale16_64_local050_fb005`,
+`sparse_horn_cifar10_rgb_multiscale16_64_no_vertical`, and the plain
+`sparse_horn_cifar10_rgb_recommended_normlocal` control across seeds 11 and 23.
+
+Artifacts:
+
+```text
+outputs/analysis/modal_mnist_generator_cifar10_rgb_multiscale_layered_probe.csv
+outputs/analysis/modal_mnist_generator_cifar10_rgb_multiscale_layered_probe.frontier.md
+outputs/analysis/modal_mnist_generator_cifar10_rgb_multiscale_layered_probe.paired.md
+outputs/analysis/multiscale_layered_grids/multiscale_layered_contact_sheet.png
+```
+
+Aggregate layered frontier:
+
+| Variant | Runs | Acc | Diversity | Nearest-real MSE | Feature diversity | Feature nearest-real | Attractor acc | Basin score | Params | Samples/sec |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `multiscale_local050_fb005` | 2 | 0.3750 | 0.9287 | 0.0244 | 0.8653 | 0.2971 | 0.3875 | 1.3440 | 221443 | 280.0 |
+| `multiscale_no_vertical` | 2 | 0.4717 | 0.9626 | 0.0277 | 0.8978 | 0.3322 | 0.4750 | 1.7428 | 204035 | 371.4 |
+| `normlocal_plain` | 2 | 0.4014 | 1.0407 | 0.0315 | 0.8914 | 0.3241 | 0.4313 | 1.7901 | 156595 | 364.2 |
+
+Paired read:
+
+- Adding auxiliary HORN banks without vertical coupling improved generated
+  classifier accuracy versus plain normalized-local HORN by `+0.0703` on
+  matched seeds and improved output settling, but reduced pixel diversity and
+  did not improve the collapse-aware basin score.
+- Activating weak bidirectional vertical coupling improved nearest-real MSE
+  (`-0.0033` vs no-vertical, `-0.0071` vs plain) and feature nearest-real MSE
+  (`-0.0351` vs no-vertical), but reduced generated accuracy, feature
+  diversity, attractor accuracy, and basin score.
+- Visual samples match the metrics: active vertical coupling looks more
+  pulled/smoothed toward nearby examples, not more semantically coherent.
+
+Updated layered read:
+
+- The layered scaffold is valuable infrastructure, but this first local
+  bidirectional vertical mechanism is not the breakthrough path.
+- Extra auxiliary HORN banks may provide useful capacity/regularization even
+  without vertical drive. That needs a parameter-matched control before
+  claiming an ONN advantage.
+- If layered ONNs are to win, the vertical interaction likely needs to be more
+  selective: gated, inhibitory/excitatory, phase-lagged, attention-like sparse,
+  or supervised by an explicit coarse objective. Simple weak local vertical
+  springs trade semantic class coherence for sample proximity.
 
 ## Maintenance Notes
 
