@@ -49,6 +49,7 @@ class StateMLPImageGenerator(HORNImageGenerator):
         )
         self.dynamics_family = "state_mlp"
         self.coupling_profile = "none"
+        self.coupling_normalization = "none"
         self.state_mlp_hidden_dim = int(state_mlp_hidden_dim)
         self.state_mlp_depth = int(state_mlp_depth)
         self.state_mlp_residual_scale = float(state_mlp_residual_scale)

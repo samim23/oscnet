@@ -2,16 +2,16 @@
 
 from __future__ import annotations
 
+from oscnet.core.coupling import coupling_profile_from_name
+
 from .common import (
     Array,
     Dict,
     Optional,
     Tuple,
     _activation,
-    _distance_decay_coupling_profile,
     _image_hw_channels,
     _local_basis_tensor,
-    _local_radius_coupling_profile,
     _softplus_inverse,
     _spatial_basis_matrix,
     eqx,
@@ -53,7 +53,9 @@ class KuramotoImageGenerator(eqx.Module):
     steps: int = eqx.field(static=True)
     dt: float = eqx.field(static=True)
     coupling_strength: float = eqx.field(static=True)
+    main_coupling_strength: float = eqx.field(static=True)
     coupling_profile: str = eqx.field(static=True)
+    coupling_normalization: str = eqx.field(static=True)
     coupling_length_scale: float = eqx.field(static=True)
     coupling_floor: float = eqx.field(static=True)
     coupling_bias_strength: float = eqx.field(static=True)
@@ -83,9 +85,11 @@ class KuramotoImageGenerator(eqx.Module):
         steps: int = 8,
         dt: float = 0.1,
         coupling_strength: float = 1.0,
+        main_coupling_strength: Optional[float] = None,
         omega_scale: float = 0.2,
         coupling_init_scale: float = 0.05,
         coupling_profile: str = "dense",
+        coupling_normalization: str = "none",
         coupling_length_scale: float = 0.0,
         coupling_floor: float = 0.0,
         coupling_bias_strength: float = 0.0,
@@ -164,8 +168,14 @@ class KuramotoImageGenerator(eqx.Module):
                 "coupling_profile must be 'dense', 'distance_decay', or "
                 "'local_radius'"
             )
+        if coupling_normalization not in ("none", "row_sum"):
+            raise ValueError("coupling_normalization must be 'none' or 'row_sum'")
         if coupling_floor < 0.0 or coupling_floor > 1.0:
             raise ValueError("coupling_floor must be in [0, 1]")
+        if main_coupling_strength is None:
+            main_coupling_strength = coupling_strength
+        if main_coupling_strength < 0.0:
+            raise ValueError("main_coupling_strength must be non-negative")
         if conditioning_strength < 0.0:
             raise ValueError("conditioning_strength must be non-negative")
         if conditioning_target_fraction <= 0.0 or conditioning_target_fraction > 1.0:
@@ -191,7 +201,9 @@ class KuramotoImageGenerator(eqx.Module):
         self.steps = int(steps)
         self.dt = float(dt)
         self.coupling_strength = float(coupling_strength)
+        self.main_coupling_strength = float(main_coupling_strength)
         self.coupling_profile = coupling_profile
+        self.coupling_normalization = coupling_normalization
         self.coupling_length_scale = float(coupling_length_scale)
         self.coupling_floor = float(coupling_floor)
         self.coupling_bias_strength = float(coupling_bias_strength)
@@ -644,17 +656,13 @@ class KuramotoImageGenerator(eqx.Module):
     def coupling_profile_matrix(self) -> Array:
         """Return the fixed spatial profile applied to recurrent coupling."""
 
-        if self.coupling_profile == "dense":
-            return 1.0 - jnp.eye(self.num_oscillators, dtype=jnp.float32)
-        if self.coupling_profile == "local_radius":
-            return _local_radius_coupling_profile(
-                num_oscillators=self.num_oscillators,
-                radius=self.coupling_length_scale,
-            )
-        return _distance_decay_coupling_profile(
+        return coupling_profile_from_name(
+            name=self.coupling_profile,
             num_oscillators=self.num_oscillators,
             length_scale=self.coupling_length_scale,
             floor=self.coupling_floor,
+            normalization=self.coupling_normalization,
+            target_row_sum=float(self.num_oscillators),
         )
 
     def _dynamics_params(self) -> Tuple[Array, Array]:
@@ -745,9 +753,12 @@ class KuramotoImageGenerator(eqx.Module):
         phase_diff = theta[:, None, :] - theta[:, :, None]
         interaction = jnp.sum(coupling[None, :, :] * jnp.sin(phase_diff), axis=-1)
         condition_drive = self._conditioning_drive(theta, labels)
-        velocity = omega[None, :] + (
-            self.coupling_strength
-            * (interaction / float(self.num_oscillators) + condition_drive)
+        velocity = (
+            omega[None, :]
+            + float(self.main_coupling_strength)
+            * interaction
+            / float(self.num_oscillators)
+            + float(self.coupling_strength) * condition_drive
         )
         return wrap_phase(theta + self.dt * velocity)
 
@@ -767,9 +778,12 @@ class KuramotoImageGenerator(eqx.Module):
             condition_theta,
             labels,
         )
-        main_velocity = omega[None, :] + (
-            self.coupling_strength
-            * (interaction / float(self.num_oscillators) + condition_drive)
+        main_velocity = (
+            omega[None, :]
+            + float(self.main_coupling_strength)
+            * interaction
+            / float(self.num_oscillators)
+            + float(self.coupling_strength) * condition_drive
         )
 
         condition_omega, condition_coupling = self._condition_dynamics_params()
@@ -778,12 +792,11 @@ class KuramotoImageGenerator(eqx.Module):
             condition_coupling[None, :, :] * jnp.sin(condition_phase_diff),
             axis=-1,
         )
-        condition_velocity = condition_omega[None, :] + (
-            self.coupling_strength
-            * (
-                condition_interaction
-                / float(max(self.num_condition_oscillators, 1))
-            )
+        condition_velocity = (
+            condition_omega[None, :]
+            + float(self.main_coupling_strength)
+            * condition_interaction
+            / float(max(self.num_condition_oscillators, 1))
         )
         return (
             wrap_phase(theta + self.dt * main_velocity),

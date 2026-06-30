@@ -9,6 +9,11 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 
+from oscnet.core.coupling import (
+    distance_decay_coupling_profile,
+    local_radius_coupling_profile,
+    oscillator_grid_coordinates,
+)
 from oscnet.models.winfree import phase_features, wrap_phase
 
 Array = jnp.ndarray
@@ -133,15 +138,7 @@ def _local_basis_tensor(
 def _oscillator_grid_coordinates(num_oscillators: int) -> Array:
     """Place oscillators on a near-square normalized grid."""
 
-    grid_rows = max(1, int(math.floor(math.sqrt(num_oscillators))))
-    grid_cols = max(1, int(math.ceil(num_oscillators / grid_rows)))
-    centers_y, centers_x = jnp.meshgrid(
-        jnp.linspace(-1.0, 1.0, grid_rows),
-        jnp.linspace(-1.0, 1.0, grid_cols),
-        indexing="ij",
-    )
-    centers = jnp.stack([centers_y.reshape(-1), centers_x.reshape(-1)], axis=-1)
-    return centers[:num_oscillators]
+    return oscillator_grid_coordinates(num_oscillators)
 
 
 def _distance_decay_coupling_profile(
@@ -152,19 +149,11 @@ def _distance_decay_coupling_profile(
 ) -> Array:
     """Build a fixed spatial coupling profile for oscillator interactions."""
 
-    coords = _oscillator_grid_coordinates(num_oscillators)
-    grid_extent = max(2, int(math.ceil(math.sqrt(num_oscillators))))
-    if length_scale <= 0.0:
-        length_scale = 2.5 / float(grid_extent)
-    length_scale = max(float(length_scale), 1e-6)
-    floor = float(floor)
-    squared_distance = jnp.sum(
-        (coords[:, None, :] - coords[None, :, :]) ** 2,
-        axis=-1,
+    return distance_decay_coupling_profile(
+        num_oscillators=num_oscillators,
+        length_scale=length_scale,
+        floor=floor,
     )
-    profile = jnp.exp(-squared_distance / (2.0 * length_scale**2))
-    profile = floor + (1.0 - floor) * profile
-    return profile * (1.0 - jnp.eye(num_oscillators, dtype=jnp.float32))
 
 
 def _local_radius_coupling_profile(
@@ -174,20 +163,12 @@ def _local_radius_coupling_profile(
 ) -> Array:
     """Build a sparse local spatial coupling profile."""
 
-    coords = _oscillator_grid_coordinates(num_oscillators)
-    grid_extent = max(2, int(math.ceil(math.sqrt(num_oscillators))))
-    if radius <= 0.0:
-        radius = 2.5 / float(grid_extent)
-    radius = max(float(radius), 1e-6)
-    squared_distance = jnp.sum(
-        (coords[:, None, :] - coords[None, :, :]) ** 2,
-        axis=-1,
+    return local_radius_coupling_profile(
+        num_oscillators=num_oscillators,
+        radius=radius,
     )
-    profile = (squared_distance <= radius**2).astype(jnp.float32)
-    return profile * (1.0 - jnp.eye(num_oscillators, dtype=jnp.float32))
 
 
 def _softplus_inverse(value: float) -> float:
     value = max(float(value), 1e-6)
     return math.log(math.expm1(value))
-

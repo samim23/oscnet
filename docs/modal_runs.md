@@ -1839,6 +1839,322 @@ python scripts/analyze_mnist_generator_frontier.py \
   --accuracy-floor 0.3
 ```
 
+Generator coupling note: `--coupling-strength` now scales the
+class/conditioning drive, while `--main-coupling-strength` optionally scales
+recurrent oscillator interaction. If `--main-coupling-strength` is omitted it
+defaults to `--coupling-strength`, preserving old sweep behavior. Use
+`--coupling-strength 1.0 --main-coupling-strength 0.0` for a clean "class drive
+on, recurrent main coupling off" probe.
+
+Run the compact main-coupling strength probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=4 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_main_coupling_strength_probe
+```
+
+This holds the 25% sparse class drive fixed and sweeps recurrent HORN coupling
+strength `0.0, 0.25, 0.5, 1.0` on seed `11`, with the strict residual-conv
+feature drift/judge setup. Analyze it with:
+
+```bash
+python scripts/analyze_mnist_generator_frontier.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_main_coupling_strength_probe.csv \
+  --output-dir outputs/analysis/cifar10_rgb_main_coupling_strength_probe \
+  --title "CIFAR-10 RGB main coupling strength probe" \
+  --accuracy-floor 0.3
+```
+
+If `main=0.0` looks surprisingly strong, repeat the core comparison across
+seeds and include the matched StateMLP control:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=4 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_main_coupling_strength_seed_repeat
+```
+
+```bash
+python scripts/analyze_mnist_generator_frontier.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_main_coupling_strength_seed_repeat.csv \
+  --output-dir outputs/analysis/cifar10_rgb_main_coupling_strength_seed_repeat \
+  --title "CIFAR-10 RGB main coupling strength seed repeat" \
+  --accuracy-floor 0.3
+```
+
+Fine-sweep the moderate recurrent-coupling region:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=4 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_main_coupling_fine_probe
+```
+
+```bash
+python scripts/analyze_mnist_generator_frontier.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_main_coupling_fine_probe.csv \
+  --output-dir outputs/analysis/cifar10_rgb_main_coupling_fine_probe \
+  --title "CIFAR-10 RGB main coupling fine probe" \
+  --accuracy-floor 0.3
+```
+
+Run a clean current-code replication of all recurrent-coupling strengths:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=8 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_main_coupling_current_replication
+```
+
+```bash
+python scripts/analyze_mnist_generator_frontier.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_main_coupling_current_replication.csv \
+  --output-dir outputs/analysis/cifar10_rgb_main_coupling_current_replication \
+  --title "CIFAR-10 RGB main coupling current-code replication" \
+  --accuracy-floor 0.3
+```
+
+Use this current-code replication for coupling conclusions; the older one-off
+and fine sweeps are exploratory because repeated launches showed noticeable
+run-to-run variance even with matching seed/arguments.
+
+Run the normalized distance-decay recurrent-coupling probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=6 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_normalized_distance_decay_probe
+```
+
+```bash
+python scripts/analyze_mnist_generator_frontier.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_normalized_distance_decay_probe.csv \
+  --output-dir outputs/analysis/cifar10_rgb_normalized_distance_decay_probe \
+  --title "CIFAR-10 RGB normalized distance-decay coupling probe" \
+  --accuracy-floor 0.3
+```
+
+This probe keeps the strong sparse class drive fixed, uses
+`--coupling-profile distance_decay --coupling-normalization row_sum`, and sweeps
+`main_coupling_strength=0.25,0.5,1.0`. Row-sum normalization scales each
+non-empty recurrent profile row to `num_oscillators`, matching the generator
+step convention that divides the summed interaction by `N`.
+
+Run the sparse normalized local-radius recurrent-coupling probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=6 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_normalized_local_radius_probe
+```
+
+```bash
+python scripts/analyze_mnist_generator_frontier.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_normalized_local_radius_probe.csv \
+  --output-dir outputs/analysis/cifar10_rgb_normalized_local_radius_probe \
+  --title "CIFAR-10 RGB normalized local-radius coupling probe" \
+  --accuracy-floor 0.3
+```
+
+This uses the same row-sum gain normalization but keeps the recurrent topology
+sparse via `--coupling-profile local_radius`. Compare it against both the
+current local-radius replication and dense normalized distance-decay before
+changing any defaults.
+
+Sweep the sparse normalized local radius around the current winner:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=6 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_normalized_local_radius_sweep
+```
+
+```bash
+python scripts/analyze_mnist_generator_frontier.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_normalized_local_radius_sweep.csv \
+  --output-dir outputs/analysis/cifar10_rgb_normalized_local_radius_sweep \
+  --title "CIFAR-10 RGB normalized local-radius sweep" \
+  --accuracy-floor 0.3
+```
+
+This holds `main_coupling_strength=1.0` and sweeps
+`coupling_length_scale=0.16,0.24,0.32`, asking whether the winning normalized
+local HORN medium wants a tight, current, or wider neighborhood before building
+coarse-to-fine HORN.
+
+Run the first coarse-to-fine HORN probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=6 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_coarse_to_fine_probe
+```
+
+```bash
+python scripts/analyze_mnist_generator_frontier.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_coarse_to_fine_probe.csv \
+  --output-dir outputs/analysis/cifar10_rgb_coarse_to_fine_probe \
+  --title "CIFAR-10 RGB coarse-to-fine HORN probe" \
+  --accuracy-floor 0.3
+```
+
+This compares the current normalized-local HORN preset with
+`CoarseToFineHORNImageGenerator` at `coarse_to_fine_strength=0.0` and `1.0`.
+The zero-strength variant is an attribution control: the coarse oscillator bank
+is present, but it cannot drive the fine field.
+
+If the first probe shows the coarse path improves proximity but tightens the
+attractor basin, run the gentler gain sweep:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=6 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_coarse_to_fine_gain_sweep
+```
+
+```bash
+python scripts/analyze_mnist_generator_frontier.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_coarse_to_fine_gain_sweep.csv \
+  --output-dir outputs/analysis/cifar10_rgb_coarse_to_fine_gain_sweep \
+  --title "CIFAR-10 RGB coarse-to-fine HORN gain sweep" \
+  --accuracy-floor 0.3
+```
+
+This keeps the coarse16 normalized-local recipe fixed and sweeps
+`coarse_to_fine_strength=0.25,0.5,0.75`.
+
+Run the coarse-to-fine projection-profile probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=6 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_coarse_to_fine_profile_probe
+```
+
+```bash
+python scripts/analyze_mnist_generator_frontier.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_coarse_to_fine_profile_probe.csv \
+  --output-dir outputs/analysis/cifar10_rgb_coarse_to_fine_profile_probe \
+  --title "CIFAR-10 RGB coarse-to-fine HORN profile probe" \
+  --accuracy-floor 0.3
+```
+
+This holds `coarse_to_fine_strength=0.25` and compares dense,
+distance-decayed, and local-radius coarse-to-fine projection profiles. It asks
+whether spatially regularized top-down drive keeps more attractor diversity
+than the dense learned coarse projection.
+
+Run the compact coarse-to-fine dynamics audit:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=5 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_coarse_to_fine_dynamics_audit
+```
+
+```bash
+python scripts/analyze_mnist_generator_frontier.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_coarse_to_fine_dynamics_audit.csv \
+  --output-dir outputs/analysis/cifar10_rgb_coarse_to_fine_dynamics_audit \
+  --title "CIFAR-10 RGB coarse-to-fine HORN dynamics audit" \
+  --accuracy-floor 0.3
+```
+
+This is a one-seed diagnostic rerun of the key rows: normalized-local HORN,
+coarse bank with no fine drive, dense gentle coarse-to-fine,
+distance-decayed gentle coarse-to-fine, and local-radius gentle coarse-to-fine.
+Use it when code changes affect `success_diagnostics`, because it now surfaces
+coarse state energy/update, coarse recurrent disagreement, and coarse-to-fine
+disagreement in the frontier table.
+
+If local-radius coarse-to-fine looks promising, repeat that lead over more
+seeds:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=8 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_coarse_to_fine_local_repeat
+```
+
+```bash
+python scripts/analyze_mnist_generator_frontier.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_coarse_to_fine_local_repeat.csv \
+  --output-dir outputs/analysis/cifar10_rgb_coarse_to_fine_local_repeat \
+  --title "CIFAR-10 RGB local coarse-to-fine HORN seed repeat" \
+  --accuracy-floor 0.3
+```
+
+This runs seeds `11,23,37,41` for normalized-local HORN, a coarse-bank/no-drive
+control, and the local-radius gentle coarse-to-fine variant.
+
+After the frontier summary, run the paired same-seed attribution pass:
+
+```bash
+python scripts/analyze_generator_paired_deltas.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_coarse_to_fine_local_repeat.csv \
+  --output-dir outputs/analysis/cifar10_rgb_coarse_to_fine_local_repeat \
+  --baseline-variant coarse16_c2f000 \
+  --target-variant coarse16_c2f025_local050 \
+  --target-variant horn_normlocal
+```
+
+This reports target-minus-baseline deltas on matched seeds, which is the
+cleaner attribution view for active coarse-to-fine drive.
+
+Run the C2F readout/objective conversion probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=8 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_coarse_to_fine_conversion_probe
+```
+
+```bash
+python scripts/analyze_mnist_generator_frontier.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_coarse_to_fine_conversion_probe.csv \
+  --output-dir outputs/analysis/cifar10_rgb_coarse_to_fine_conversion_probe \
+  --title "CIFAR-10 RGB coarse-to-fine HORN conversion probe" \
+  --accuracy-floor 0.3
+```
+
+```bash
+python scripts/analyze_generator_paired_deltas.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_coarse_to_fine_conversion_probe.csv \
+  --output-dir outputs/analysis/cifar10_rgb_coarse_to_fine_conversion_probe \
+  --title "CIFAR-10 RGB coarse-to-fine conversion paired deltas" \
+  --pair coarse16_c2f000_base:coarse16_c2f025_local050_base \
+  --pair coarse16_c2f000_ch32:coarse16_c2f025_local050_ch32 \
+  --pair coarse16_c2f000_dist0025:coarse16_c2f025_local050_dist0025 \
+  --pair coarse16_c2f000_ch32_dist0025:coarse16_c2f025_local050_ch32_dist0025
+```
+
+This keeps local-radius C2F fixed and tests whether a wider resize-conv
+readout (`ch32`), small distributional pressure (`dist0025`), or both can
+convert the better diversity/basin side into visible quality. Every active row
+has a same-seed no-drive coarse control with the same readout/objective.
+
+Run the compact C2F feedback probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=8 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_coarse_to_fine_feedback_probe
+```
+
+```bash
+python scripts/analyze_mnist_generator_frontier.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_coarse_to_fine_feedback_probe.csv \
+  --output-dir outputs/analysis/cifar10_rgb_coarse_to_fine_feedback_probe \
+  --title "CIFAR-10 RGB coarse-to-fine feedback probe" \
+  --accuracy-floor 0 \
+  --no-plot
+```
+
+```bash
+python scripts/analyze_generator_paired_deltas.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_coarse_to_fine_feedback_probe.csv \
+  --output-dir outputs/analysis/cifar10_rgb_coarse_to_fine_feedback_probe \
+  --title "CIFAR-10 RGB coarse-to-fine feedback paired deltas" \
+  --pair coarse16_c2f000_feedback050_base:coarse16_c2f025_local050_feedback050_base \
+  --pair coarse16_c2f000_ch32_dist0025_feedback050:coarse16_c2f025_local050_ch32_dist0025_feedback050
+```
+
+Notes:
+
+- `output_feedback_mode="state_proxy"` is the default for the feedback presets.
+  It is cheap and feeds a centered local HORN state proxy back into
+  acceleration.
+- `output_feedback_mode="image"` is available for tiny diagnostics, but it
+  decodes during every settling step. With `resize_conv` and multi-depth
+  training it is much slower than ordinary HORN generation.
+
 To rerun the full four-way attribution matrix in one request:
 
 ```bash

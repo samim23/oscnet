@@ -863,6 +863,15 @@ def run_mnist_generator_experiment(
             "conditional": config.conditional,
             "label_phase_scale": config.label_phase_scale,
             "coupling_profile": model.coupling_profile,
+            "coupling_normalization": getattr(
+                model,
+                "coupling_normalization",
+                "none",
+            ),
+            "coupling_strength": float(model.coupling_strength),
+            "main_coupling_strength": float(
+                getattr(model, "main_coupling_strength", model.coupling_strength)
+            ),
             "coupling_length_scale": float(model.coupling_length_scale),
             "coupling_floor": float(model.coupling_floor),
             "coupling_bias_strength": float(model.coupling_bias_strength),
@@ -881,6 +890,56 @@ def run_mnist_generator_experiment(
             "horn_damping": config.horn_damping,
             "horn_nonlinearity": config.horn_nonlinearity,
             "horn_state_bound": config.horn_state_bound,
+            "output_feedback_mode": getattr(
+                model,
+                "output_feedback_mode",
+                "none",
+            ),
+            "output_feedback_strength": float(
+                getattr(model, "output_feedback_strength", 0.0)
+            ),
+            "output_feedback_init_scale": float(
+                getattr(model, "output_feedback_init_scale", 0.0)
+            ),
+            "output_feedback_basis_sigma": float(
+                getattr(model, "output_feedback_basis_sigma", 0.0)
+            ),
+            "num_coarse_oscillators": getattr(model, "num_coarse_oscillators", 0),
+            "coarse_coupling_profile": getattr(
+                model,
+                "coarse_coupling_profile",
+                "none",
+            ),
+            "coarse_coupling_normalization": getattr(
+                model,
+                "coarse_coupling_normalization",
+                "none",
+            ),
+            "coarse_coupling_length_scale": float(
+                getattr(model, "coarse_coupling_length_scale", 0.0)
+            ),
+            "coarse_to_fine_strength": float(
+                getattr(model, "coarse_to_fine_strength", 0.0)
+            ),
+            "coarse_to_fine_profile": getattr(
+                model,
+                "coarse_to_fine_profile",
+                "none",
+            ),
+            "coarse_to_fine_normalization": getattr(
+                model,
+                "coarse_to_fine_normalization",
+                "none",
+            ),
+            "coarse_to_fine_length_scale": float(
+                getattr(model, "coarse_to_fine_length_scale", 0.0)
+            ),
+            "coarse_to_fine_floor": float(
+                getattr(model, "coarse_to_fine_floor", 0.0)
+            ),
+            "coarse_conditioning_strength": float(
+                getattr(model, "coarse_conditioning_strength", 0.0)
+            ),
             "state_mlp_hidden_dim": config.state_mlp_hidden_dim,
             "state_mlp_depth": config.state_mlp_depth,
             "state_mlp_residual_scale": config.state_mlp_residual_scale,

@@ -8,7 +8,9 @@ from .common import (
     Optional,
     Tuple,
     _activation,
+    _image_hw_channels,
     _local_basis_tensor,
+    _oscillator_grid_coordinates,
     _softplus_inverse,
     _spatial_basis_matrix,
     eqx,
@@ -32,7 +34,12 @@ class HORNImageGenerator(KuramotoImageGenerator):
     horn_damping: float = eqx.field(static=True)
     horn_nonlinearity: float = eqx.field(static=True)
     horn_state_bound: float = eqx.field(static=True)
+    output_feedback_mode: str = eqx.field(static=True)
+    output_feedback_strength: float = eqx.field(static=True)
+    output_feedback_init_scale: float = eqx.field(static=True)
+    output_feedback_basis_sigma: float = eqx.field(static=True)
     dynamics_family: str = eqx.field(static=True)
+    output_feedback_gain: Array
 
     def __init__(
         self,
@@ -41,8 +48,15 @@ class HORNImageGenerator(KuramotoImageGenerator):
         horn_damping: float = 0.15,
         horn_nonlinearity: float = 0.05,
         horn_state_bound: float = 3.0,
+        output_feedback_mode: str = "state_proxy",
+        output_feedback_strength: float = 0.0,
+        output_feedback_init_scale: float = 0.02,
+        output_feedback_basis_sigma: float = 0.0,
         **kwargs,
     ):
+        key = kwargs.get("key", None)
+        if key is None:
+            key = jax.random.PRNGKey(42)
         super().__init__(**kwargs)
         if horn_frequency <= 0.0:
             raise ValueError("horn_frequency must be positive")
@@ -52,11 +66,31 @@ class HORNImageGenerator(KuramotoImageGenerator):
             raise ValueError("horn_nonlinearity must be non-negative")
         if horn_state_bound < 0.0:
             raise ValueError("horn_state_bound must be non-negative")
+        if output_feedback_mode not in ("state_proxy", "image"):
+            raise ValueError("output_feedback_mode must be 'state_proxy' or 'image'")
+        if output_feedback_strength < 0.0:
+            raise ValueError("output_feedback_strength must be non-negative")
+        if output_feedback_init_scale < 0.0:
+            raise ValueError("output_feedback_init_scale must be non-negative")
+        if output_feedback_basis_sigma < 0.0:
+            raise ValueError("output_feedback_basis_sigma must be non-negative")
         self.horn_frequency = float(horn_frequency)
         self.horn_damping = float(horn_damping)
         self.horn_nonlinearity = float(horn_nonlinearity)
         self.horn_state_bound = float(horn_state_bound)
+        self.output_feedback_mode = output_feedback_mode
+        self.output_feedback_strength = float(output_feedback_strength)
+        self.output_feedback_init_scale = float(output_feedback_init_scale)
+        self.output_feedback_basis_sigma = float(output_feedback_basis_sigma)
         self.dynamics_family = "horn"
+        if self.output_feedback_strength > 0.0:
+            feedback_key = jax.random.fold_in(key, 30091)
+            self.output_feedback_gain = (
+                jax.random.normal(feedback_key, (self.num_oscillators,))
+                * self.output_feedback_init_scale
+            )
+        else:
+            self.output_feedback_gain = jnp.zeros((0,), dtype=jnp.float32)
 
     def initial_state(
         self,
@@ -180,6 +214,61 @@ class HORNImageGenerator(KuramotoImageGenerator):
         bound = float(self.horn_state_bound)
         return bound * jnp.tanh(state / bound)
 
+    def _output_feedback_basis(self) -> Array:
+        """Pool decoded pixels back to oscillator locations."""
+
+        height, width, _ = _image_hw_channels(self.image_shape)
+        pixel_y, pixel_x = jnp.meshgrid(
+            jnp.linspace(-1.0, 1.0, height),
+            jnp.linspace(-1.0, 1.0, width),
+            indexing="ij",
+        )
+        pixels = jnp.stack([pixel_y.reshape(-1), pixel_x.reshape(-1)], axis=-1)
+        centers = _oscillator_grid_coordinates(self.num_oscillators)
+        squared_distance = jnp.sum(
+            (centers[:, None, :] - pixels[None, :, :]) ** 2,
+            axis=-1,
+        )
+        sigma = float(self.output_feedback_basis_sigma)
+        if sigma <= 0.0:
+            grid_rows = max(1, int(math.floor(math.sqrt(self.num_oscillators))))
+            grid_cols = max(1, int(math.ceil(self.num_oscillators / grid_rows)))
+            sigma = 1.25 / float(max(grid_rows, grid_cols))
+        basis = jnp.exp(-squared_distance / (2.0 * sigma**2))
+        return basis / jnp.maximum(jnp.sum(basis, axis=-1, keepdims=True), 1e-8)
+
+    def _output_feedback_drive(self, position: Array, velocity: Array) -> Array:
+        """Return local self-feedback from the current generated state."""
+
+        if (
+            self.output_feedback_strength <= 0.0
+            or self.output_feedback_gain.shape[0] != self.num_oscillators
+        ):
+            return jnp.zeros_like(position)
+        if self.output_feedback_mode == "state_proxy":
+            proxy = jnp.tanh(position) + 0.5 * jnp.tanh(velocity)
+            centered = proxy - jnp.mean(proxy, axis=-1, keepdims=True)
+            gain = self.output_feedback_gain
+            if not self.train_recurrent_dynamics:
+                gain = jax.lax.stop_gradient(gain)
+                centered = jax.lax.stop_gradient(centered)
+            return float(self.output_feedback_strength) * gain[None, :] * centered
+
+        height, width, channels = _image_hw_channels(self.image_shape)
+        decoded = self.decode_state(position, velocity).reshape(
+            position.shape[0],
+            height * width,
+            channels,
+        )
+        luminance = jnp.mean(decoded, axis=-1)
+        pooled = luminance @ self._output_feedback_basis().T
+        centered = pooled - jnp.mean(pooled, axis=-1, keepdims=True)
+        gain = self.output_feedback_gain
+        if not self.train_recurrent_dynamics:
+            gain = jax.lax.stop_gradient(gain)
+            centered = jax.lax.stop_gradient(centered)
+        return float(self.output_feedback_strength) * gain[None, :] * centered
+
     def step_state(
         self,
         state: Tuple[Array, Array],
@@ -192,12 +281,16 @@ class HORNImageGenerator(KuramotoImageGenerator):
         displacement = position[:, None, :] - position[:, :, None]
         interaction = jnp.sum(coupling[None, :, :] * displacement, axis=-1)
         condition_drive = self._horn_static_conditioning_drive(position, labels)
+        output_feedback_drive = self._output_feedback_drive(position, velocity)
         acceleration = (
             -(frequency[None, :] ** 2) * position
             - float(self.horn_damping) * velocity
             - float(self.horn_nonlinearity) * (position**3)
-            + float(self.coupling_strength)
-            * (interaction / float(self.num_oscillators) + condition_drive)
+            + float(self.main_coupling_strength)
+            * interaction
+            / float(self.num_oscillators)
+            + float(self.coupling_strength) * condition_drive
+            + output_feedback_drive
         )
         next_velocity = self._bound_state(velocity + self.dt * acceleration)
         next_position = self._bound_state(position + self.dt * next_velocity)
@@ -221,12 +314,16 @@ class HORNImageGenerator(KuramotoImageGenerator):
             condition_position,
             labels,
         )
+        output_feedback_drive = self._output_feedback_drive(position, velocity)
         acceleration = (
             -(frequency[None, :] ** 2) * position
             - float(self.horn_damping) * velocity
             - float(self.horn_nonlinearity) * (position**3)
-            + float(self.coupling_strength)
-            * (interaction / float(self.num_oscillators) + condition_drive)
+            + float(self.main_coupling_strength)
+            * interaction
+            / float(self.num_oscillators)
+            + float(self.coupling_strength) * condition_drive
+            + output_feedback_drive
         )
         next_velocity = self._bound_state(velocity + self.dt * acceleration)
         next_position = self._bound_state(position + self.dt * next_velocity)
@@ -247,11 +344,9 @@ class HORNImageGenerator(KuramotoImageGenerator):
             -(condition_frequency[None, :] ** 2) * condition_position
             - float(self.horn_damping) * condition_velocity
             - float(self.horn_nonlinearity) * (condition_position**3)
-            + float(self.coupling_strength)
-            * (
-                condition_interaction
-                / float(max(self.num_condition_oscillators, 1))
-            )
+            + float(self.main_coupling_strength)
+            * condition_interaction
+            / float(max(self.num_condition_oscillators, 1))
         )
         next_condition_velocity = self._bound_state(
             condition_velocity + self.dt * condition_acceleration
@@ -603,6 +698,10 @@ class HORNImageGenerator(KuramotoImageGenerator):
                 return_trajectory=True,
             )
         generated = self.decode_state(final_position, final_velocity)
+        output_feedback_drive = self._output_feedback_drive(
+            final_position,
+            final_velocity,
+        )
         return {
             "initial_theta": position0,
             "theta_trajectory": position_trajectory,
@@ -617,6 +716,8 @@ class HORNImageGenerator(KuramotoImageGenerator):
             "condition_velocity_trajectory": condition_velocity_trajectory,
             "condition_final_velocity": final_condition_velocity,
             "generated": generated,
+            "output_feedback_drive": output_feedback_drive,
+            "output_feedback_gain": self.output_feedback_gain,
             "omega": self.omega,
             "coupling": self.coupling,
             "coupling_profile": self.coupling_profile_matrix(),

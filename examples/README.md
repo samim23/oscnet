@@ -204,17 +204,24 @@ frontier recipe, but uses full channel-first RGB images and a slightly wider
 resize-conv readout:
 
 ```bash
+python examples/image_mnist_generator.py --preset sparse_horn_cifar10_rgb_recommended_normlocal
+python examples/image_mnist_generator.py --preset sparse_horn_cifar10_rgb_coarse16_normlocal_gentle_local050
 python examples/image_mnist_generator.py --preset sparse_horn_cifar10_rgb_recommended
 python examples/image_mnist_generator.py --preset sparse_horn_cifar10_rgb_recommended_dist005
 python examples/image_mnist_generator.py --preset sparse_horn_cifar10_rgb_state_mlp_strength8
 ```
 
 These presets use `--dataset-name cifar10_rgb`, infer `--image-shape 32,32,3`,
-and default generated-label diagnostics to the convolutional judge. This is the
-current hard gate for whether the HORN semantic/diversity signal survives real
-color rather than only grayscale silhouettes. Current read: HORN keeps the
-semantic/diversity advantage in RGB, while StateMLP remains closer by
-nearest-real pixel MSE and faster.
+and default generated-label diagnostics to the convolutional judge. The
+`normlocal` preset is the current stronger CIFAR RGB HORN recipe: sparse
+local-radius recurrent coupling with row-sum gain normalization, 25% sparse
+class drive, learned residual feature drift, and a stricter residual-conv
+judge. Current read: HORN keeps the semantic/diversity and attractor advantage
+in RGB, while StateMLP remains closer by nearest-real pixel MSE and faster.
+The `coarse16_normlocal_gentle_local050` preset is the multiscale HORN probe:
+a small coarse oscillator bank sends weak local-radius drive into the fine
+field. It is useful for testing coarse-to-fine coordination, but it is not the
+default because the no-drive coarse control still wins some raw quality metrics.
 
 ## Example Menu
 

@@ -30,6 +30,19 @@ from .oscillators import (
 )
 from .dynamics import solve_ode
 from .interfaces import ArgsType, Array, StateType, TimeType
+from .coupling import (
+    coupling_profile_from_name,
+    dense_coupling_profile,
+    distance_decay_coupling_profile,
+    local_radius_coupling_profile,
+    normalize_coupling_profile,
+    oscillator_grid_coordinates,
+    rectangular_coupling_profile_from_name,
+    rectangular_dense_coupling_profile,
+    rectangular_distance_decay_coupling_profile,
+    rectangular_local_radius_coupling_profile,
+    row_laplacian,
+)
 
 from .fractal_coupling import (
     HierarchicalCouplingLayer,
@@ -66,6 +79,19 @@ __all__ = [
     "StateType",
     "TimeType",
     "ArgsType",
+
+    # Coupling topology helpers
+    "coupling_profile_from_name",
+    "dense_coupling_profile",
+    "distance_decay_coupling_profile",
+    "local_radius_coupling_profile",
+    "normalize_coupling_profile",
+    "oscillator_grid_coordinates",
+    "rectangular_coupling_profile_from_name",
+    "rectangular_dense_coupling_profile",
+    "rectangular_distance_decay_coupling_profile",
+    "rectangular_local_radius_coupling_profile",
+    "row_laplacian",
     
     # Fractal coupling
     "HierarchicalCouplingLayer",

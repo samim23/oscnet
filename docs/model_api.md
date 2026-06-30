@@ -5,7 +5,7 @@ primitives in `oscnet.core`.
 
 ```text
 oscnet.core
-  oscillator updates, oscillator modules, coupling matrices
+  oscillator updates, oscillator modules, coupling matrices/topologies
 
 oscnet.models
   cells -> sequence layers -> encoders/decoders -> task wrappers
@@ -16,6 +16,14 @@ examples
 
 The goal is for new research ideas to add cells or wrappers without each
 example re-implementing an architecture from scratch.
+
+`oscnet.core.coupling`
+: Shared topology builders for oscillator networks. Use
+  `distance_decay_coupling_profile`, `local_radius_coupling_profile`,
+  `dense_coupling_profile`, and `normalize_coupling_profile` when an experiment
+  needs fixed spatial coupling. `normalization="row_sum"` keeps each non-empty
+  row at a target gain scale, which is useful when comparing local, dense, and
+  distance-decay media without accidentally changing total recurrent input.
 
 ## Tensor Convention
 
@@ -223,9 +231,12 @@ and internally convert them to patch sequences.
   profile and optional weak attractive bias to learned pairwise couplings. Use
   `coupling_profile="local_radius"` for a sparse binary spatial mask; in that
   mode `coupling_length_scale` is the local interaction radius on the
-  normalized oscillator grid. `conditioning_strength` scales the conditioning
-  drive in `class_coupling` and `class_oscillator` modes without changing the
-  main recurrent coupling.
+  normalized oscillator grid. Set `coupling_normalization="row_sum"` to
+  normalize each non-empty profile row to the generator's recurrent gain scale.
+  This is the preferred diagnostic when asking whether a topology helps beyond
+  merely changing total coupling input. `conditioning_strength` scales the
+  conditioning drive in `class_coupling` and `class_oscillator` modes without
+  changing the main recurrent coupling.
   Generator experiments support distributional pixel matching, Un-0-style
   conditional pixel drift, fixed structural feature drift, and learned MNIST
   feature drift via a frozen `MNISTFeatureClassifier`. Conditional drift can
@@ -271,6 +282,14 @@ and internally convert them to patch sequences.
   HORN damping. The example entrypoint is
   `python examples/image_mnist_generator.py`, which defaults to
   `sparse_horn_mnist_recommended`.
+  Optional HORN self-feedback can be enabled with
+  `output_feedback_strength > 0`. `output_feedback_mode="state_proxy"` feeds a
+  cheap centered local proxy, `tanh(position) + 0.5 * tanh(velocity)`, back
+  into acceleration with one learned gain per oscillator.
+  `output_feedback_mode="image"` decodes the current image during every
+  settling step and pools it back to oscillator sites; it is closer to a
+  readout-in-the-loop attractor, but it is much more expensive with
+  `resize_conv` and should be reserved for tiny diagnostics.
   This makes HORN the best current OscNet generator branch while keeping the
   claim precise: it is a conditional MNIST generator with useful learned
   oscillator dynamics, not yet a general image-generation win over all
@@ -278,6 +297,28 @@ and internally convert them to patch sequences.
   route where class information cannot enter as a direct initial
   label shift; this route currently starts near chance and becomes readable
   through oscillator settling.
+
+`CoarseToFineHORNImageGenerator`
+: A multiscale HORN generator that evolves a small coarse oscillator bank in
+  parallel with the fine HORN field. The coarse state is not decoded directly;
+  instead, learned coarse-to-fine displacement coupling drives the fine
+  oscillator acceleration. Use it to test whether class/global structure is
+  better carried by a low-resolution oscillatory mode while the fine field
+  keeps sparse local coupling for texture/detail. The generator exposes
+  `num_coarse_oscillators`, `coarse_coupling_profile`,
+  `coarse_coupling_normalization`, `coarse_to_fine_strength`, and
+  `coarse_conditioning_strength`; `coarse_to_fine_profile`,
+  `coarse_to_fine_normalization`, and `coarse_to_fine_length_scale` can make
+  the top-down projection dense, distance-decayed, or sparse local-radius.
+  Summaries count coarse recurrent and conditioning parameters separately and
+  report coarse-to-fine profile density/row-gain diagnostics. Trace diagnostics
+  also include coarse state energy/update/acceleration proxies,
+  coarse-coupling disagreement, and coarse-to-fine disagreement, which helps
+  distinguish useful multiscale coordination from a top-down clamp. In the
+  generator CLI, use `--model-family coarse_horn` or the experimental preset
+  `sparse_horn_cifar10_rgb_coarse16_normlocal`. The current local-radius
+  probe is `sparse_horn_cifar10_rgb_coarse16_normlocal_gentle_local050`, which
+  weakens coarse-to-fine drive and restricts it to nearby fine oscillators.
 
 `StateMLPImageGenerator`
 : A non-oscillatory latent-state control for the HORN generator. It keeps the

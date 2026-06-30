@@ -24,6 +24,18 @@ DEFAULT_VARIANT_PATTERNS = (
     re.compile(r"cifar10_rgb_judge_audit_(.+?)_n256"),
     re.compile(r"cifar10_rgb_semantic_feature_drift_attribution_(.+?)_n256"),
     re.compile(r"cifar10_rgb_semantic_feature_drift_(.+?)_n256"),
+    re.compile(r"cifar10_rgb_coarse_to_fine_feedback_(.+?)_n256"),
+    re.compile(r"cifar10_rgb_coarse_to_fine_conversion_(.+?)_n256"),
+    re.compile(r"cifar10_rgb_coarse_to_fine_local_repeat_(.+?)_n256"),
+    re.compile(r"cifar10_rgb_coarse_to_fine_dynamics_(.+?)_n256"),
+    re.compile(r"cifar10_rgb_coarse_to_fine_(.+?)_n256"),
+    re.compile(r"cifar10_rgb_normlocal_radius_(.+?)_n256"),
+    re.compile(r"cifar10_rgb_normlocal_(.+?)_n256"),
+    re.compile(r"cifar10_rgb_normdist_(.+?)_n256"),
+    re.compile(r"cifar10_rgb_main_coupling_current_(.+?)_n256"),
+    re.compile(r"cifar10_rgb_main_coupling_fine_(.+?)_n256"),
+    re.compile(r"cifar10_rgb_main_coupling_strength_seed_repeat_(.+?)_n256"),
+    re.compile(r"cifar10_rgb_main_coupling_strength_(.+?)_n256"),
     re.compile(r"cifar10_rgb_attractor_robustness_seed_repeat_(.+?)_n256"),
     re.compile(r"cifar10_rgb_attractor_robustness_(.+?)_n256"),
     re.compile(r"cifar10_rgb_attribution_(.+?)_n256"),
@@ -60,6 +72,12 @@ class GeneratorFrontierSummary:
     state_acceleration_settling_ratio_mean: float
     output_step_mse_settling_ratio_mean: float
     coupling_potential_delta_mean: float
+    coarse_state_energy_mean: float
+    coarse_state_update_settling_ratio_mean: float
+    coarse_state_acceleration_settling_ratio_mean: float
+    coarse_coupling_potential_delta_mean: float
+    coarse_to_fine_potential_delta_mean: float
+    coarse_to_fine_profile_density_mean: float
     attractor_label_accuracy_mean: float
     attractor_class_success_fraction_mean: float
     attractor_pixel_within_class_pairwise_mse_mean: float
@@ -80,6 +98,64 @@ class GeneratorFrontierSummary:
     distributional_weight_mean: float
     class_moment_weight_mean: float
     pareto_frontier: bool = False
+
+
+@dataclass(frozen=True)
+class PairedMetricSpec:
+    """Metric used for same-seed paired generator attribution."""
+
+    key: str
+    label: str
+    higher_is_better: bool = True
+
+
+@dataclass(frozen=True)
+class GeneratorPairedDeltaSummary:
+    """Same-seed target-minus-baseline delta for one metric."""
+
+    baseline_variant: str
+    target_variant: str
+    metric: str
+    label: str
+    direction: str
+    paired_runs: int
+    seeds: str
+    baseline_mean: float
+    target_mean: float
+    delta_mean: float
+    target_wins: int
+
+
+DEFAULT_PAIRED_METRICS = (
+    PairedMetricSpec("generator.classifier_label_accuracy", "generated acc", True),
+    PairedMetricSpec("generator.diversity_ratio", "diversity", True),
+    PairedMetricSpec("generator.nearest_real_mse", "nearest-real MSE", False),
+    PairedMetricSpec(
+        "generator.classifier_feature_diversity_ratio",
+        "feature diversity",
+        True,
+    ),
+    PairedMetricSpec(
+        "generator.classifier_feature_nearest_real_mse",
+        "feature nearest-real",
+        False,
+    ),
+    PairedMetricSpec(
+        "generator.attractor_robustness.label_accuracy",
+        "attractor acc",
+        True,
+    ),
+    PairedMetricSpec(
+        "generator.attractor_robustness.pixel_attractor_diversity_score",
+        "basin score",
+        True,
+    ),
+    PairedMetricSpec(
+        "generator.success_diagnostics.output_step_mse_settling_ratio",
+        "output settle",
+        False,
+    ),
+)
 
 
 def _to_float(value: object) -> Optional[float]:
@@ -138,6 +214,13 @@ def infer_generator_variant(run_name: str, variant_regex: str | None = None) -> 
     return compact
 
 
+def infer_generator_seed(run_name: str) -> Optional[int]:
+    """Extract the seed from a generator run name, when present."""
+
+    match = re.search(r"(?:^|_)seed(\d+)(?:_|$)", run_name)
+    return int(match.group(1)) if match else None
+
+
 def read_generator_sweep_csv(
     csv_path: str | Path,
     *,
@@ -153,6 +236,73 @@ def read_generator_sweep_csv(
             variant = infer_generator_variant(run_name, variant_regex)
             grouped.setdefault(variant, []).append(row)
     return grouped
+
+
+def paired_generator_metric_deltas(
+    grouped_rows: Dict[str, Sequence[dict[str, str]]],
+    *,
+    baseline_variant: str,
+    target_variants: Sequence[str],
+    metric_specs: Sequence[PairedMetricSpec] = DEFAULT_PAIRED_METRICS,
+) -> List[GeneratorPairedDeltaSummary]:
+    """Summarize same-seed target-minus-baseline deltas for variants.
+
+    This is an attribution helper, not a frontier metric: it asks whether one
+    mechanism improves metrics when seed/run scaffolding is paired.
+    """
+
+    baseline_rows = grouped_rows.get(baseline_variant, ())
+    baseline_by_seed = {
+        seed: row
+        for row in baseline_rows
+        if (seed := infer_generator_seed(row.get("run", ""))) is not None
+    }
+    summaries: List[GeneratorPairedDeltaSummary] = []
+    for target_variant in target_variants:
+        target_rows = grouped_rows.get(target_variant, ())
+        target_by_seed = {
+            seed: row
+            for row in target_rows
+            if (seed := infer_generator_seed(row.get("run", ""))) is not None
+        }
+        paired_seeds = sorted(set(baseline_by_seed).intersection(target_by_seed))
+        for spec in metric_specs:
+            baseline_values: List[float] = []
+            target_values: List[float] = []
+            seeds_with_metric: List[int] = []
+            target_wins = 0
+            for seed in paired_seeds:
+                baseline_value = _to_float(baseline_by_seed[seed].get(spec.key, ""))
+                target_value = _to_float(target_by_seed[seed].get(spec.key, ""))
+                if baseline_value is None or target_value is None:
+                    continue
+                baseline_values.append(baseline_value)
+                target_values.append(target_value)
+                seeds_with_metric.append(seed)
+                if spec.higher_is_better:
+                    target_wins += int(target_value > baseline_value)
+                else:
+                    target_wins += int(target_value < baseline_value)
+            if not baseline_values:
+                continue
+            baseline_mean = statistics.fmean(baseline_values)
+            target_mean = statistics.fmean(target_values)
+            summaries.append(
+                GeneratorPairedDeltaSummary(
+                    baseline_variant=baseline_variant,
+                    target_variant=target_variant,
+                    metric=spec.key,
+                    label=spec.label,
+                    direction="higher" if spec.higher_is_better else "lower",
+                    paired_runs=len(baseline_values),
+                    seeds=",".join(str(seed) for seed in seeds_with_metric),
+                    baseline_mean=baseline_mean,
+                    target_mean=target_mean,
+                    delta_mean=target_mean - baseline_mean,
+                    target_wins=target_wins,
+                )
+            )
+    return summaries
 
 
 def _summarize_variant(variant: str, rows: Sequence[dict[str, str]]) -> GeneratorFrontierSummary:
@@ -214,6 +364,36 @@ def _summarize_variant(variant: str, rows: Sequence[dict[str, str]]) -> Generato
         ),
         coupling_potential_delta_mean=_mean(
             column("generator.success_diagnostics.coupling_potential_proxy_delta")
+        ),
+        coarse_state_energy_mean=_mean(
+            column("generator.success_diagnostics.coarse_state_energy_final")
+        ),
+        coarse_state_update_settling_ratio_mean=_mean(
+            column(
+                "generator.success_diagnostics."
+                "coarse_state_update_rms_settling_ratio"
+            )
+        ),
+        coarse_state_acceleration_settling_ratio_mean=_mean(
+            column(
+                "generator.success_diagnostics."
+                "coarse_state_acceleration_rms_settling_ratio"
+            )
+        ),
+        coarse_coupling_potential_delta_mean=_mean(
+            column(
+                "generator.success_diagnostics."
+                "coarse_coupling_potential_proxy_delta"
+            )
+        ),
+        coarse_to_fine_potential_delta_mean=_mean(
+            column(
+                "generator.success_diagnostics."
+                "coarse_to_fine_potential_proxy_delta"
+            )
+        ),
+        coarse_to_fine_profile_density_mean=_mean(
+            column("generator.success_diagnostics.coarse_to_fine_profile_density")
         ),
         attractor_label_accuracy_mean=_mean(
             column("generator.attractor_robustness.label_accuracy")
@@ -370,6 +550,12 @@ def write_frontier_markdown(
         == summary.attractor_pixel_within_class_pairwise_mse_mean
         for summary in summaries
     )
+    include_coarse_metrics = any(
+        summary.coarse_state_energy_mean == summary.coarse_state_energy_mean
+        or summary.coarse_to_fine_potential_delta_mean
+        == summary.coarse_to_fine_potential_delta_mean
+        for summary in summaries
+    )
     header = "| Variant | Runs | Frontier | Acc | Diversity | Nearest-real MSE | "
     separator = "| --- | ---: | :---: | ---: | ---: | ---: | "
     if include_feature_metrics:
@@ -380,9 +566,17 @@ def write_frontier_markdown(
         separator += "---: | ---: | ---: | ---: | "
     header += (
         "State energy | Update settle | Output settle | Coupling delta | "
-        "Coupling density | Drive frac | Drive count | Params | Samples/sec |"
+        "Coupling density | "
     )
-    separator += "---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"
+    separator += "---: | ---: | ---: | ---: | ---: | "
+    if include_coarse_metrics:
+        header += (
+            "Coarse energy | Coarse update settle | Coarse coupling delta | "
+            "C2F delta | C2F density | "
+        )
+        separator += "---: | ---: | ---: | ---: | ---: | "
+    header += "Drive frac | Drive count | Params | Samples/sec |"
+    separator += "---: | ---: | ---: | ---: |"
     lines = [
         f"# {title}",
         "",
@@ -421,6 +615,20 @@ def write_frontier_markdown(
                 _fmt(summary.output_step_mse_settling_ratio_mean),
                 _fmt(summary.coupling_potential_delta_mean),
                 _fmt(summary.coupling_density_mean),
+            ]
+        )
+        if include_coarse_metrics:
+            row.extend(
+                [
+                    _fmt(summary.coarse_state_energy_mean),
+                    _fmt(summary.coarse_state_update_settling_ratio_mean),
+                    _fmt(summary.coarse_coupling_potential_delta_mean),
+                    _fmt(summary.coarse_to_fine_potential_delta_mean),
+                    _fmt(summary.coarse_to_fine_profile_density_mean),
+                ]
+            )
+        row.extend(
+            [
                 _fmt(summary.conditioning_target_fraction_mean),
                 _fmt(summary.conditioning_target_count_mean, digits=0),
                 _fmt(summary.total_params_mean, digits=0),
@@ -444,6 +652,64 @@ def write_frontier_markdown(
         lines.append(
             f"Variants below generated-label accuracy `{accuracy_floor:.3f}` "
             "are excluded from frontier marking."
+        )
+    path.write_text("\n".join(lines) + "\n")
+
+
+def write_paired_delta_csv(
+    summaries: Sequence[GeneratorPairedDeltaSummary],
+    path: str | Path,
+) -> None:
+    """Write same-seed paired metric deltas to CSV."""
+
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    names = [field.name for field in fields(GeneratorPairedDeltaSummary)]
+    with path.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=names)
+        writer.writeheader()
+        for summary in summaries:
+            writer.writerow({name: getattr(summary, name) for name in names})
+
+
+def write_paired_delta_markdown(
+    summaries: Sequence[GeneratorPairedDeltaSummary],
+    path: str | Path,
+    *,
+    title: str = "Generator Paired Deltas",
+) -> None:
+    """Write same-seed paired metric deltas to Markdown."""
+
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lines = [
+        f"# {title}",
+        "",
+        "Deltas are `target - baseline` on matched seeds. A positive delta is "
+        "good only when the direction column says `higher`; for `lower` metrics, "
+        "a negative delta is good.",
+        "",
+        "| Target | Baseline | Metric | Direction | Pairs | Seeds | Baseline | Target | Delta | Target wins |",
+        "| --- | --- | --- | --- | ---: | --- | ---: | ---: | ---: | ---: |",
+    ]
+    for summary in summaries:
+        lines.append(
+            "| "
+            + " | ".join(
+                [
+                    summary.target_variant,
+                    summary.baseline_variant,
+                    summary.label,
+                    summary.direction,
+                    str(summary.paired_runs),
+                    summary.seeds,
+                    _fmt(summary.baseline_mean),
+                    _fmt(summary.target_mean),
+                    _fmt(summary.delta_mean),
+                    str(summary.target_wins),
+                ]
+            )
+            + " |"
         )
     path.write_text("\n".join(lines) + "\n")
 

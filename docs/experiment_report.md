@@ -89,6 +89,12 @@ branch; Winfree/rate-phase remains the best direct masked-completion branch.
 Neither should be presented as a universal ONN victory, but the HORN generator
 is the cleanest positive settling/dynamics-attribution result in the repo right
 now.
+Generator configs now separate `coupling_strength` from
+`main_coupling_strength`: the former scales class/conditioning drive, while the
+latter scales recurrent oscillator interaction. When omitted,
+`main_coupling_strength` defaults to `coupling_strength` for old-run
+compatibility. Future HORN attribution probes should use this split instead of
+turning class drive and main coupling up/down together.
 The current local entrypoint for that branch is
 `python examples/image_mnist_generator.py`, which defaults to
 `sparse_horn_mnist_recommended`. Friendly aliases keep the current HORN lessons
@@ -6340,6 +6346,738 @@ Paired read:
   for semantic and feature proximity. The next non-random architecture step is
   likely a small coarse class-driver field or boundary/coarse-to-fine drive,
   not more scattered anchors.
+
+CIFAR-10 RGB main-coupling strength probe:
+
+After splitting `coupling_strength` (class/conditioning drive) from
+`main_coupling_strength` (recurrent oscillator interaction), a compact
+one-seed probe swept recurrent HORN coupling while holding the 25% sparse class
+drive fixed:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=4 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_main_coupling_strength_probe
+```
+
+```bash
+python scripts/analyze_mnist_generator_frontier.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_main_coupling_strength_probe.csv \
+  --output-dir outputs/analysis/cifar10_rgb_main_coupling_strength_probe \
+  --title "CIFAR-10 RGB main coupling strength probe" \
+  --accuracy-floor 0.3 \
+  --no-plot
+```
+
+| Variant | Runs | Generated-label acc | Pixel diversity | Nearest-real MSE | Feature diversity | Feature nearest-real | Attractor acc | Basin score |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| HORN main 0.00 | 1 | 0.5293 | 0.9736 | 0.0287 | 0.8729 | 0.2928 | 0.5500 | 2.1441 |
+| HORN main 0.25 | 1 | 0.3086 | 0.9158 | 0.0252 | 0.7625 | 0.2639 | 0.3250 | 1.1548 |
+| HORN main 0.50 | 1 | 0.4805 | 0.9389 | 0.0268 | 0.8645 | 0.3604 | 0.4875 | 1.8709 |
+| HORN main 1.00 | 1 | 0.4355 | 0.9418 | 0.0270 | 0.8434 | 0.3437 | 0.4750 | 1.8182 |
+
+Read:
+
+- This single-seed result does **not** support "full recurrent main coupling is
+  the key ingredient" for the current CIFAR RGB recipe. With class drive held
+  fixed, `main_coupling_strength=0.0` wins generated-label accuracy, pixel
+  diversity, feature diversity, attractor label accuracy, basin score, and
+  throughput.
+- The result does not make the model non-oscillatory: it is still a
+  second-order HORN settling system with position/velocity state, oscillator
+  frequencies, damping, nonlinear state bounds, class-coupled drive, and
+  multi-step readout. But it suggests the current positive mechanism may be
+  "driven second-order oscillator bank + readout" more than "learned recurrent
+  oscillator interaction."
+- `main_coupling_strength=0.25` is a clear bad pocket on this seed: it improves
+  nearest-real MSE but hurts semantic and basin metrics. That warns against
+  treating coupling strength as a monotonic quality knob.
+
+The follow-up seed repeat compared `main=0.0`, `main=0.5`, `main=1.0`, and the
+matched StateMLP on seeds `11, 23`:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=4 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_main_coupling_strength_seed_repeat
+```
+
+```bash
+python scripts/analyze_mnist_generator_frontier.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_main_coupling_strength_seed_repeat.csv \
+  --output-dir outputs/analysis/cifar10_rgb_main_coupling_strength_seed_repeat \
+  --title "CIFAR-10 RGB main coupling strength seed repeat" \
+  --accuracy-floor 0.3 \
+  --no-plot
+```
+
+| Variant | Runs | Generated-label acc | Pixel diversity | Nearest-real MSE | Feature diversity | Feature nearest-real | Attractor acc | Basin score |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| HORN main 0.00 | 2 | 0.4082 | 0.9927 | 0.0298 | 0.8533 | 0.3653 | 0.3875 | 1.5471 |
+| HORN main 0.50 | 2 | 0.4443 | 0.9427 | 0.0269 | 0.8705 | 0.3162 | 0.4188 | 1.5736 |
+| HORN main 1.00 | 2 | 0.3506 | 0.9876 | 0.0291 | 0.8875 | 0.3619 | 0.3500 | 1.3763 |
+| StateMLP | 2 | 0.3018 | 0.5421 | 0.0128 | 0.7763 | 0.3288 | 0.3000 | 0.0021 |
+
+Updated read:
+
+- The one-seed `main=0.0` win did not fully replicate. Moderate recurrent
+  coupling (`main=0.5`) is the best two-seed balance: highest generated-label
+  accuracy, best HORN nearest-real MSE, best feature-nearest distance, best
+  attractor accuracy, and best basin score.
+- Full recurrent coupling (`main=1.0`) is not optimal here. It preserves high
+  feature diversity, but hurts semantic accuracy and basin score. The useful
+  region looks like a Goldilocks zone, not "more coupling is better."
+- StateMLP still wins raw pixel nearest-real MSE, but collapses same-label
+  attractor diversity: basin score `0.0021` vs HORN around `1.4-1.6`. This
+  keeps the HORN advantage alive as a diversity/settling/basin result rather
+  than a pixel-closeness result.
+- The split-coupling regression test confirms that omitting
+  `main_coupling_strength` preserves the old combined update formula. So the
+  new result is not explained by accidentally changing old default dynamics.
+- Next architecture work should not abandon recurrent coupling. It should tune
+  it separately from class drive and explore structured/coarse recurrent
+  coupling that gives the diversity benefit without over-synchronizing the
+  class-conditioned oscillator bank.
+
+Current-code replication:
+
+The seed-repeat and fine probes contained a warning sign: the same seed and
+same `main=0.5` arguments from two separately launched sweeps did not reproduce
+identical metrics. That makes the old `main=0.5 is best` read too strong. A
+clean current-code replication therefore reran all recurrent-coupling strengths
+together under the same source snapshot:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=8 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_main_coupling_current_replication
+```
+
+```bash
+python scripts/analyze_mnist_generator_frontier.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_main_coupling_current_replication.csv \
+  --output-dir outputs/analysis/cifar10_rgb_main_coupling_current_replication \
+  --title "CIFAR-10 RGB main coupling current-code replication" \
+  --accuracy-floor 0.3 \
+  --no-plot
+```
+
+| Variant | Runs | Generated-label acc | Pixel diversity | Nearest-real MSE | Feature diversity | Feature nearest-real | Attractor acc | Basin score |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| HORN main 0.00 | 2 | 0.4180 | 1.0177 | 0.0298 | 0.9068 | 0.3502 | 0.4250 | 1.6811 |
+| HORN main 0.25 | 2 | 0.4092 | 1.0192 | 0.0306 | 0.8633 | 0.3407 | 0.4000 | 1.6835 |
+| HORN main 0.50 | 2 | 0.4131 | 0.9884 | 0.0291 | 0.8496 | 0.3400 | 0.4438 | 1.6748 |
+| HORN main 0.75 | 2 | 0.2842 | 1.0797 | 0.0338 | 0.7944 | 0.3225 | 0.3375 | 1.4736 |
+| HORN main 1.00 | 2 | 0.3799 | 0.9653 | 0.0283 | 0.8932 | 0.3563 | 0.3937 | 1.5413 |
+
+Corrected read:
+
+- Recurrent coupling is **not useless**, but it is not the whole engine either.
+  `main=0.5` gives the best attractor label accuracy, `main=0.0` gives the best
+  generated-label accuracy and feature diversity, `main=1.0` gives the best raw
+  nearest-real MSE, and `main=0.25` has the best basin score by a hair.
+- `main=0.75` is a consistent bad pocket for semantic quality despite high
+  pixel diversity. That supports the "too much or wrong-scale coupling can
+  de-coordinate the class-conditioned field" hypothesis.
+- The robust positive mechanism is therefore not simply "recurrent coupling
+  solved CIFAR." It is the structured HORN generator recipe: sparse local
+  second-order oscillator state, multi-step settling, strong but sparse class
+  drive, learned feature/pixel drift training, and resize-conv readout.
+- The recurrent interaction should remain in the architecture, but future work
+  should treat it as a structured tradeoff knob. The next promising version is
+  not stronger dense/local coupling everywhere; it is likely a cleaner topology
+  such as coarse-to-fine recurrent coupling, low-rank/global carrier coupling,
+  or distance-decay coupling with explicit normalization.
+- Report future coupling claims with mean/std or replication sweeps. Single-run
+  coupling conclusions are too fragile for this branch.
+
+Framework follow-up:
+
+The next step is intentionally framework-enhancing rather than a one-off HORN
+flag. Coupling topology builders now belong in `oscnet.core.coupling` so
+generators, Winfree fields, masked-completion models, and future coarse-to-fine
+oscillator stacks can share the same semantics. The first reusable addition is
+row-sum-normalized spatial coupling: `distance_decay` or `local_radius`
+profiles can preserve their sparsity/locality pattern while each non-empty row
+is scaled to a fixed target gain. In the current generator equations the
+interaction sum is divided by `N`, so normalized generator profiles use target
+row sum `N`.
+
+Pre-registered next probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=6 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_normalized_distance_decay_probe
+```
+
+```bash
+python scripts/analyze_mnist_generator_frontier.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_normalized_distance_decay_probe.csv \
+  --output-dir outputs/analysis/cifar10_rgb_normalized_distance_decay_probe \
+  --title "CIFAR-10 RGB normalized distance-decay coupling probe" \
+  --accuracy-floor 0.3 \
+  --no-plot
+```
+
+Decision rule: keep normalized spatial coupling only if it improves the
+semantic/diversity frontier over the current local-radius HORN runs without
+collapsing attractor diversity. If it mainly improves nearest-real MSE while
+hurting diversity or class consistency, treat it as a smoothing/proximity knob,
+not as a breakthrough coupling mechanism.
+
+Result:
+
+| Variant | Runs | Generated-label acc | Pixel diversity | Nearest-real MSE | Feature diversity | Feature nearest-real | Attractor acc | Basin score | Coupling density |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Normalized distance, main 0.25 | 2 | 0.4258 | 1.0746 | 0.0334 | 0.8774 | 0.3385 | 0.4625 | 1.9739 | 1.0000 |
+| Normalized distance, main 0.50 | 2 | 0.3799 | 0.9600 | 0.0274 | 0.8347 | 0.3784 | 0.3750 | 1.4499 | 1.0000 |
+| Normalized distance, main 1.00 | 2 | 0.4014 | 1.0095 | 0.0302 | 0.8637 | 0.3278 | 0.4188 | 1.6986 | 1.0000 |
+
+Read:
+
+- Row-normalized distance decay is worth keeping as a reusable framework
+  topology. At `main=0.25` it beats the matched local-radius `main=0.25`
+  replication on generated-label accuracy, pixel diversity, attractor accuracy,
+  and basin score.
+- It is **not** the new default. It worsens raw nearest-real MSE, is fully
+  dense (`coupling_density=1.0` vs local-radius `0.0285`), and does not clearly
+  dominate the simpler local-radius `main=0.0/0.5` runs across all metrics.
+- This confirms the strategic point: recurrent coupling is likely useful when
+  its topology and gain are controlled, but dense spatial coupling is expensive
+  and should be treated as a diagnostic/architecture probe. The next
+  framework-level coupling candidates should be structured and hardware-aware:
+  coarse-to-fine, low-rank/global carrier, or sparse normalized distance bands.
+
+Sparse normalized local-radius follow-up:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=6 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_normalized_local_radius_probe
+```
+
+```bash
+python scripts/analyze_mnist_generator_frontier.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_normalized_local_radius_probe.csv \
+  --output-dir outputs/analysis/cifar10_rgb_normalized_local_radius_probe \
+  --title "CIFAR-10 RGB normalized local-radius coupling probe" \
+  --accuracy-floor 0.3 \
+  --no-plot
+```
+
+| Variant | Runs | Generated-label acc | Pixel diversity | Nearest-real MSE | Feature diversity | Feature nearest-real | Attractor acc | Basin score | Coupling density |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Normalized local, main 0.25 | 2 | 0.3760 | 1.0131 | 0.0308 | 0.8364 | 0.3377 | 0.3250 | 1.3764 | 0.0285 |
+| Normalized local, main 0.50 | 2 | 0.3232 | 1.0232 | 0.0308 | 0.8328 | 0.3772 | 0.3563 | 1.4568 | 0.0285 |
+| Normalized local, main 1.00 | 2 | 0.4424 | 1.0102 | 0.0300 | 0.9035 | 0.3680 | 0.4875 | 1.9398 | 0.0285 |
+
+Updated read:
+
+- Sparse row-normalized local coupling is the strongest coupling follow-up so
+  far. `main=1.0` gives the best generated-label accuracy and attractor label
+  accuracy among the current coupling probes while keeping the original sparse
+  local topology (`coupling_density=0.0285`).
+- Compared with the old unnormalized local-radius replication, normalized
+  local `main=1.0` improves generated-label accuracy (`0.4424` vs `0.4180`
+  best old), feature diversity (`0.9035`, essentially tied with old best
+  `0.9068`), attractor accuracy (`0.4875` vs `0.4438`), and basin score
+  (`1.9398` vs `1.6835`). Pixel nearest-real MSE remains worse than the
+  nearest-pixel-oriented settings, so this is a semantic/attractor improvement,
+  not a pixel-closeness win.
+- Compared with dense normalized distance-decay, normalized local `main=1.0`
+  has better generated-label accuracy, feature diversity, and attractor
+  accuracy, while dense distance-decay `main=0.25` keeps the highest raw pixel
+  diversity and basin score by a small margin. The sparse result is more
+  compelling because it is closer to the hardware/physics story: local
+  structured coupling with controlled gain rather than all-to-all smoothing.
+- This changes the next architecture direction. The best immediate lead is not
+  fully dense nonlocal coupling; it is **gain-normalized sparse structured
+  coupling**. Next probes should vary sparse local radius/row gain and then add
+  a small coarse/global carrier on top, instead of replacing the local field
+  with dense communication.
+
+Normalized local-radius sweep:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=6 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_normalized_local_radius_sweep
+```
+
+```bash
+python scripts/analyze_mnist_generator_frontier.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_normalized_local_radius_sweep.csv \
+  --output-dir outputs/analysis/cifar10_rgb_normalized_local_radius_sweep \
+  --title "CIFAR-10 RGB normalized local-radius sweep" \
+  --accuracy-floor 0.3 \
+  --no-plot
+```
+
+This held `main_coupling_strength=1.0`, `coupling_normalization=row_sum`, and
+the 25% sparse class drive fixed while sweeping local radius:
+
+| Variant | Runs | Generated-label acc | Pixel diversity | Nearest-real MSE | Feature diversity | Feature nearest-real | Attractor acc | Basin score | Coupling density |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Normalized local radius 0.16 | 2 | 0.3506 | 0.9927 | 0.0290 | 0.8102 | 0.2982 | 0.3688 | 1.3860 | 0.0147 |
+| Normalized local radius 0.24 | 2 | 0.4385 | 0.9557 | 0.0282 | 0.8346 | 0.3192 | 0.4000 | 1.5788 | 0.0285 |
+| Normalized local radius 0.32 | 2 | 0.3916 | 1.0443 | 0.0321 | 0.8682 | 0.3420 | 0.4188 | 1.7795 | 0.0680 |
+
+Read:
+
+- The radius result is a frontier, not a single clean winner. Radius `0.24`
+  has the best generated-label accuracy, nearest-real MSE, and throughput.
+  Radius `0.32` has the best pixel diversity, feature diversity, attractor
+  accuracy, and basin score within this sweep, but it is denser and farther
+  from real images by nearest-pixel MSE.
+- Radius `0.16` looks too tight for this CIFAR RGB setup. It is sparse and has
+  good feature-nearest proximity, but loses semantic accuracy and basin metrics.
+- The previous normalized-local probe produced a stronger `radius=0.24,
+  main=1.0` point than this radius sweep, which reinforces the warning that
+  small two-seed CIFAR runs are noisy. Use the direction of the frontier rather
+  than overfitting one table row.
+- Strategic implication: the model wants both local coherence/proximity and a
+  wider integration path. The next meaningful architecture is therefore not
+  "pick one radius forever"; it is a multi-scale/coarse-to-fine HORN system
+  where a tight/medium local field handles texture and a wider/coarse field
+  coordinates class-level structure.
+
+### Coarse-to-Fine HORN Generator Probe
+
+Implemented a reusable `CoarseToFineHORNImageGenerator`: a small coarse HORN
+oscillator bank evolves in parallel with the fine normalized-local HORN field
+and sends learned displacement drive into fine oscillator acceleration. The
+coarse state is not decoded directly, so the probe tests top-down oscillatory
+coordination rather than adding a second image decoder.
+
+Pre-registered Modal probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=6 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_coarse_to_fine_probe
+```
+
+Planned comparison:
+
+- `horn_normlocal`: current normalized-local sparse HORN baseline.
+- `coarse16_c2f000`: coarse oscillator bank present, but no coarse-to-fine
+  drive.
+- `coarse16_c2f100`: same coarse bank with coarse-to-fine drive enabled.
+
+The key attribution question is whether the enabled coarse path improves
+semantic accuracy, feature diversity, attractor accuracy, or basin score over
+both the baseline and the zero-drive coarse control.
+
+Modal result, seeds 11 and 23:
+
+```bash
+python scripts/analyze_mnist_generator_frontier.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_coarse_to_fine_probe.csv \
+  --output-dir outputs/analysis/cifar10_rgb_coarse_to_fine_probe \
+  --title "CIFAR-10 RGB coarse-to-fine HORN probe" \
+  --accuracy-floor 0.3 \
+  --no-plot
+```
+
+| Variant | Runs | Generated-label acc | Pixel diversity | Nearest-real MSE | Feature diversity | Feature nearest-real | Attractor acc | Basin score | Params | Samples/sec |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| coarse16, no fine drive | 2 | 0.3633 | 0.9593 | 0.0274 | 0.8566 | 0.3154 | 0.3563 | 1.3218 | 166083 | 349.0 |
+| coarse16 -> fine drive | 2 | 0.4229 | 0.8960 | 0.0245 | 0.8762 | 0.3442 | 0.3875 | 1.3128 | 166083 | 377.3 |
+| normalized-local HORN | 2 | 0.4014 | 1.0364 | 0.0317 | 0.8790 | 0.3707 | 0.4562 | 1.8984 | 156595 | 781.8 |
+
+Read:
+
+- The coarse-to-fine path is not a dead branch. Turning coarse-to-fine drive on
+  improves generated-label accuracy, nearest-real MSE, feature diversity, and
+  attractor accuracy over the same coarse model with drive disabled.
+- It is also not the new winner. The plain normalized-local HORN baseline keeps
+  higher pixel diversity, slightly higher feature diversity, much higher
+  attractor label accuracy, and a much stronger basin/diversity score. It is
+  also about 2x faster in this digital JAX setup.
+- The coarse path currently looks like a proximity/stabilization bias more than
+  a global diversity-preserving coordinator: samples move closer to training
+  images and gain class accuracy, but the attractor basin tightens.
+- This narrows the next multiscale step. Do not simply add more coarse units.
+  The useful follow-up is a gentler/regularized coarse path: lower
+  `coarse_to_fine_strength`, sparse or distance-decayed coarse-to-fine
+  projection, or coarse drive gated by local phase/velocity so it coordinates
+  without clamping diversity.
+
+Gentle coarse-to-fine gain sweep:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=6 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_coarse_to_fine_gain_sweep
+```
+
+Combined table with the previous baseline/probe:
+
+| Variant | Runs | Generated-label acc | Pixel diversity | Nearest-real MSE | Feature diversity | Feature nearest-real | Attractor acc | Basin score | Params | Samples/sec |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| coarse16, no fine drive | 2 | 0.3633 | 0.9593 | 0.0274 | 0.8566 | 0.3154 | 0.3563 | 1.3218 | 166083 | 349.0 |
+| coarse16 -> fine, strength 0.25 | 2 | 0.4287 | 0.9493 | 0.0262 | 0.8533 | 0.3477 | 0.3813 | 1.3856 | 166083 | 209.8 |
+| coarse16 -> fine, strength 0.50 | 2 | 0.3311 | 0.8918 | 0.0246 | 0.8559 | 0.3565 | 0.3375 | 1.1874 | 166083 | 197.4 |
+| coarse16 -> fine, strength 0.75 | 2 | 0.2949 | 0.8840 | 0.0233 | 0.8341 | 0.3488 | 0.2688 | 0.8843 | 166083 | 235.1 |
+| coarse16 -> fine, strength 1.00 | 2 | 0.4229 | 0.8960 | 0.0245 | 0.8762 | 0.3442 | 0.3875 | 1.3128 | 166083 | 377.3 |
+| normalized-local HORN | 2 | 0.4014 | 1.0364 | 0.0317 | 0.8790 | 0.3707 | 0.4562 | 1.8984 | 156595 | 781.8 |
+
+Read:
+
+- `coarse_to_fine_strength=0.25` is the best coarse compromise so far. It
+  improves generated-label accuracy over both the coarse no-drive control and
+  the plain normalized-local HORN baseline while preserving more diversity and
+  basin score than the stronger coarse gains.
+- Higher coarse gains continue the same tradeoff: nearest-real MSE improves,
+  but diversity, attractor accuracy, and basin score tighten or collapse. The
+  `0.75` row drops below the accuracy floor in the two-seed mean.
+- This confirms that coarse-to-fine HORN is useful but must be weak and
+  regulated. The mechanism should be treated as a global bias/carrier, not as a
+  strong top-down clamp.
+- The next architecture move should regularize the projection itself, not only
+  the scalar gain: sparse spatial coarse-to-fine masks, distance-decayed
+  coarse-to-fine profiles, or phase/velocity-gated coarse drive are the most
+  plausible ways to get global coordination without losing attractor diversity.
+
+Coarse-to-fine projection-profile probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=6 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_coarse_to_fine_profile_probe
+```
+
+| Variant | Runs | Generated-label acc | Pixel diversity | Nearest-real MSE | Feature diversity | Feature nearest-real | Attractor acc | Basin score | Coarse-to-fine density |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| dense gentle | 2 | 0.4043 | 0.9710 | 0.0273 | 0.8404 | 0.3645 | 0.4313 | 1.6146 | 1.0000 |
+| distance-decay gentle | 2 | 0.4570 | 0.9404 | 0.0264 | 0.8756 | 0.3444 | 0.4500 | 1.6321 | 1.0000 |
+| local-radius gentle | 2 | 0.4619 | 0.8561 | 0.0223 | 0.8926 | 0.3247 | 0.4562 | 1.4537 | 0.1094 |
+
+Read:
+
+- Spatially regularizing the coarse-to-fine projection helps. The
+  distance-decay profile beats the dense gentle variant on generated-label
+  accuracy, nearest-real MSE, feature diversity, attractor accuracy, and basin
+  score, while keeping more diversity than the sparse local-radius projection.
+- Local-radius coarse-to-fine gives the best semantic accuracy, feature
+  diversity, and nearest-real MSE in this probe, but it clamps the basin more
+  aggressively. That is useful for quality/proximity, but less aligned with the
+  diversity-preserving attractor story.
+- Distance-decay is now the best coarse-to-fine compromise. It supports the
+  physics hypothesis more than the dense projection: global influence is useful,
+  but it should be spatially biased rather than arbitrary all-to-all top-down
+  broadcast.
+- Plain normalized-local HORN still keeps the strongest diversity/basin result
+  from the earlier combined table. The best next architecture therefore should
+  combine normalized local fine coupling with **weak distance-decayed
+  coarse-to-fine drive**, then test whether a slightly better readout or
+  longer training converts the improved semantic/proximity frontier into better
+  visible images without losing diversity.
+
+Instrumentation update:
+
+Coarse-to-fine HORN traces now report coarse-field settling diagnostics in the
+same `success_diagnostics` block as the fine field: coarse state energy,
+velocity/update/acceleration RMS, coarse recurrent disagreement, and
+coarse-to-fine disagreement. These are not physical energy claims. They are
+practical probes for the next question: does the coarse field become a stable
+global coordinator, or does it simply clamp the fine field and reduce attractor
+diversity?
+
+Compact coarse-to-fine dynamics audit:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=5 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_coarse_to_fine_dynamics_audit
+```
+
+This reruns one seed after adding the coarse settling diagnostics. It also
+fixes the coarse-to-fine disagreement proxy so a disabled
+`coarse_to_fine_strength=0.0` path reports zero effective C2F disagreement.
+
+| Variant | Acc | Diversity | Nearest-real MSE | Feature diversity | Feature nearest-real | Attractor acc | Basin score | Output settle | Coarse update settle | C2F delta | C2F density |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| normalized-local HORN | 0.4141 | 0.9835 | 0.0297 | 0.8952 | 0.3247 | 0.3875 | 1.5488 | 0.1341 | n/a | n/a | 0.0000 |
+| coarse16, no fine drive | 0.3633 | 0.8801 | 0.0236 | 0.8540 | 0.2688 | 0.3750 | 1.1866 | 0.0806 | 0.5483 | 0.0000 | 1.0000 |
+| dense gentle C2F | 0.3652 | 0.8832 | 0.0228 | 0.8251 | 0.2800 | 0.2750 | 0.9197 | 0.1179 | 0.5478 | -0.0248 | 1.0000 |
+| distance-decay gentle C2F | 0.3457 | 0.8814 | 0.0240 | 0.8027 | 0.3568 | 0.3000 | 1.0051 | 0.1020 | 0.5479 | -0.0273 | 1.0000 |
+| local-radius gentle C2F | 0.4219 | 0.9119 | 0.0236 | 0.8516 | 0.3051 | 0.5000 | 1.6564 | 0.0857 | 0.5486 | -0.0262 | 0.1094 |
+
+Read:
+
+- This is one seed, so treat it as a diagnostic, not a final ranking.
+- The local-radius coarse-to-fine path is the most interesting row. It beats
+  normalized-local HORN on generated-label accuracy, nearest-real MSE,
+  attractor accuracy, and basin score while preserving more diversity than the
+  dense and distance-decay coarse variants.
+- Dense and distance-decay coarse-to-fine both improve pixel proximity but do
+  not improve the semantic/diversity frontier in this run. They look more like
+  stabilizers than coordinators here.
+- The coarse oscillator bank itself settles similarly across coarse variants:
+  coarse update ratio is about `0.548`, coarse recurrent disagreement decreases
+  by about `-0.092`, and final coarse energy is about `0.039`. The differentiator
+  is therefore the coarse-to-fine projection topology, not whether the coarse
+  bank settles at all.
+- Next best test: repeat local-radius gentle C2F versus normalized-local HORN
+  over more seeds and inspect sample grids. If it holds, local sparse
+  coarse-to-fine coupling becomes the new lead for multiscale HORN.
+
+Local-radius coarse-to-fine seed repeat:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=8 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_coarse_to_fine_local_repeat
+```
+
+This repeats four seeds for three rows: normalized-local HORN, the coarse bank
+with `coarse_to_fine_strength=0.0`, and the local-radius gentle coarse-to-fine
+variant. Sample grids were pulled into:
+
+```text
+outputs/analysis/cifar10_rgb_coarse_to_fine_local_repeat/sample_grids/
+```
+
+| Variant | Runs | Acc | Diversity | Nearest-real MSE | Feature diversity | Feature nearest-real | Attractor acc | Basin score | Output settle | C2F delta |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| normalized-local HORN | 4 | 0.3491 | 0.9853 | 0.0298 | 0.8573 | 0.3651 | 0.3250 | 1.3137 | 0.1545 | n/a |
+| coarse16, no fine drive | 4 | 0.4038 | 0.8762 | 0.0244 | 0.8570 | 0.3567 | 0.4094 | 1.3920 | 0.1196 | 0.0000 |
+| local-radius gentle C2F | 4 | 0.3911 | 0.9549 | 0.0284 | 0.8988 | 0.3778 | 0.3969 | 1.5111 | 0.1434 | -0.0318 |
+
+Read:
+
+- The one-seed local-radius bump partially survives, but not as a simple
+  quality win. Local C2F beats normalized-local HORN on generated-label
+  accuracy, nearest-real MSE, feature diversity, attractor accuracy, and basin
+  score, while giving up a little pixel diversity.
+- The no-drive coarse control has the best generated-label accuracy and
+  nearest-real MSE. Since the coarse bank cannot drive the fine field in this
+  row, that is mostly an initialization/control warning: do not over-attribute
+  raw quality gains to the active coarse-to-fine path yet.
+- Local C2F is still meaningful because it has a better diversity/basin profile
+  than the no-drive control and a better semantic/basin profile than plain
+  HORN. It looks like a coordinator/regularizer, not a magic quality booster.
+- The visual grids remain blurry CIFAR-like color/shape blobs. Local C2F can
+  look slightly more structured or saturated on some seeds, but it is not a
+  qualitative breakthrough yet.
+- The next architecture step should not be "more coarse strength." It should
+  either improve the readout/feature objective so the better basin frontier
+  becomes visible, or make the active C2F path more attributable by comparing
+  against same-initialization no-drive controls and inspecting paired samples.
+
+Same-seed paired attribution:
+
+```bash
+python scripts/analyze_generator_paired_deltas.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_coarse_to_fine_local_repeat.csv \
+  --output-dir outputs/analysis/cifar10_rgb_coarse_to_fine_local_repeat \
+  --baseline-variant coarse16_c2f000 \
+  --target-variant coarse16_c2f025_local050 \
+  --target-variant horn_normlocal
+```
+
+This reads the same four-seed CSV and compares target-minus-baseline deltas on
+matched seeds. The main comparison is active local C2F versus the no-drive
+coarse control.
+
+| Target | Baseline | Metric | Direction | Pairs | Delta | Target wins |
+| --- | --- | --- | --- | ---: | ---: | ---: |
+| local-radius gentle C2F | coarse16, no fine drive | generated acc | higher | 4 | -0.0127 | 2 |
+| local-radius gentle C2F | coarse16, no fine drive | diversity | higher | 4 | +0.0788 | 3 |
+| local-radius gentle C2F | coarse16, no fine drive | nearest-real MSE | lower | 4 | +0.0040 | 0 |
+| local-radius gentle C2F | coarse16, no fine drive | feature diversity | higher | 4 | +0.0417 | 2 |
+| local-radius gentle C2F | coarse16, no fine drive | feature nearest-real | lower | 4 | +0.0211 | 2 |
+| local-radius gentle C2F | coarse16, no fine drive | attractor acc | higher | 4 | -0.0125 | 1 |
+| local-radius gentle C2F | coarse16, no fine drive | basin score | higher | 4 | +0.1191 | 3 |
+| local-radius gentle C2F | coarse16, no fine drive | output settle | lower | 4 | +0.0238 | 1 |
+
+Paired read:
+
+- Active local C2F does not explain the raw quality/proximity gain. The no-drive
+  coarse control remains better on generated-label accuracy, nearest-real MSE,
+  attractor accuracy, and output-settling ratio.
+- Active local C2F does explain a better diversity/basin side of the frontier:
+  higher pixel diversity on 3/4 seeds, higher basin score on 3/4 seeds, and
+  higher aggregate feature diversity.
+- That is a narrower but useful mechanism: weak top-down local C2F looks like a
+  diversity/basin regularizer, not a quality booster. The next useful experiment
+  is therefore a readout/objective conversion test: can the higher-diversity
+  basin be translated into visibly sharper samples without collapsing back
+  toward the no-drive/prototype solution?
+
+Planned readout/objective conversion probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=8 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_coarse_to_fine_conversion_probe
+```
+
+Rows:
+
+| Row | Mechanism |
+| --- | --- |
+| `coarse16_c2f000_base` | no-drive coarse control, current local C2F recipe with C2F strength zero |
+| `coarse16_c2f025_local050_base` | active local-radius C2F baseline |
+| `coarse16_c2f000_ch32` | no-drive control with wider resize-conv readout |
+| `coarse16_c2f025_local050_ch32` | active C2F with wider resize-conv readout |
+| `coarse16_c2f000_dist0025` | no-drive control with small distributional pressure |
+| `coarse16_c2f025_local050_dist0025` | active C2F with small distributional pressure |
+| `coarse16_c2f000_ch32_dist0025` | no-drive control with both conversion knobs |
+| `coarse16_c2f025_local050_ch32_dist0025` | active C2F with both conversion knobs |
+
+After the run, use frontier plus paired-delta analysis:
+
+```bash
+python scripts/analyze_mnist_generator_frontier.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_coarse_to_fine_conversion_probe.csv \
+  --output-dir outputs/analysis/cifar10_rgb_coarse_to_fine_conversion_probe \
+  --title "CIFAR-10 RGB coarse-to-fine HORN conversion probe" \
+  --accuracy-floor 0.3
+
+python scripts/analyze_generator_paired_deltas.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_coarse_to_fine_conversion_probe.csv \
+  --output-dir outputs/analysis/cifar10_rgb_coarse_to_fine_conversion_probe \
+  --title "CIFAR-10 RGB coarse-to-fine conversion paired deltas" \
+  --pair coarse16_c2f000_base:coarse16_c2f025_local050_base \
+  --pair coarse16_c2f000_ch32:coarse16_c2f025_local050_ch32 \
+  --pair coarse16_c2f000_dist0025:coarse16_c2f025_local050_dist0025 \
+  --pair coarse16_c2f000_ch32_dist0025:coarse16_c2f025_local050_ch32_dist0025
+```
+
+Decision rule:
+
+- If C2F remains better on diversity/basin and gains raw quality under `ch32`,
+  the old bottleneck was likely readout capacity.
+- If `dist0025` improves proximity but destroys diversity/basin, the objective
+  is pulling the field back toward the no-drive/prototype solution.
+- If the no-drive rows benefit more than the active C2F rows under every
+  conversion knob, active local C2F is probably not the right path to quality;
+  the next move should be a different multiscale interaction, not more decoder
+  capacity.
+
+Result:
+
+Artifacts:
+
+```text
+outputs/analysis/modal_mnist_generator_cifar10_rgb_coarse_to_fine_conversion_probe.csv
+outputs/analysis/cifar10_rgb_coarse_to_fine_conversion_probe/frontier_summary.md
+outputs/analysis/cifar10_rgb_coarse_to_fine_conversion_probe/paired_deltas.md
+outputs/analysis/cifar10_rgb_coarse_to_fine_conversion_probe/sample_grids/contact_sheet_labeled.png
+```
+
+Aggregate frontier table:
+
+| Variant | Runs | Acc | Diversity | Nearest-real MSE | Feature diversity | Feature nearest-real | Attractor acc | Basin score |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `coarse16_c2f000_base` | 2 | 0.4326 | 0.9011 | 0.0243 | 0.8809 | 0.3467 | 0.4375 | 1.4796 |
+| `coarse16_c2f025_local050_base` | 2 | 0.3984 | 0.9469 | 0.0262 | 0.8651 | 0.3283 | 0.3875 | 1.4317 |
+| `coarse16_c2f000_ch32` | 2 | 0.4727 | 1.0587 | 0.0329 | 0.8987 | 0.3771 | 0.4937 | 2.0983 |
+| `coarse16_c2f025_local050_ch32` | 2 | 0.3828 | 1.0606 | 0.0331 | 0.8498 | 0.3265 | 0.3813 | 1.6242 |
+| `coarse16_c2f000_dist0025` | 2 | 0.3916 | 1.0525 | 0.0345 | 0.8876 | 0.3592 | 0.3813 | 1.7173 |
+| `coarse16_c2f025_local050_dist0025` | 2 | 0.3887 | 1.0682 | 0.0346 | 0.8495 | 0.3067 | 0.3938 | 1.7945 |
+| `coarse16_c2f000_ch32_dist0025` | 2 | 0.3428 | 1.0626 | 0.0357 | 0.8301 | 0.3285 | 0.3438 | 1.5892 |
+| `coarse16_c2f025_local050_ch32_dist0025` | 2 | 0.3740 | 1.0648 | 0.0352 | 0.8877 | 0.3640 | 0.3875 | 1.7866 |
+
+Paired active-C2F deltas:
+
+| Pair | Acc delta | Diversity delta | MSE delta | Feature diversity delta | Attractor acc delta | Basin delta | Read |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| base active C2F vs no-drive | -0.0342 | +0.0458 | +0.0019 | -0.0158 | -0.0500 | -0.0479 | C2F mainly adds pixel diversity; no quality conversion |
+| ch32 active C2F vs ch32 no-drive | -0.0898 | +0.0019 | +0.0002 | -0.0489 | -0.1125 | -0.4741 | wider readout helps no-drive more |
+| dist0025 active C2F vs dist0025 no-drive | -0.0029 | +0.0157 | +0.0000 | -0.0381 | +0.0125 | +0.0771 | small basin/attractor gain, no proximity gain |
+| ch32+dist0025 active C2F vs ch32+dist0025 no-drive | +0.0312 | +0.0022 | -0.0005 | +0.0576 | +0.0438 | +0.1974 | first paired setting where C2F wins most frontier metrics |
+
+Visual read:
+
+- Samples remain blurry CIFAR-like color/shape patches. No row is a solved
+  CIFAR generator.
+- `ch32` and `ch32_dist0025` increase texture/saturation, but not clearly
+  object-level structure.
+- The best absolute semantic/basin row is no-drive `ch32`, which is a warning:
+  extra readout capacity can improve the coarse-control/prototype path more
+  than active C2F.
+- The combined `ch32_dist0025` setting is still interesting because active C2F
+  beats its same-readout/objective no-drive control on most paired metrics. The
+  effect is real enough to keep, but the absolute quality is too low to call a
+  breakthrough.
+
+Updated read:
+
+- Readout/objective conversion partially works only when both knobs are present.
+  Active local C2F then improves the same-seed no-drive control on semantic
+  accuracy, nearest-real MSE, feature diversity, attractor accuracy, basin
+  score, and output settling.
+- But the stronger no-drive `ch32` row still has better absolute accuracy and
+  basin score. This means the current local C2F is not the main path to quality;
+  it is a conditional regularizer that can help under the right objective, but
+  it is still weaker than simply giving the no-drive coarse scaffold more
+  readout capacity.
+- Next useful step should not be another scalar C2F/readout sweep. The likely
+  missing mechanism is an explicit image-space or feature-space feedback path:
+  the oscillator field needs to see its decoded image error/feature state during
+  settling, rather than only being decoded after settling. Without feedback,
+  the readout can improve samples while the dynamics remain partially
+  disconnected from visible quality.
+
+Follow-up feedback probe:
+
+The first implementation tried decoded-image feedback during every HORN
+settling step. That is the cleanest "readout participates in the attractor"
+idea, but it is expensive with the `resize_conv` decoder: training at
+`16,32,48` settling steps turns one decoder call at the end into many
+decoder calls inside the recurrent loop. The Modal run was stopped after it
+became clear this was a compute blow-up rather than a normal CIFAR sweep.
+
+The production probe therefore uses `output_feedback_mode="state_proxy"`:
+
+```text
+feedback_drive_i = gain_i * center(tanh(position_i) + 0.5 * tanh(velocity_i))
+```
+
+This is not full image-space feedback. It is a cheap local self-feedback proxy
+that asks whether closing the recurrent field loop helps before spending GPU
+time on a full decoded-image loop.
+
+Artifacts:
+
+```text
+outputs/analysis/modal_mnist_generator_cifar10_rgb_coarse_to_fine_feedback_probe.csv
+outputs/analysis/cifar10_rgb_coarse_to_fine_feedback_probe/frontier_summary.md
+outputs/analysis/cifar10_rgb_coarse_to_fine_feedback_probe/paired_deltas.md
+outputs/analysis/cifar10_rgb_coarse_to_fine_feedback_probe/sample_grids/contact_sheet.png
+```
+
+Aggregate feedback frontier:
+
+| Variant | Runs | Acc | Diversity | Nearest-real MSE | Feature diversity | Feature nearest-real | Attractor acc | Basin score |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `c2f000_ch32_dist0025_feedback050` | 2 | 0.3994 | 1.0688 | 0.0364 | 0.9041 | 0.3298 | 0.4063 | 1.8899 |
+| `c2f025_local050_ch32_dist0025_feedback050` | 2 | 0.3984 | 1.0680 | 0.0362 | 0.8478 | 0.3143 | 0.4250 | 1.9713 |
+| `c2f000_feedback050_base` | 2 | 0.3828 | 0.9755 | 0.0276 | 0.8495 | 0.3349 | 0.4250 | 1.5852 |
+| `c2f025_local050_feedback050_base` | 2 | 0.3818 | 0.8546 | 0.0224 | 0.8461 | 0.3587 | 0.3938 | 1.2350 |
+
+Paired active-C2F feedback deltas:
+
+| Pair | Acc delta | Diversity delta | MSE delta | Feature diversity delta | Feature nearest-real delta | Attractor acc delta | Basin delta | Read |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| base feedback C2F vs no-drive | -0.0010 | -0.1209 | -0.0052 | -0.0034 | +0.0238 | -0.0312 | -0.3502 | more pixel-proximal but lower diversity/basin |
+| ch32+dist0025 feedback C2F vs no-drive | -0.0010 | -0.0008 | -0.0002 | -0.0563 | -0.0155 | +0.0187 | +0.0814 | small attractor/basin gain, no visible frontier jump |
+
+Visual read:
+
+- The `ch32_dist0025` feedback grids are still blurry CIFAR-like color and
+  shape patches.
+- Active C2F and no-drive grids are nearly indistinguishable by eye.
+- The cheap state-proxy feedback loop is stable and inexpensive
+  (`8192` estimated feedback ops/sample), but it does not convert C2F into a
+  visible quality breakthrough.
+
+Updated feedback read:
+
+- Full decoded-image feedback is a plausible mechanism, but too expensive to
+  insert naively inside every `resize_conv` HORN step. It should be reserved
+  for tiny probes or replaced by a lower-resolution learned feature/image
+  proxy.
+- State-proxy feedback is useful engineering infrastructure and a good
+  control, but it is not the missing secret. It mostly preserves the previous
+  result: active local C2F is a weak regularizer/coordinator, not the main
+  quality path.
+- The next multiscale move should change the inter-layer mechanism itself:
+  bidirectional fine-to-coarse feedback, phase-lagged/inhibitory C2F, or an
+  explicit coarse objective. More scalar strength sweeps are unlikely to
+  unlock the visible-quality gap.
 
 ## Maintenance Notes
 

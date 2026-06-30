@@ -210,6 +210,62 @@ SWEEP_CSVS = {
         "outputs/analysis/"
         "modal_mnist_generator_cifar10_rgb_attractor_robustness_seed_repeat.csv"
     ),
+    "mnist_generator_cifar10_rgb_main_coupling_strength_probe": Path(
+        "outputs/analysis/"
+        "modal_mnist_generator_cifar10_rgb_main_coupling_strength_probe.csv"
+    ),
+    "mnist_generator_cifar10_rgb_main_coupling_strength_seed_repeat": Path(
+        "outputs/analysis/"
+        "modal_mnist_generator_cifar10_rgb_main_coupling_strength_seed_repeat.csv"
+    ),
+    "mnist_generator_cifar10_rgb_main_coupling_fine_probe": Path(
+        "outputs/analysis/"
+        "modal_mnist_generator_cifar10_rgb_main_coupling_fine_probe.csv"
+    ),
+    "mnist_generator_cifar10_rgb_main_coupling_current_replication": Path(
+        "outputs/analysis/"
+        "modal_mnist_generator_cifar10_rgb_main_coupling_current_replication.csv"
+    ),
+    "mnist_generator_cifar10_rgb_normalized_distance_decay_probe": Path(
+        "outputs/analysis/"
+        "modal_mnist_generator_cifar10_rgb_normalized_distance_decay_probe.csv"
+    ),
+    "mnist_generator_cifar10_rgb_normalized_local_radius_probe": Path(
+        "outputs/analysis/"
+        "modal_mnist_generator_cifar10_rgb_normalized_local_radius_probe.csv"
+    ),
+    "mnist_generator_cifar10_rgb_normalized_local_radius_sweep": Path(
+        "outputs/analysis/"
+        "modal_mnist_generator_cifar10_rgb_normalized_local_radius_sweep.csv"
+    ),
+    "mnist_generator_cifar10_rgb_coarse_to_fine_probe": Path(
+        "outputs/analysis/"
+        "modal_mnist_generator_cifar10_rgb_coarse_to_fine_probe.csv"
+    ),
+    "mnist_generator_cifar10_rgb_coarse_to_fine_gain_sweep": Path(
+        "outputs/analysis/"
+        "modal_mnist_generator_cifar10_rgb_coarse_to_fine_gain_sweep.csv"
+    ),
+    "mnist_generator_cifar10_rgb_coarse_to_fine_profile_probe": Path(
+        "outputs/analysis/"
+        "modal_mnist_generator_cifar10_rgb_coarse_to_fine_profile_probe.csv"
+    ),
+    "mnist_generator_cifar10_rgb_coarse_to_fine_dynamics_audit": Path(
+        "outputs/analysis/"
+        "modal_mnist_generator_cifar10_rgb_coarse_to_fine_dynamics_audit.csv"
+    ),
+    "mnist_generator_cifar10_rgb_coarse_to_fine_local_repeat": Path(
+        "outputs/analysis/"
+        "modal_mnist_generator_cifar10_rgb_coarse_to_fine_local_repeat.csv"
+    ),
+    "mnist_generator_cifar10_rgb_coarse_to_fine_conversion_probe": Path(
+        "outputs/analysis/"
+        "modal_mnist_generator_cifar10_rgb_coarse_to_fine_conversion_probe.csv"
+    ),
+    "mnist_generator_cifar10_rgb_coarse_to_fine_feedback_probe": Path(
+        "outputs/analysis/"
+        "modal_mnist_generator_cifar10_rgb_coarse_to_fine_feedback_probe.csv"
+    ),
     "mnist_generator_cifar10_rgb_attribution_probe": Path(
         "outputs/analysis/"
         "modal_mnist_generator_cifar10_rgb_attribution_probe.csv"
@@ -2972,6 +3028,540 @@ def _mnist_generator_cifar10_rgb_attractor_robustness_entries(
     return entries
 
 
+def _mnist_generator_cifar10_rgb_main_coupling_strength_probe_sweep() -> list[
+    tuple[list[str], str]
+]:
+    """Sweep recurrent HORN coupling while keeping class drive fixed."""
+
+    return _mnist_generator_cifar10_rgb_main_coupling_strength_entries(
+        seeds=(11,),
+        name_prefix="mnist_generator_cifar10_rgb_main_coupling_strength",
+        include_state_mlp=False,
+    )
+
+
+def _mnist_generator_cifar10_rgb_main_coupling_strength_seed_repeat_sweep() -> list[
+    tuple[list[str], str]
+]:
+    """Repeat the main-coupling probe against StateMLP across two seeds."""
+
+    return _mnist_generator_cifar10_rgb_main_coupling_strength_entries(
+        seeds=(11, 23),
+        name_prefix="mnist_generator_cifar10_rgb_main_coupling_strength_seed_repeat",
+        include_state_mlp=True,
+    )
+
+
+def _mnist_generator_cifar10_rgb_main_coupling_fine_probe_sweep() -> list[
+    tuple[list[str], str]
+]:
+    """Fine sweep around the moderate recurrent-coupling Goldilocks region."""
+
+    return _mnist_generator_cifar10_rgb_main_coupling_strength_entries(
+        seeds=(11, 23),
+        name_prefix="mnist_generator_cifar10_rgb_main_coupling_fine",
+        include_state_mlp=False,
+        strengths=(("main025", 0.25), ("main050", 0.5), ("main075", 0.75)),
+    )
+
+
+def _mnist_generator_cifar10_rgb_main_coupling_current_replication_sweep() -> list[
+    tuple[list[str], str]
+]:
+    """Current-code replication of all recurrent-coupling strengths."""
+
+    return _mnist_generator_cifar10_rgb_main_coupling_strength_entries(
+        seeds=(11, 23),
+        name_prefix="mnist_generator_cifar10_rgb_main_coupling_current",
+        include_state_mlp=False,
+        strengths=(
+            ("main000", 0.0),
+            ("main025", 0.25),
+            ("main050", 0.5),
+            ("main075", 0.75),
+            ("main100", 1.0),
+        ),
+    )
+
+
+def _mnist_generator_cifar10_rgb_normalized_distance_decay_probe_sweep() -> list[
+    tuple[list[str], str]
+]:
+    """Probe normalized distance-decay recurrent coupling on CIFAR-10 RGB."""
+
+    return _mnist_generator_cifar10_rgb_main_coupling_strength_entries(
+        seeds=(11, 23),
+        name_prefix="mnist_generator_cifar10_rgb_normdist",
+        include_state_mlp=False,
+        strengths=(("main025", 0.25), ("main050", 0.5), ("main100", 1.0)),
+        extra_args=(
+            "--coupling-profile distance_decay",
+            "--coupling-normalization row_sum",
+            "--coupling-length-scale 0.24",
+            "--coupling-floor 0.0",
+        ),
+    )
+
+
+def _mnist_generator_cifar10_rgb_normalized_local_radius_probe_sweep() -> list[
+    tuple[list[str], str]
+]:
+    """Probe sparse row-normalized local recurrent coupling on CIFAR-10 RGB."""
+
+    return _mnist_generator_cifar10_rgb_main_coupling_strength_entries(
+        seeds=(11, 23),
+        name_prefix="mnist_generator_cifar10_rgb_normlocal",
+        include_state_mlp=False,
+        strengths=(("main025", 0.25), ("main050", 0.5), ("main100", 1.0)),
+        extra_args=(
+            "--coupling-profile local_radius",
+            "--coupling-normalization row_sum",
+            "--coupling-length-scale 0.24",
+            "--coupling-floor 0.0",
+        ),
+    )
+
+
+def _mnist_generator_cifar10_rgb_normalized_local_radius_sweep() -> list[
+    tuple[list[str], str]
+]:
+    """Sweep sparse row-normalized local coupling radius on CIFAR-10 RGB."""
+
+    entries: list[tuple[list[str], str]] = []
+    for radius_label, radius in (("r016", 0.16), ("r024", 0.24), ("r032", 0.32)):
+        entries.extend(
+            _mnist_generator_cifar10_rgb_main_coupling_strength_entries(
+                seeds=(11, 23),
+                name_prefix="mnist_generator_cifar10_rgb_normlocal_radius",
+                include_state_mlp=False,
+                strengths=((radius_label, 1.0),),
+                extra_args=(
+                    "--coupling-profile local_radius",
+                    "--coupling-normalization row_sum",
+                    f"--coupling-length-scale {radius}",
+                    "--coupling-floor 0.0",
+                ),
+            )
+        )
+    return entries
+
+
+def _mnist_generator_cifar10_rgb_coarse_to_fine_probe_sweep() -> list[
+    tuple[list[str], str]
+]:
+    """Probe whether a coarse HORN field improves normalized-local HORN."""
+
+    entries = []
+    variants = (
+        (
+            "horn_normlocal",
+            "sparse_horn_cifar10_rgb_recommended_normlocal",
+            (),
+        ),
+        (
+            "coarse16_c2f000",
+            "sparse_horn_cifar10_rgb_coarse16_normlocal",
+            ("--coarse-to-fine-strength 0.0",),
+        ),
+        (
+            "coarse16_c2f100",
+            "sparse_horn_cifar10_rgb_coarse16_normlocal",
+            ("--coarse-to-fine-strength 1.0",),
+        ),
+    )
+    for seed in (11, 23):
+        for variant_name, preset_name, extra_args in variants:
+            run_name = (
+                "mnist_generator_cifar10_rgb_coarse_to_fine_"
+                f"{variant_name}_n256_resizeconv_train2000_seed{seed}_20e"
+            )
+            variant_args = [
+                f"--seed {seed}",
+                f"--preset {preset_name}",
+                *extra_args,
+            ]
+            args = shlex.split(" ".join(variant_args))
+            output_dir = VOLUME_MOUNT / "mnist_generator" / run_name
+            args = _with_default_arg(args, "--output-dir", output_dir)
+            entries.append((args, run_name))
+    return entries
+
+
+def _mnist_generator_cifar10_rgb_coarse_to_fine_gain_sweep() -> list[
+    tuple[list[str], str]
+]:
+    """Sweep gentler coarse-to-fine drive strengths on CIFAR-10 RGB."""
+
+    entries = []
+    variants = (
+        ("coarse16_c2f025", 0.25),
+        ("coarse16_c2f050", 0.50),
+        ("coarse16_c2f075", 0.75),
+    )
+    for seed in (11, 23):
+        for variant_name, strength in variants:
+            run_name = (
+                "mnist_generator_cifar10_rgb_coarse_to_fine_"
+                f"{variant_name}_n256_resizeconv_train2000_seed{seed}_20e"
+            )
+            variant_args = [
+                f"--seed {seed}",
+                "--preset sparse_horn_cifar10_rgb_coarse16_normlocal",
+                f"--coarse-to-fine-strength {strength}",
+            ]
+            args = shlex.split(" ".join(variant_args))
+            output_dir = VOLUME_MOUNT / "mnist_generator" / run_name
+            args = _with_default_arg(args, "--output-dir", output_dir)
+            entries.append((args, run_name))
+    return entries
+
+
+def _mnist_generator_cifar10_rgb_coarse_to_fine_profile_probe_sweep() -> list[
+    tuple[list[str], str]
+]:
+    """Probe spatially regularized coarse-to-fine projection profiles."""
+
+    entries = []
+    variants = (
+        (
+            "coarse16_c2f025_dense",
+            (),
+        ),
+        (
+            "coarse16_c2f025_local050",
+            (
+                "--coarse-to-fine-profile local_radius",
+                "--coarse-to-fine-length-scale 0.5",
+                "--coarse-to-fine-normalization row_sum",
+            ),
+        ),
+        (
+            "coarse16_c2f025_dist050",
+            (
+                "--coarse-to-fine-profile distance_decay",
+                "--coarse-to-fine-length-scale 0.5",
+                "--coarse-to-fine-normalization row_sum",
+            ),
+        ),
+    )
+    for seed in (11, 23):
+        for variant_name, extra_args in variants:
+            run_name = (
+                "mnist_generator_cifar10_rgb_coarse_to_fine_"
+                f"{variant_name}_n256_resizeconv_train2000_seed{seed}_20e"
+            )
+            variant_args = [
+                f"--seed {seed}",
+                "--preset sparse_horn_cifar10_rgb_coarse16_normlocal_gentle",
+                *extra_args,
+            ]
+            args = shlex.split(" ".join(variant_args))
+            output_dir = VOLUME_MOUNT / "mnist_generator" / run_name
+            args = _with_default_arg(args, "--output-dir", output_dir)
+            entries.append((args, run_name))
+    return entries
+
+
+def _mnist_generator_cifar10_rgb_coarse_to_fine_dynamics_audit() -> list[
+    tuple[list[str], str]
+]:
+    """One-seed audit for coarse-to-fine settling/clamping diagnostics."""
+
+    entries = []
+    variants = (
+        (
+            "horn_normlocal",
+            "sparse_horn_cifar10_rgb_recommended_normlocal",
+            (),
+        ),
+        (
+            "coarse16_c2f000",
+            "sparse_horn_cifar10_rgb_coarse16_normlocal",
+            ("--coarse-to-fine-strength 0.0",),
+        ),
+        (
+            "coarse16_c2f025_dense",
+            "sparse_horn_cifar10_rgb_coarse16_normlocal_gentle",
+            (),
+        ),
+        (
+            "coarse16_c2f025_dist050",
+            "sparse_horn_cifar10_rgb_coarse16_normlocal_gentle_dist050",
+            (),
+        ),
+        (
+            "coarse16_c2f025_local050",
+            "sparse_horn_cifar10_rgb_coarse16_normlocal_gentle_local050",
+            (),
+        ),
+    )
+    seed = 11
+    for variant_name, preset_name, extra_args in variants:
+        run_name = (
+            "mnist_generator_cifar10_rgb_coarse_to_fine_dynamics_"
+            f"{variant_name}_n256_resizeconv_train2000_seed{seed}_20e"
+        )
+        variant_args = [
+            f"--seed {seed}",
+            f"--preset {preset_name}",
+            *extra_args,
+        ]
+        args = shlex.split(" ".join(variant_args))
+        output_dir = VOLUME_MOUNT / "mnist_generator" / run_name
+        args = _with_default_arg(args, "--output-dir", output_dir)
+        entries.append((args, run_name))
+    return entries
+
+
+def _mnist_generator_cifar10_rgb_coarse_to_fine_local_repeat() -> list[
+    tuple[list[str], str]
+]:
+    """Seed-repeat the local-radius coarse-to-fine HORN lead."""
+
+    entries = []
+    variants = (
+        (
+            "horn_normlocal",
+            "sparse_horn_cifar10_rgb_recommended_normlocal",
+            (),
+        ),
+        (
+            "coarse16_c2f000",
+            "sparse_horn_cifar10_rgb_coarse16_normlocal",
+            ("--coarse-to-fine-strength 0.0",),
+        ),
+        (
+            "coarse16_c2f025_local050",
+            "sparse_horn_cifar10_rgb_coarse16_normlocal_gentle",
+            (
+                "--coarse-to-fine-profile local_radius",
+                "--coarse-to-fine-length-scale 0.5",
+                "--coarse-to-fine-normalization row_sum",
+            ),
+        ),
+    )
+    for seed in (11, 23, 37, 41):
+        for variant_name, preset_name, extra_args in variants:
+            run_name = (
+                "mnist_generator_cifar10_rgb_coarse_to_fine_local_repeat_"
+                f"{variant_name}_n256_resizeconv_train2000_seed{seed}_20e"
+            )
+            variant_args = [
+                f"--seed {seed}",
+                f"--preset {preset_name}",
+                *extra_args,
+            ]
+            args = shlex.split(" ".join(variant_args))
+            output_dir = VOLUME_MOUNT / "mnist_generator" / run_name
+            args = _with_default_arg(args, "--output-dir", output_dir)
+            entries.append((args, run_name))
+    return entries
+
+
+def _mnist_generator_cifar10_rgb_coarse_to_fine_conversion_probe() -> list[
+    tuple[list[str], str]
+]:
+    """Test whether readout/objective upgrades convert local C2F basin gains."""
+
+    entries = []
+    variants = (
+        (
+            "coarse16_c2f000_base",
+            "sparse_horn_cifar10_rgb_coarse16_normlocal_gentle_local050",
+            ("--coarse-to-fine-strength 0.0",),
+        ),
+        (
+            "coarse16_c2f025_local050_base",
+            "sparse_horn_cifar10_rgb_coarse16_normlocal_gentle_local050",
+            (),
+        ),
+        (
+            "coarse16_c2f000_ch32",
+            "sparse_horn_cifar10_rgb_coarse16_normlocal_gentle_local050_ch32",
+            ("--coarse-to-fine-strength 0.0",),
+        ),
+        (
+            "coarse16_c2f025_local050_ch32",
+            "sparse_horn_cifar10_rgb_coarse16_normlocal_gentle_local050_ch32",
+            (),
+        ),
+        (
+            "coarse16_c2f000_dist0025",
+            "sparse_horn_cifar10_rgb_coarse16_normlocal_gentle_local050_dist0025",
+            ("--coarse-to-fine-strength 0.0",),
+        ),
+        (
+            "coarse16_c2f025_local050_dist0025",
+            "sparse_horn_cifar10_rgb_coarse16_normlocal_gentle_local050_dist0025",
+            (),
+        ),
+        (
+            "coarse16_c2f000_ch32_dist0025",
+            (
+                "sparse_horn_cifar10_rgb_coarse16_normlocal_"
+                "gentle_local050_ch32_dist0025"
+            ),
+            ("--coarse-to-fine-strength 0.0",),
+        ),
+        (
+            "coarse16_c2f025_local050_ch32_dist0025",
+            (
+                "sparse_horn_cifar10_rgb_coarse16_normlocal_"
+                "gentle_local050_ch32_dist0025"
+            ),
+            (),
+        ),
+    )
+    for seed in (11, 23):
+        for variant_name, preset_name, extra_args in variants:
+            run_name = (
+                "mnist_generator_cifar10_rgb_coarse_to_fine_conversion_"
+                f"{variant_name}_n256_resizeconv_train2000_seed{seed}_20e"
+            )
+            variant_args = [
+                f"--seed {seed}",
+                f"--preset {preset_name}",
+                *extra_args,
+            ]
+            args = shlex.split(" ".join(variant_args))
+            output_dir = VOLUME_MOUNT / "mnist_generator" / run_name
+            args = _with_default_arg(args, "--output-dir", output_dir)
+            entries.append((args, run_name))
+    return entries
+
+
+def _mnist_generator_cifar10_rgb_coarse_to_fine_feedback_probe() -> list[
+    tuple[list[str], str]
+]:
+    """Test whether output feedback converts C2F basin gains into quality."""
+
+    entries = []
+    variants = (
+        (
+            "coarse16_c2f000_feedback050_base",
+            "sparse_horn_cifar10_rgb_coarse16_normlocal_gentle_local050_feedback050",
+            ("--coarse-to-fine-strength 0.0",),
+        ),
+        (
+            "coarse16_c2f025_local050_feedback050_base",
+            "sparse_horn_cifar10_rgb_coarse16_normlocal_gentle_local050_feedback050",
+            (),
+        ),
+        (
+            "coarse16_c2f000_ch32_dist0025_feedback050",
+            (
+                "sparse_horn_cifar10_rgb_coarse16_normlocal_"
+                "gentle_local050_ch32_dist0025_feedback050"
+            ),
+            ("--coarse-to-fine-strength 0.0",),
+        ),
+        (
+            "coarse16_c2f025_local050_ch32_dist0025_feedback050",
+            (
+                "sparse_horn_cifar10_rgb_coarse16_normlocal_"
+                "gentle_local050_ch32_dist0025_feedback050"
+            ),
+            (),
+        ),
+    )
+    for seed in (11, 23):
+        for variant_name, preset_name, extra_args in variants:
+            run_name = (
+                "mnist_generator_cifar10_rgb_coarse_to_fine_feedback_"
+                f"{variant_name}_n256_resizeconv_train2000_seed{seed}_20e"
+            )
+            variant_args = [
+                f"--seed {seed}",
+                f"--preset {preset_name}",
+                *extra_args,
+            ]
+            args = shlex.split(" ".join(variant_args))
+            output_dir = VOLUME_MOUNT / "mnist_generator" / run_name
+            args = _with_default_arg(args, "--output-dir", output_dir)
+            entries.append((args, run_name))
+    return entries
+
+
+def _mnist_generator_cifar10_rgb_main_coupling_strength_entries(
+    *,
+    seeds: tuple[int, ...],
+    name_prefix: str,
+    include_state_mlp: bool,
+    extra_args: tuple[str, ...] = (),
+    strengths: tuple[tuple[str, float], ...] = (
+        ("main000", 0.0),
+        ("main025", 0.25),
+        ("main050", 0.5),
+        ("main100", 1.0),
+    ),
+) -> list[tuple[list[str], str]]:
+    """Build strict-judge recurrent-coupling strength probe entries."""
+
+    entries = []
+    common = [
+        "--train-limit 2000",
+        "--eval-limit 1000",
+        "--quality-classifier-kind residual_conv",
+        "--quality-classifier-train-limit 10000",
+        "--quality-classifier-eval-limit 5000",
+        "--quality-classifier-epochs 15",
+        "--quality-classifier-dim 256",
+        "--quality-classifier-depth 3",
+        "--attractor-variants-per-class 8",
+        "--loss-mode pixel_feature_drift",
+        "--pixel-drift-weight 0.5",
+        "--feature-drift-weight 0.25",
+        "--feature-drift-mode learned",
+        "--learned-feature-kind residual_conv",
+        "--learned-feature-epochs 10",
+        "--learned-feature-dim 256",
+        "--learned-feature-depth 3",
+    ]
+    variants = list(strengths)
+    if include_state_mlp:
+        variants = [
+            ("main000", 0.0),
+            ("main050", 0.5),
+            ("main100", 1.0),
+            ("state_mlp", None),
+        ]
+    for seed in seeds:
+        for strength_label, main_strength in variants:
+            is_state_mlp = main_strength is None
+            local_preset = (
+                "sparse_horn_cifar10_rgb_state_mlp_strength8"
+                if is_state_mlp
+                else "sparse_horn_cifar10_rgb_recommended_drive025"
+            )
+            variant_name = (
+                "state_mlp_resfeat025"
+                if is_state_mlp
+                else f"horn_resfeat025_{strength_label}"
+            )
+            run_name = (
+                f"{name_prefix}_{variant_name}_n256_resizeconv_train2000_"
+                f"seed{seed}_20e"
+            )
+            variant_args = [
+                f"--seed {seed}",
+                f"--preset {local_preset}",
+                *common,
+                *extra_args,
+            ]
+            if not is_state_mlp:
+                variant_args.extend(
+                    [
+                        "--coupling-strength 1.0",
+                        f"--main-coupling-strength {main_strength}",
+                    ]
+                )
+            args = shlex.split(" ".join(variant_args))
+            output_dir = VOLUME_MOUNT / "mnist_generator" / run_name
+            args = _with_default_arg(args, "--output-dir", output_dir)
+            entries.append((args, run_name))
+    return entries
+
+
 def _mnist_generator_cifar10_rgb_attribution_probe_sweep() -> list[
     tuple[list[str], str]
 ]:
@@ -3293,6 +3883,34 @@ def _sweep_entries(preset: str) -> list[tuple[list[str], str]]:
         return _mnist_generator_cifar10_rgb_attractor_robustness_probe_sweep()
     if preset == "mnist_generator_cifar10_rgb_attractor_robustness_seed_repeat":
         return _mnist_generator_cifar10_rgb_attractor_robustness_seed_repeat_sweep()
+    if preset == "mnist_generator_cifar10_rgb_main_coupling_strength_probe":
+        return _mnist_generator_cifar10_rgb_main_coupling_strength_probe_sweep()
+    if preset == "mnist_generator_cifar10_rgb_main_coupling_strength_seed_repeat":
+        return _mnist_generator_cifar10_rgb_main_coupling_strength_seed_repeat_sweep()
+    if preset == "mnist_generator_cifar10_rgb_main_coupling_fine_probe":
+        return _mnist_generator_cifar10_rgb_main_coupling_fine_probe_sweep()
+    if preset == "mnist_generator_cifar10_rgb_main_coupling_current_replication":
+        return _mnist_generator_cifar10_rgb_main_coupling_current_replication_sweep()
+    if preset == "mnist_generator_cifar10_rgb_normalized_distance_decay_probe":
+        return _mnist_generator_cifar10_rgb_normalized_distance_decay_probe_sweep()
+    if preset == "mnist_generator_cifar10_rgb_normalized_local_radius_probe":
+        return _mnist_generator_cifar10_rgb_normalized_local_radius_probe_sweep()
+    if preset == "mnist_generator_cifar10_rgb_normalized_local_radius_sweep":
+        return _mnist_generator_cifar10_rgb_normalized_local_radius_sweep()
+    if preset == "mnist_generator_cifar10_rgb_coarse_to_fine_probe":
+        return _mnist_generator_cifar10_rgb_coarse_to_fine_probe_sweep()
+    if preset == "mnist_generator_cifar10_rgb_coarse_to_fine_gain_sweep":
+        return _mnist_generator_cifar10_rgb_coarse_to_fine_gain_sweep()
+    if preset == "mnist_generator_cifar10_rgb_coarse_to_fine_profile_probe":
+        return _mnist_generator_cifar10_rgb_coarse_to_fine_profile_probe_sweep()
+    if preset == "mnist_generator_cifar10_rgb_coarse_to_fine_dynamics_audit":
+        return _mnist_generator_cifar10_rgb_coarse_to_fine_dynamics_audit()
+    if preset == "mnist_generator_cifar10_rgb_coarse_to_fine_local_repeat":
+        return _mnist_generator_cifar10_rgb_coarse_to_fine_local_repeat()
+    if preset == "mnist_generator_cifar10_rgb_coarse_to_fine_conversion_probe":
+        return _mnist_generator_cifar10_rgb_coarse_to_fine_conversion_probe()
+    if preset == "mnist_generator_cifar10_rgb_coarse_to_fine_feedback_probe":
+        return _mnist_generator_cifar10_rgb_coarse_to_fine_feedback_probe()
     if preset == "mnist_generator_cifar10_rgb_attribution_probe":
         return _mnist_generator_cifar10_rgb_attribution_probe_sweep()
     if preset == "mnist_generator_cifar10_rgb_sparse_drive_probe":
@@ -3324,13 +3942,30 @@ def _write_sweep_csv(results: list[dict[str, Any]], path: Path) -> None:
         "generator.horn_damping",
         "generator.horn_nonlinearity",
         "generator.horn_state_bound",
+        "generator.output_feedback_mode",
+        "generator.output_feedback_strength",
+        "generator.output_feedback_init_scale",
+        "generator.output_feedback_basis_sigma",
         "generator.state_mlp_hidden_dim",
         "generator.state_mlp_depth",
         "generator.state_mlp_residual_scale",
+        "generator.num_coarse_oscillators",
+        "generator.coarse_coupling_profile",
+        "generator.coarse_coupling_normalization",
+        "generator.coarse_coupling_length_scale",
+        "generator.coarse_to_fine_strength",
+        "generator.coarse_to_fine_profile",
+        "generator.coarse_to_fine_normalization",
+        "generator.coarse_to_fine_length_scale",
+        "generator.coarse_to_fine_floor",
+        "generator.coarse_conditioning_strength",
         "generator.conditional",
         "generator.label_phase_scale",
         "generator.conditioning_mode",
         "generator.coupling_profile",
+        "generator.coupling_normalization",
+        "generator.coupling_strength",
+        "generator.main_coupling_strength",
         "generator.coupling_length_scale",
         "generator.coupling_floor",
         "generator.coupling_bias_strength",
@@ -3404,19 +4039,50 @@ def _write_sweep_csv(results: list[dict[str, Any]], path: Path) -> None:
         "generator.success_diagnostics.train_conditioning_dynamics",
         "generator.success_diagnostics.trainable_main_recurrent_params",
         "generator.success_diagnostics.trainable_conditioning_params",
+        "generator.success_diagnostics.coarse_recurrent_params",
+        "generator.success_diagnostics.coarse_conditioning_params",
         "generator.success_diagnostics.transition_params",
         "generator.success_diagnostics.estimated_recurrent_op_fraction",
         "generator.success_diagnostics.coupling_profile",
+        "generator.success_diagnostics.coupling_normalization",
+        "generator.success_diagnostics.coupling_strength",
+        "generator.success_diagnostics.main_coupling_strength",
         "generator.success_diagnostics.coupling_density",
         "generator.success_diagnostics.coupling_profile_mean",
         "generator.success_diagnostics.coupling_profile_std",
         "generator.success_diagnostics.coupling_profile_min",
         "generator.success_diagnostics.coupling_profile_max",
+        "generator.success_diagnostics.coupling_profile_row_sum_mean",
+        "generator.success_diagnostics.coupling_profile_row_sum_std",
+        "generator.success_diagnostics.coupling_profile_row_sum_min",
+        "generator.success_diagnostics.coupling_profile_row_sum_max",
         "generator.success_diagnostics.conditioning_strength",
         "generator.success_diagnostics.conditioning_target_fraction",
         "generator.success_diagnostics.conditioning_target_pattern",
         "generator.success_diagnostics.conditioning_target_count",
         "generator.success_diagnostics.conditioning_target_effective_fraction",
+        "generator.success_diagnostics.num_coarse_oscillators",
+        "generator.success_diagnostics.coarse_coupling_profile",
+        "generator.success_diagnostics.coarse_coupling_normalization",
+        "generator.success_diagnostics.coarse_coupling_length_scale",
+        "generator.success_diagnostics.coarse_to_fine_strength",
+        "generator.success_diagnostics.coarse_to_fine_profile",
+        "generator.success_diagnostics.coarse_to_fine_normalization",
+        "generator.success_diagnostics.coarse_to_fine_length_scale",
+        "generator.success_diagnostics.coarse_to_fine_floor",
+        "generator.success_diagnostics.coarse_to_fine_profile_density",
+        "generator.success_diagnostics.coarse_to_fine_profile_row_sum_mean",
+        "generator.success_diagnostics.coarse_to_fine_profile_row_sum_std",
+        "generator.success_diagnostics.coarse_to_fine_profile_row_sum_min",
+        "generator.success_diagnostics.coarse_to_fine_profile_row_sum_max",
+        "generator.success_diagnostics.coarse_conditioning_strength",
+        "generator.success_diagnostics.output_feedback_mode",
+        "generator.success_diagnostics.output_feedback_strength",
+        "generator.success_diagnostics.output_feedback_init_scale",
+        "generator.success_diagnostics.output_feedback_basis_sigma",
+        "generator.success_diagnostics.output_feedback_params",
+        "generator.success_diagnostics.estimated_output_feedback_ops_per_sample",
+        "generator.success_diagnostics.estimated_output_feedback_op_fraction",
         "generator.success_diagnostics.samples_per_train_second",
         "generator.success_diagnostics.phase_mean_abs_displacement",
         "generator.success_diagnostics.phase_final_order",
@@ -3443,6 +4109,26 @@ def _write_sweep_csv(results: list[dict[str, Any]], path: Path) -> None:
         "generator.success_diagnostics.coupling_potential_proxy_initial",
         "generator.success_diagnostics.coupling_potential_proxy_final",
         "generator.success_diagnostics.coupling_potential_proxy_delta",
+        "generator.success_diagnostics.coarse_state_energy_initial",
+        "generator.success_diagnostics.coarse_state_energy_final",
+        "generator.success_diagnostics.coarse_state_energy_delta",
+        "generator.success_diagnostics.coarse_state_update_rms_initial",
+        "generator.success_diagnostics.coarse_state_update_rms_final",
+        "generator.success_diagnostics.coarse_state_update_rms_mean",
+        "generator.success_diagnostics.coarse_state_update_rms_settling_ratio",
+        "generator.success_diagnostics.coarse_state_acceleration_rms_initial",
+        "generator.success_diagnostics.coarse_state_acceleration_rms_final",
+        "generator.success_diagnostics.coarse_state_acceleration_rms_mean",
+        "generator.success_diagnostics.coarse_state_acceleration_rms_settling_ratio",
+        "generator.success_diagnostics.coarse_state_path_length_rms",
+        "generator.success_diagnostics.coarse_state_net_displacement_rms",
+        "generator.success_diagnostics.coarse_state_path_efficiency_ratio",
+        "generator.success_diagnostics.coarse_coupling_potential_proxy_initial",
+        "generator.success_diagnostics.coarse_coupling_potential_proxy_final",
+        "generator.success_diagnostics.coarse_coupling_potential_proxy_delta",
+        "generator.success_diagnostics.coarse_to_fine_potential_proxy_initial",
+        "generator.success_diagnostics.coarse_to_fine_potential_proxy_final",
+        "generator.success_diagnostics.coarse_to_fine_potential_proxy_delta",
         "generator.success_diagnostics.output_step_mse_initial",
         "generator.success_diagnostics.output_step_mse_final",
         "generator.success_diagnostics.output_step_mse_mean",

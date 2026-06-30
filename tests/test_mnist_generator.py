@@ -2,6 +2,7 @@ import json
 
 import jax
 import jax.numpy as jnp
+import pytest
 
 from oscnet.experiments.harness import AutoencoderExperimentConfig
 from oscnet.experiments.mnist_autoencoder import load_mnist_data
@@ -63,6 +64,7 @@ def test_sparse_horn_mnist_preset_sets_current_recipe():
     assert parsed.model_family == "horn"
     assert parsed.decoder_mode == "resize_conv"
     assert parsed.coupling_profile == "local_radius"
+    assert parsed.coupling_normalization == "none"
     assert parsed.coupling_length_scale == 0.24
     assert parsed.train_settling_steps == (8, 16, 32)
     assert parsed.run.epochs == 1
@@ -94,6 +96,85 @@ def test_generator_recommended_preset_is_opt_in_default():
     model = build_mnist_generator_model(recommended, jax.random.PRNGKey(0))
     assert model.label_phase_shift is None
     assert model.label_condition_coupling is not None
+
+
+def test_generator_cli_accepts_coupling_normalization():
+    parsed = config_from_args(
+        parse_args(
+            [
+                "--model-family",
+                "horn",
+                "--coupling-profile",
+                "distance_decay",
+                "--coupling-normalization",
+                "row_sum",
+                "--coupling-length-scale",
+                "0.24",
+                "--coupling-floor",
+                "0.05",
+            ]
+        )
+    )
+
+    assert parsed.coupling_profile == "distance_decay"
+    assert parsed.coupling_normalization == "row_sum"
+    assert parsed.coupling_length_scale == 0.24
+    assert parsed.coupling_floor == 0.05
+
+
+def test_generator_cli_accepts_coarse_horn_options():
+    parsed = config_from_args(
+        parse_args(
+            [
+                "--model-family",
+                "coarse_horn",
+                "--num-coarse-oscillators",
+                "9",
+                "--coarse-coupling-profile",
+                "distance_decay",
+                "--coarse-coupling-normalization",
+                "row_sum",
+                "--coarse-coupling-length-scale",
+                "0.5",
+                "--coarse-to-fine-strength",
+                "1.25",
+                "--coarse-to-fine-profile",
+                "local_radius",
+                "--coarse-to-fine-normalization",
+                "row_sum",
+                "--coarse-to-fine-length-scale",
+                "0.5",
+                "--coarse-to-fine-floor",
+                "0.05",
+                "--coarse-conditioning-strength",
+                "0.75",
+                "--output-feedback-mode",
+                "image",
+                "--output-feedback-strength",
+                "0.5",
+                "--output-feedback-init-scale",
+                "0.04",
+                "--output-feedback-basis-sigma",
+                "0.2",
+            ]
+        )
+    )
+
+    assert parsed.model_family == "coarse_horn"
+    assert parsed.num_coarse_oscillators == 9
+    assert parsed.coarse_coupling_profile == "distance_decay"
+    assert parsed.coarse_coupling_normalization == "row_sum"
+    assert parsed.coarse_coupling_length_scale == 0.5
+    assert parsed.coarse_to_fine_strength == 1.25
+    assert parsed.coarse_to_fine_profile == "local_radius"
+    assert parsed.coarse_to_fine_normalization == "row_sum"
+    assert parsed.coarse_to_fine_length_scale == 0.5
+    assert parsed.coarse_to_fine_floor == 0.05
+    assert parsed.coarse_conditioning_strength == 0.75
+    assert parsed.output_feedback_mode == "image"
+    assert parsed.output_feedback_strength == 0.5
+    assert parsed.output_feedback_init_scale == 0.04
+    assert parsed.output_feedback_basis_sigma == 0.2
 
 
 def test_config_from_args_rejects_unapplied_preset_defaults():
@@ -164,6 +245,15 @@ def test_sparse_horn_mnist_control_presets_share_recipe():
         "sparse_horn_cifar10_gray_state_mlp_strength8": "state_mlp",
         "sparse_horn_cifar10_rgb_recommended": "horn",
         "sparse_horn_cifar10_rgb_recommended_drive025": "horn",
+        "sparse_horn_cifar10_rgb_recommended_normlocal": "horn",
+        "sparse_horn_cifar10_rgb_coarse16_normlocal": "coarse_horn",
+        "sparse_horn_cifar10_rgb_coarse16_normlocal_gentle": "coarse_horn",
+        "sparse_horn_cifar10_rgb_coarse16_normlocal_gentle_dist050": (
+            "coarse_horn"
+        ),
+        "sparse_horn_cifar10_rgb_coarse16_normlocal_gentle_local050": (
+            "coarse_horn"
+        ),
         "sparse_horn_cifar10_rgb_recommended_drive025_spatial_grid": "horn",
         "sparse_horn_cifar10_rgb_recommended_drive025_center_block": "horn",
         "sparse_horn_cifar10_rgb_recommended_drive010": "horn",
@@ -190,9 +280,41 @@ def test_sparse_horn_mnist_control_presets_share_recipe():
         assert parsed.model_family == model_family
         assert parsed.decoder_mode == "resize_conv"
         assert parsed.readout_mode == "mean_relative"
-        assert parsed.loss_mode == "pixel_drift"
+        if preset in (
+            "sparse_horn_cifar10_rgb_recommended_normlocal",
+            "sparse_horn_cifar10_rgb_coarse16_normlocal",
+            "sparse_horn_cifar10_rgb_coarse16_normlocal_gentle",
+            "sparse_horn_cifar10_rgb_coarse16_normlocal_gentle_dist050",
+            "sparse_horn_cifar10_rgb_coarse16_normlocal_gentle_local050",
+        ):
+            assert parsed.loss_mode == "pixel_feature_drift"
+            assert parsed.train_limit == 2000
+            assert parsed.coupling_normalization == "row_sum"
+            assert parsed.main_coupling_strength == 1.0
+            if preset in (
+                "sparse_horn_cifar10_rgb_coarse16_normlocal",
+                "sparse_horn_cifar10_rgb_coarse16_normlocal_gentle",
+                "sparse_horn_cifar10_rgb_coarse16_normlocal_gentle_dist050",
+                "sparse_horn_cifar10_rgb_coarse16_normlocal_gentle_local050",
+            ):
+                assert parsed.model_family == "coarse_horn"
+                assert parsed.num_coarse_oscillators == 16
+                expected_strength = (
+                    0.25
+                    if "_gentle" in preset
+                    else 1.0
+                )
+                assert parsed.coarse_to_fine_strength == expected_strength
+                if preset.endswith("_dist050"):
+                    assert parsed.coarse_to_fine_profile == "distance_decay"
+                    assert parsed.coarse_to_fine_length_scale == 0.5
+                if preset.endswith("_local050"):
+                    assert parsed.coarse_to_fine_profile == "local_radius"
+                    assert parsed.coarse_to_fine_length_scale == 0.5
+        else:
+            assert parsed.loss_mode == "pixel_drift"
         if parsed.dataset_name in ("cifar10_gray", "cifar10_rgb"):
-            assert parsed.train_limit == 1000
+            assert parsed.train_limit in (1000, 2000)
         else:
             assert parsed.train_limit == 500
 
@@ -213,6 +335,18 @@ def test_sparse_horn_mnist_control_presets_share_recipe():
     )
     assert strength8.conditioning_mode == "class_coupling"
     assert strength8.conditioning_strength == 8.0
+    split_coupling = config_from_args(
+        parse_args(
+            [
+                "--preset",
+                "sparse_horn_mnist_class_coupling_strength8",
+                "--main-coupling-strength",
+                "0.25",
+            ]
+        )
+    )
+    assert split_coupling.coupling_strength == 1.0
+    assert split_coupling.main_coupling_strength == 0.25
 
     strict = config_from_args(parse_args(["--preset", "sparse_horn_mnist_strict"]))
     assert strict.conditioning_mode == "class_coupling"
@@ -374,6 +508,54 @@ def test_sparse_horn_mnist_control_presets_share_recipe():
     assert cifar_rgb_model.image_dim == 3 * 32 * 32
     assert cifar_rgb_model.resize_conv_output is not None
     assert cifar_rgb_model.resize_conv_output.out_channels == 3
+
+    cifar_rgb_c2f = config_from_args(
+        parse_args(
+            ["--preset", "sparse_horn_cifar10_rgb_coarse16_normlocal_gentle_local050"]
+        )
+    )
+    assert cifar_rgb_c2f.model_family == "coarse_horn"
+    assert cifar_rgb_c2f.coarse_to_fine_profile == "local_radius"
+    assert cifar_rgb_c2f.coarse_to_fine_strength == 0.25
+    assert cifar_rgb_c2f.resize_conv_min_channels == 16
+    assert cifar_rgb_c2f.distributional_weight == 0.0
+
+    cifar_rgb_c2f_ch32 = config_from_args(
+        parse_args(
+            [
+                "--preset",
+                "sparse_horn_cifar10_rgb_coarse16_normlocal_gentle_local050_ch32",
+            ]
+        )
+    )
+    assert cifar_rgb_c2f_ch32.model_family == "coarse_horn"
+    assert cifar_rgb_c2f_ch32.coarse_to_fine_profile == "local_radius"
+    assert cifar_rgb_c2f_ch32.resize_conv_min_channels == 32
+
+    cifar_rgb_c2f_dist = config_from_args(
+        parse_args(
+            [
+                "--preset",
+                "sparse_horn_cifar10_rgb_coarse16_normlocal_gentle_local050_dist0025",
+            ]
+        )
+    )
+    assert cifar_rgb_c2f_dist.distributional_weight == 0.025
+    assert cifar_rgb_c2f_dist.resize_conv_min_channels == 16
+
+    cifar_rgb_c2f_ch32_dist = config_from_args(
+        parse_args(
+            [
+                "--preset",
+                (
+                    "sparse_horn_cifar10_rgb_coarse16_normlocal_"
+                    "gentle_local050_ch32_dist0025"
+                ),
+            ]
+        )
+    )
+    assert cifar_rgb_c2f_ch32_dist.distributional_weight == 0.025
+    assert cifar_rgb_c2f_ch32_dist.resize_conv_min_channels == 32
 
     cifar_rgb_drive025 = config_from_args(
         parse_args(["--preset", "sparse_horn_cifar10_rgb_recommended_drive025"])
@@ -1367,6 +1549,124 @@ def test_horn_image_generator_samples_and_traces_state():
     assert trace_dynamics["output_step_mse_mean"] >= 0.0
 
 
+def test_horn_output_feedback_changes_settled_state_and_reports_costs():
+    from oscnet.models import HORNImageGenerator
+
+    base_kwargs = dict(
+        num_oscillators=8,
+        image_shape=(8, 8),
+        decoder_hidden_dim=12,
+        decoder_depth=1,
+        steps=2,
+        num_classes=3,
+        conditioning_mode="phase_shift",
+    )
+    disabled = HORNImageGenerator(
+        **base_kwargs,
+        key=jax.random.PRNGKey(191),
+    )
+    enabled = HORNImageGenerator(
+        **base_kwargs,
+        output_feedback_strength=1.0,
+        output_feedback_init_scale=0.5,
+        key=jax.random.PRNGKey(191),
+    )
+    labels = jnp.asarray([0, 1, 2], dtype=jnp.int32)
+    sample_key = jax.random.PRNGKey(192)
+    generated_disabled = disabled(sample_key, 3, labels)
+    generated_enabled = enabled(sample_key, 3, labels)
+    trace = enabled.collect_trace(jax.random.PRNGKey(193), 3, labels)
+    diagnostics = compute_generator_success_diagnostics(
+        enabled,
+        trace=trace,
+    )
+
+    assert not bool(jnp.allclose(generated_disabled, generated_enabled))
+    assert trace["output_feedback_drive"].shape == (3, 8)
+    assert trace["output_feedback_gain"].shape == (8,)
+    assert diagnostics["output_feedback_strength"] == 1.0
+    assert diagnostics["output_feedback_mode"] == "state_proxy"
+    assert diagnostics["output_feedback_params"] == 8
+    assert diagnostics["estimated_output_feedback_ops_per_sample"] > 0
+    assert diagnostics["estimated_output_feedback_op_fraction"] > 0.0
+
+
+def test_coarse_to_fine_horn_generator_samples_and_counts_coarse_params():
+    from oscnet.models import CoarseToFineHORNImageGenerator
+
+    model = CoarseToFineHORNImageGenerator(
+        num_oscillators=8,
+        num_coarse_oscillators=4,
+        image_shape=(8, 8),
+        decoder_mode="resize_conv",
+        resize_conv_seed_shape=(2, 2),
+        resize_conv_upsamples=2,
+        resize_conv_min_channels=4,
+        steps=2,
+        num_classes=3,
+        num_condition_oscillators=3,
+        conditioning_mode="class_coupling",
+        label_phase_scale=0.0,
+        coupling_profile="local_radius",
+        coupling_normalization="row_sum",
+        coupling_length_scale=0.8,
+        coarse_coupling_profile="dense",
+        coarse_coupling_normalization="row_sum",
+        coarse_to_fine_profile="local_radius",
+        coarse_to_fine_length_scale=1.0,
+        key=jax.random.PRNGKey(930),
+    )
+    labels = jnp.asarray([0, 1, 2], dtype=jnp.int32)
+    generated = model(jax.random.PRNGKey(931), 3, labels)
+    trace = model.collect_trace(jax.random.PRNGKey(932), 3, labels)
+    diagnostics = compute_generator_success_diagnostics(
+        model,
+        trace=trace,
+        sample_count=12,
+        total_train_seconds=2.0,
+    )
+
+    assert generated.shape == (3, 64)
+    assert trace["coarse_theta_trajectory"].shape == (2, 3, 4)
+    assert trace["coarse_velocity_trajectory"].shape == (2, 3, 4)
+    assert trace["coarse_to_fine_coupling"].shape == (8, 4)
+    assert trace["coarse_to_fine_profile"].shape == (8, 4)
+    assert diagnostics["dynamics_family"] == "coarse_horn"
+    assert diagnostics["num_coarse_oscillators"] == 4
+    assert diagnostics["coarse_to_fine_profile"] == "local_radius"
+    assert diagnostics["coarse_to_fine_profile_density"] < 1.0
+    assert diagnostics["coarse_recurrent_params"] == 4 + 16 + 32
+    assert diagnostics["coarse_conditioning_params"] == 3 * 4 * 3
+    assert diagnostics["recurrent_params"] > diagnostics["coarse_recurrent_params"]
+    assert diagnostics["estimated_recurrent_ops_per_sample"] > 2 * 8 * 8
+    assert diagnostics["coarse_state_energy_final"] >= 0.0
+    assert diagnostics["coarse_state_update_rms_mean"] >= 0.0
+    assert diagnostics["coarse_coupling_potential_proxy_final"] >= 0.0
+    assert diagnostics["coarse_to_fine_potential_proxy_final"] >= 0.0
+
+    no_drive_model = CoarseToFineHORNImageGenerator(
+        num_oscillators=8,
+        num_coarse_oscillators=4,
+        image_shape=(8, 8),
+        decoder_hidden_dim=12,
+        decoder_depth=1,
+        steps=2,
+        num_classes=3,
+        num_condition_oscillators=3,
+        conditioning_mode="class_coupling",
+        label_phase_scale=0.0,
+        coarse_to_fine_strength=0.0,
+        key=jax.random.PRNGKey(933),
+    )
+    no_drive_trace = no_drive_model.collect_trace(jax.random.PRNGKey(934), 3, labels)
+    no_drive_diagnostics = compute_generator_success_diagnostics(
+        no_drive_model,
+        trace=no_drive_trace,
+    )
+    assert no_drive_diagnostics["coarse_to_fine_potential_proxy_final"] == 0.0
+    assert no_drive_diagnostics["coarse_to_fine_potential_proxy_delta"] == 0.0
+
+
 def test_generator_settling_metrics_score_multiple_step_depths():
     from oscnet.models import HORNImageGenerator
 
@@ -1493,8 +1793,10 @@ def test_state_mlp_image_generator_is_non_oscillatory_control():
     assert bool(jnp.all(jnp.isfinite(generated)))
     assert model.dynamics_family == "state_mlp"
     assert model.coupling_profile == "none"
+    assert model.coupling_normalization == "none"
     assert diagnostics["dynamics_family"] == "state_mlp"
     assert diagnostics["coupling_density"] == 0.0
+    assert diagnostics["coupling_normalization"] == "none"
     assert diagnostics["transition_params"] > 0
     assert diagnostics["recurrent_params"] == diagnostics["transition_params"]
     assert diagnostics["state_mean_abs_velocity_displacement"] >= 0.0
@@ -1789,6 +2091,143 @@ def test_generator_success_diagnostics_count_local_basis_as_decoder():
     assert diagnostics["decoder_param_fraction"] < 0.5
 
 
+def test_generator_main_coupling_strength_defaults_and_overrides():
+    from oscnet.models import HORNImageGenerator
+
+    default_model = HORNImageGenerator(
+        num_oscillators=6,
+        image_shape=(8, 8),
+        decoder_depth=0,
+        steps=1,
+        coupling_strength=1.5,
+        key=jax.random.PRNGKey(14),
+    )
+    assert default_model.coupling_strength == 1.5
+    assert default_model.main_coupling_strength == 1.5
+
+    split_model = HORNImageGenerator(
+        num_oscillators=6,
+        image_shape=(8, 8),
+        decoder_depth=0,
+        steps=1,
+        coupling_strength=1.5,
+        main_coupling_strength=0.25,
+        key=jax.random.PRNGKey(15),
+    )
+    assert split_model.coupling_strength == 1.5
+    assert split_model.main_coupling_strength == 0.25
+
+    diagnostics = compute_generator_success_diagnostics(split_model)
+    assert diagnostics["coupling_strength"] == 1.5
+    assert diagnostics["main_coupling_strength"] == 0.25
+
+    no_main = HORNImageGenerator(
+        num_oscillators=6,
+        image_shape=(8, 8),
+        decoder_depth=0,
+        steps=1,
+        coupling_strength=0.0,
+        main_coupling_strength=0.0,
+        coupling_init_scale=0.0,
+        coupling_bias_strength=1.0,
+        key=jax.random.PRNGKey(16),
+    )
+    main_on = HORNImageGenerator(
+        num_oscillators=6,
+        image_shape=(8, 8),
+        decoder_depth=0,
+        steps=1,
+        coupling_strength=0.0,
+        main_coupling_strength=1.0,
+        coupling_init_scale=0.0,
+        coupling_bias_strength=1.0,
+        key=jax.random.PRNGKey(16),
+    )
+    state = (
+        jnp.asarray([[0.0, 1.0, -0.5, 0.25, -1.0, 0.5]], dtype=jnp.float32),
+        jnp.zeros((1, 6), dtype=jnp.float32),
+    )
+    no_main_next, _ = no_main.step_state(state)
+    main_on_next, _ = main_on.step_state(state)
+    assert jnp.max(jnp.abs(main_on_next - no_main_next)) > 0.0
+
+
+def test_generator_split_coupling_preserves_legacy_default_step():
+    from oscnet.models import HORNImageGenerator, KuramotoImageGenerator
+
+    kuramoto = KuramotoImageGenerator(
+        num_oscillators=6,
+        image_shape=(8, 8),
+        decoder_depth=0,
+        steps=1,
+        coupling_strength=1.7,
+        coupling_init_scale=0.2,
+        coupling_bias_strength=0.1,
+        num_classes=3,
+        num_condition_oscillators=2,
+        conditioning_mode="class_coupling",
+        conditioning_strength=0.8,
+        key=jax.random.PRNGKey(17),
+    )
+    theta = jnp.asarray(
+        [[0.0, 0.3, -0.4, 1.0, -1.2, 0.7]],
+        dtype=jnp.float32,
+    )
+    labels = jnp.asarray([2], dtype=jnp.int32)
+    omega, coupling = kuramoto._dynamics_params()
+    phase_diff = theta[:, None, :] - theta[:, :, None]
+    interaction = jnp.sum(coupling[None, :, :] * jnp.sin(phase_diff), axis=-1)
+    condition_drive = kuramoto._conditioning_drive(theta, labels)
+    legacy_velocity = omega[None, :] + kuramoto.coupling_strength * (
+        interaction / float(kuramoto.num_oscillators) + condition_drive
+    )
+    expected_theta = jnp.angle(jnp.exp(1j * (theta + kuramoto.dt * legacy_velocity)))
+
+    assert kuramoto.main_coupling_strength == kuramoto.coupling_strength
+    assert jnp.allclose(kuramoto.step(theta, labels), expected_theta, atol=1e-6)
+
+    horn = HORNImageGenerator(
+        num_oscillators=6,
+        image_shape=(8, 8),
+        decoder_depth=0,
+        steps=1,
+        coupling_strength=1.7,
+        coupling_init_scale=0.2,
+        coupling_bias_strength=0.1,
+        num_classes=3,
+        num_condition_oscillators=2,
+        conditioning_mode="class_coupling",
+        conditioning_strength=0.8,
+        key=jax.random.PRNGKey(18),
+    )
+    position = jnp.asarray(
+        [[0.0, 0.3, -0.4, 1.0, -1.2, 0.7]],
+        dtype=jnp.float32,
+    )
+    velocity = jnp.asarray(
+        [[0.2, -0.1, 0.4, -0.3, 0.1, -0.2]],
+        dtype=jnp.float32,
+    )
+    frequency, coupling = horn._horn_dynamics_params()
+    displacement = position[:, None, :] - position[:, :, None]
+    interaction = jnp.sum(coupling[None, :, :] * displacement, axis=-1)
+    condition_drive = horn._horn_static_conditioning_drive(position, labels)
+    legacy_acceleration = (
+        -(frequency[None, :] ** 2) * position
+        - float(horn.horn_damping) * velocity
+        - float(horn.horn_nonlinearity) * (position**3)
+        + horn.coupling_strength
+        * (interaction / float(horn.num_oscillators) + condition_drive)
+    )
+    expected_velocity = horn._bound_state(velocity + horn.dt * legacy_acceleration)
+    expected_position = horn._bound_state(position + horn.dt * expected_velocity)
+    actual_position, actual_velocity = horn.step_state((position, velocity), labels)
+
+    assert horn.main_coupling_strength == horn.coupling_strength
+    assert jnp.allclose(actual_position, expected_position, atol=1e-6)
+    assert jnp.allclose(actual_velocity, expected_velocity, atol=1e-6)
+
+
 def test_generator_success_diagnostics_report_coupling_profile():
     from oscnet.models import KuramotoImageGenerator
 
@@ -1815,6 +2254,33 @@ def test_generator_success_diagnostics_report_coupling_profile():
     assert diagnostics["coupling_profile_mean"] < 1.0
     assert diagnostics["coupling_profile_max"] < 1.0
     assert diagnostics["coupling_profile_max"] > 0.05
+    assert diagnostics["coupling_normalization"] == "none"
+
+
+def test_generator_normalized_distance_decay_profile_reports_row_gain():
+    from oscnet.models import KuramotoImageGenerator
+
+    model = KuramotoImageGenerator(
+        num_oscillators=9,
+        image_shape=(8, 8),
+        decoder_mode="local_basis",
+        local_patch_size=3,
+        decoder_depth=0,
+        steps=2,
+        coupling_profile="distance_decay",
+        coupling_normalization="row_sum",
+        coupling_length_scale=0.6,
+        coupling_floor=0.0,
+        key=jax.random.PRNGKey(151),
+    )
+    profile = model.coupling_profile_matrix()
+    diagnostics = compute_generator_success_diagnostics(model)
+
+    assert model.coupling_normalization == "row_sum"
+    assert jnp.allclose(jnp.sum(profile, axis=-1), 9.0, atol=1e-5)
+    assert diagnostics["coupling_normalization"] == "row_sum"
+    assert diagnostics["coupling_profile_row_sum_mean"] == pytest.approx(9.0)
+    assert diagnostics["coupling_profile_row_sum_std"] < 1e-5
 
 
 def test_generator_success_diagnostics_report_sparse_local_coupling_profile():

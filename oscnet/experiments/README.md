@@ -104,6 +104,16 @@ What to keep honest:
   `outputs/analysis/mnist_generator_frontier/`. Frontier variants are
   non-dominated over generated-label accuracy, diversity ratio, and
   nearest-real MSE, with a default generated-label accuracy floor of `0.99`.
+- To compare same-seed mechanism deltas, for example active C2F versus a
+  no-drive coarse control, run:
+
+  ```bash
+  python scripts/analyze_generator_paired_deltas.py
+  ```
+
+  This writes `paired_deltas.csv` and `paired_deltas.md` next to the analyzed
+  sweep. Use it before turning a coarse-to-fine or coupling change into an
+  attribution claim.
 - To move the same frontier check beyond handwritten digits, use the
   Fashion-MNIST presets:
 
@@ -174,6 +184,8 @@ What to keep honest:
   readout floor to `ch16`:
 
   ```bash
+  python examples/image_mnist_generator.py --preset sparse_horn_cifar10_rgb_recommended_normlocal
+  python examples/image_mnist_generator.py --preset sparse_horn_cifar10_rgb_coarse16_normlocal_gentle_local050
   python examples/image_mnist_generator.py --preset sparse_horn_cifar10_rgb_recommended
   python examples/image_mnist_generator.py --preset sparse_horn_cifar10_rgb_recommended_dist005
   python examples/image_mnist_generator.py --preset sparse_horn_cifar10_rgb_state_mlp_strength8
@@ -186,10 +198,30 @@ What to keep honest:
     --sweep-preset mnist_generator_cifar10_rgb_frontier_probe
   ```
 
-  Current result: the HORN semantic/diversity advantage survives full color,
-  while StateMLP remains the raw nearest-pixel and throughput control. Samples
-  are still blurry, so this is a transfer-frontier result, not a solved CIFAR
-  generator.
+  Current result: the normalized-local HORN preset is the strongest CIFAR RGB
+  HORN recipe so far. It keeps the sparse local coupling density, but row-sum
+  normalizes recurrent gain and improves semantic/attractor metrics over the
+  older unnormalized local-radius runs. StateMLP remains the raw nearest-pixel
+  and throughput control. Samples are still blurry, so this is a
+  transfer-frontier result, not a solved CIFAR generator. The
+  `coarse16_normlocal_gentle_local050` preset is the current multiscale probe:
+  a 16-oscillator coarse HORN bank with weak local-radius coarse-to-fine drive.
+  Four-seed RGB results suggest it improves the diversity/basin frontier versus
+  plain normalized-local HORN, but the no-drive coarse control still wins raw
+  accuracy/proximity, so treat it as a promising attribution target rather than
+  the new default. The follow-up diagnostic is
+  `mnist_generator_cifar10_rgb_coarse_to_fine_conversion_probe`, which keeps
+  local C2F fixed while testing whether wider resize-conv readout and/or small
+  distributional pressure can convert that richer basin into visible quality.
+  Current read: the combined `ch32_dist0025` setting is the first paired case
+  where active C2F beats its no-drive control on most frontier metrics, but the
+  no-drive `ch32` row still wins absolute semantic/basin quality. This points
+  toward changing the inter-layer mechanism, not another scalar C2F/readout
+  sweep. A follow-up feedback probe added `output_feedback_mode="state_proxy"`
+  as a cheap recurrent self-feedback control. It is stable and inexpensive, but
+  it does not make C2F visibly win; full `output_feedback_mode="image"` feedback
+  is available for tiny probes but is too expensive to put inside every
+  `resize_conv` settling step at CIFAR scale.
 - Detailed results and caveats live in `docs/experiment_report.md`.
 
 ## Harness Menu

@@ -265,6 +265,81 @@ def _coupling_potential_proxy(position_series: np.ndarray, weight: np.ndarray) -
     return np.asarray(values, dtype=np.float64)
 
 
+def _rectangular_coupling_potential_proxy(
+    target_series: np.ndarray,
+    source_series: np.ndarray,
+    weight: np.ndarray,
+) -> np.ndarray:
+    """Weighted squared-disagreement proxy for source-to-target coupling."""
+
+    weight = np.abs(np.asarray(weight, dtype=np.float64))
+    denom = float(np.sum(weight))
+    if denom <= 1e-12:
+        return np.zeros((target_series.shape[0],), dtype=np.float64)
+    values = []
+    for target, source in zip(
+        np.asarray(target_series, dtype=np.float64),
+        np.asarray(source_series, dtype=np.float64),
+    ):
+        displacement = source[:, None, :] - target[:, :, None]
+        squared = displacement * displacement
+        values.append(float(np.mean(np.sum(weight[None, :, :] * squared, axis=(1, 2))) / denom))
+    return np.asarray(values, dtype=np.float64)
+
+
+def _second_order_state_dynamics(
+    prefix: str,
+    position_series: np.ndarray,
+    velocity_series: np.ndarray,
+    *,
+    dt: float,
+) -> Dict[str, float]:
+    """Summarize position/velocity trajectory behavior with a metric prefix."""
+
+    diagnostics: Dict[str, float] = {}
+    state_energy = np.mean(
+        position_series * position_series + velocity_series * velocity_series,
+        axis=(1, 2),
+    )
+    velocity_rms = np.sqrt(np.mean(velocity_series * velocity_series, axis=(1, 2)))
+    diagnostics.update(_series_summary(f"{prefix}_energy", state_energy))
+    diagnostics.update(_series_summary(f"{prefix}_velocity_rms", velocity_rms))
+
+    if position_series.shape[0] <= 1:
+        return diagnostics
+
+    delta_position = np.diff(position_series, axis=0)
+    delta_velocity = np.diff(velocity_series, axis=0)
+    state_update_rms = np.sqrt(
+        np.mean(
+            delta_position * delta_position + delta_velocity * delta_velocity,
+            axis=(1, 2),
+        )
+    )
+    diagnostics.update(_transition_summary(f"{prefix}_update_rms", state_update_rms))
+    acceleration = delta_velocity / max(dt, 1e-8)
+    acceleration_rms = np.sqrt(np.mean(acceleration * acceleration, axis=(1, 2)))
+    diagnostics.update(
+        _transition_summary(f"{prefix}_acceleration_rms", acceleration_rms)
+    )
+    diagnostics[f"{prefix}_path_length_rms"] = float(np.sum(state_update_rms))
+    net_displacement = position_series[-1] - position_series[0]
+    net_velocity_displacement = velocity_series[-1] - velocity_series[0]
+    diagnostics[f"{prefix}_net_displacement_rms"] = float(
+        np.sqrt(
+            np.mean(
+                net_displacement * net_displacement
+                + net_velocity_displacement * net_velocity_displacement
+            )
+        )
+    )
+    diagnostics[f"{prefix}_path_efficiency_ratio"] = _safe_ratio(
+        diagnostics[f"{prefix}_net_displacement_rms"],
+        diagnostics[f"{prefix}_path_length_rms"],
+    )
+    return diagnostics
+
+
 def _decode_trace_outputs(model: eqx.Module, trace: Dict[str, Array]) -> Optional[np.ndarray]:
     """Decode every recorded state in a trace, when the model supports it."""
 
@@ -336,50 +411,14 @@ def compute_generator_trace_dynamics(
             [initial_velocity[None, ...], velocity_trajectory],
             axis=0,
         )
-        state_energy = np.mean(
-            position_series * position_series + velocity_series * velocity_series,
-            axis=(1, 2),
+        diagnostics.update(
+            _second_order_state_dynamics(
+                "state",
+                position_series,
+                velocity_series,
+                dt=float(getattr(model, "dt", 1.0)),
+            )
         )
-        velocity_rms = np.sqrt(np.mean(velocity_series * velocity_series, axis=(1, 2)))
-        diagnostics.update(_series_summary("state_energy", state_energy))
-        diagnostics.update(_series_summary("state_velocity_rms", velocity_rms))
-
-        if position_series.shape[0] > 1:
-            delta_position = np.diff(position_series, axis=0)
-            delta_velocity = np.diff(velocity_series, axis=0)
-            state_update_rms = np.sqrt(
-                np.mean(
-                    delta_position * delta_position
-                    + delta_velocity * delta_velocity,
-                    axis=(1, 2),
-                )
-            )
-            diagnostics.update(
-                _transition_summary("state_update_rms", state_update_rms)
-            )
-            dt = float(getattr(model, "dt", 1.0))
-            acceleration = delta_velocity / max(dt, 1e-8)
-            acceleration_rms = np.sqrt(
-                np.mean(acceleration * acceleration, axis=(1, 2))
-            )
-            diagnostics.update(
-                _transition_summary("state_acceleration_rms", acceleration_rms)
-            )
-            diagnostics["state_path_length_rms"] = float(np.sum(state_update_rms))
-            net_displacement = position_series[-1] - position_series[0]
-            net_velocity_displacement = velocity_series[-1] - velocity_series[0]
-            diagnostics["state_net_displacement_rms"] = float(
-                np.sqrt(
-                    np.mean(
-                        net_displacement * net_displacement
-                        + net_velocity_displacement * net_velocity_displacement
-                    )
-                )
-            )
-            diagnostics["state_path_efficiency_ratio"] = _safe_ratio(
-                diagnostics["state_net_displacement_rms"],
-                diagnostics["state_path_length_rms"],
-            )
     elif position_series.shape[0] > 1:
         phase_delta = np.angle(np.exp(1j * np.diff(position_series, axis=0)))
         phase_update_rms = np.sqrt(np.mean(phase_delta * phase_delta, axis=(1, 2)))
@@ -389,6 +428,7 @@ def compute_generator_trace_dynamics(
         effective_coupling = (
             np.asarray(trace["coupling"], dtype=np.float32)
             * np.asarray(trace["coupling_profile"], dtype=np.float32)
+            * float(getattr(model, "main_coupling_strength", 1.0))
         )
         if effective_coupling.shape == (
             position_series.shape[-1],
@@ -400,6 +440,82 @@ def compute_generator_trace_dynamics(
                     _coupling_potential_proxy(position_series, effective_coupling),
                 )
             )
+
+    if "coarse_initial_theta" in trace and "coarse_theta_trajectory" in trace:
+        coarse_initial = np.asarray(trace["coarse_initial_theta"], dtype=np.float32)
+        coarse_trajectory = np.asarray(
+            trace["coarse_theta_trajectory"],
+            dtype=np.float32,
+        )
+        coarse_position_series = np.concatenate(
+            [coarse_initial[None, ...], coarse_trajectory],
+            axis=0,
+        )
+        if (
+            "coarse_initial_velocity" in trace
+            and "coarse_velocity_trajectory" in trace
+        ):
+            coarse_initial_velocity = np.asarray(
+                trace["coarse_initial_velocity"],
+                dtype=np.float32,
+            )
+            coarse_velocity_trajectory = np.asarray(
+                trace["coarse_velocity_trajectory"],
+                dtype=np.float32,
+            )
+            coarse_velocity_series = np.concatenate(
+                [coarse_initial_velocity[None, ...], coarse_velocity_trajectory],
+                axis=0,
+            )
+            diagnostics.update(
+                _second_order_state_dynamics(
+                    "coarse_state",
+                    coarse_position_series,
+                    coarse_velocity_series,
+                    dt=float(getattr(model, "dt", 1.0)),
+                )
+            )
+
+        if "coarse_coupling" in trace and "coarse_coupling_profile" in trace:
+            effective_coarse_coupling = (
+                np.asarray(trace["coarse_coupling"], dtype=np.float32)
+                * np.asarray(trace["coarse_coupling_profile"], dtype=np.float32)
+                * float(getattr(model, "main_coupling_strength", 1.0))
+            )
+            if effective_coarse_coupling.shape == (
+                coarse_position_series.shape[-1],
+                coarse_position_series.shape[-1],
+            ):
+                diagnostics.update(
+                    _series_summary(
+                        "coarse_coupling_potential_proxy",
+                        _coupling_potential_proxy(
+                            coarse_position_series,
+                            effective_coarse_coupling,
+                        ),
+                    )
+                )
+
+        if "coarse_to_fine_coupling" in trace and "coarse_to_fine_profile" in trace:
+            effective_coarse_to_fine = (
+                np.asarray(trace["coarse_to_fine_coupling"], dtype=np.float32)
+                * np.asarray(trace["coarse_to_fine_profile"], dtype=np.float32)
+                * float(getattr(model, "coarse_to_fine_strength", 1.0))
+            )
+            if effective_coarse_to_fine.shape == (
+                position_series.shape[-1],
+                coarse_position_series.shape[-1],
+            ):
+                diagnostics.update(
+                    _series_summary(
+                        "coarse_to_fine_potential_proxy",
+                        _rectangular_coupling_potential_proxy(
+                            position_series,
+                            coarse_position_series,
+                            effective_coarse_to_fine,
+                        ),
+                    )
+                )
 
     decoded = _decode_trace_outputs(model, trace)
     if decoded is not None and decoded.shape[0] > 1:
@@ -706,10 +822,23 @@ def compute_generator_success_diagnostics(
         for layer in transition_layers
     )
     dynamics_family = str(getattr(model, "dynamics_family", "kuramoto"))
+    coarse_recurrent_params = (
+        _array_size(getattr(model, "coarse_omega", None))
+        + _array_size(getattr(model, "coarse_coupling", None))
+        + _array_size(getattr(model, "coarse_to_fine_coupling", None))
+    )
+    output_feedback_params = _array_size(
+        getattr(model, "output_feedback_gain", None)
+    )
     recurrent_params = (
         int(transition_params)
         if dynamics_family == "state_mlp"
         else _array_size(model.omega) + _array_size(model.coupling)
+        + coarse_recurrent_params
+        + output_feedback_params
+    )
+    coarse_conditioning_params = _array_size(
+        getattr(model, "coarse_label_condition_coupling", None)
     )
     conditioning_params = (
         _array_size(model.label_phase_shift)
@@ -717,6 +846,7 @@ def compute_generator_success_diagnostics(
         + _array_size(model.condition_omega)
         + _array_size(model.condition_coupling)
         + _array_size(model.label_condition_coupling)
+        + coarse_conditioning_params
     )
     total_params = int(decoder_params + recurrent_params + conditioning_params)
     trainable_main_recurrent_params = (
@@ -737,8 +867,22 @@ def compute_generator_success_diagnostics(
     off_diagonal_profile = coupling_profile[~np.eye(n, dtype=bool)]
     if off_diagonal_profile.size == 0:
         off_diagonal_profile = np.asarray([0.0], dtype=np.float32)
+    coupling_profile_row_sums = np.sum(coupling_profile, axis=-1)
 
     condition_n = int(model.num_condition_oscillators)
+    coarse_n = int(getattr(model, "num_coarse_oscillators", 0))
+    coarse_to_fine_profile = (
+        np.asarray(model.coarse_to_fine_profile_matrix(), dtype=np.float32)
+        if hasattr(model, "coarse_to_fine_profile_matrix")
+        else np.zeros((0, 0), dtype=np.float32)
+    )
+    coarse_to_fine_profile_nonzero = int(np.count_nonzero(coarse_to_fine_profile))
+    coarse_to_fine_profile_possible = max(int(coarse_to_fine_profile.size), 1)
+    coarse_to_fine_profile_row_sums = (
+        np.sum(coarse_to_fine_profile, axis=-1)
+        if coarse_to_fine_profile.size > 0
+        else np.asarray([0.0], dtype=np.float32)
+    )
     if dynamics_family == "state_mlp":
         transition_ops = sum(
             int(layer.in_features * layer.out_features)
@@ -750,6 +894,7 @@ def compute_generator_success_diagnostics(
             model.steps
             * (
                 n * n
+                + (coarse_n * coarse_n + n * coarse_n if coarse_n > 0 else 0)
                 + (
                     condition_n * condition_n + n * condition_n
                     if model.conditioning_mode == "class_oscillator"
@@ -801,10 +946,27 @@ def compute_generator_success_diagnostics(
                 * out_channels
                 * in_channels
                 * kernel_h
-                * kernel_w
+                    * kernel_w
+                )
+    output_feedback_mode = str(getattr(model, "output_feedback_mode", "none"))
+    output_feedback_strength = float(getattr(model, "output_feedback_strength", 0.0))
+    if output_feedback_strength <= 0.0:
+        estimated_output_feedback_ops_per_sample = 0
+    elif output_feedback_mode == "image":
+        estimated_output_feedback_ops_per_sample = int(
+            model.steps
+            * (
+                estimated_decoder_ops_per_sample
+                + model.num_oscillators * max(model.image_dim, 1)
             )
+        )
+    else:
+        estimated_output_feedback_ops_per_sample = int(
+            model.steps * model.num_oscillators
+        )
     estimated_ops_per_sample = (
         estimated_recurrent_ops_per_sample + estimated_decoder_ops_per_sample
+        + estimated_output_feedback_ops_per_sample
     )
     conditioning_target_mask = tuple(
         float(value) for value in getattr(model, "conditioning_target_mask", ())
@@ -820,8 +982,11 @@ def compute_generator_success_diagnostics(
         "trainable_total_params": trainable_total_params,
         "decoder_params": int(decoder_params),
         "recurrent_params": int(recurrent_params),
+        "coarse_recurrent_params": int(coarse_recurrent_params),
+        "output_feedback_params": int(output_feedback_params),
         "transition_params": int(transition_params),
         "conditioning_params": int(conditioning_params),
+        "coarse_conditioning_params": int(coarse_conditioning_params),
         "train_recurrent_dynamics": bool(model.train_recurrent_dynamics),
         "train_conditioning_dynamics": bool(model.train_conditioning_dynamics),
         "trainable_main_recurrent_params": trainable_main_recurrent_params,
@@ -838,6 +1003,11 @@ def compute_generator_success_diagnostics(
         ),
         "coupling_density": float(coupling_nonzero / coupling_possible),
         "coupling_profile": model.coupling_profile,
+        "coupling_normalization": getattr(model, "coupling_normalization", "none"),
+        "coupling_strength": float(model.coupling_strength),
+        "main_coupling_strength": float(
+            getattr(model, "main_coupling_strength", model.coupling_strength)
+        ),
         "coupling_length_scale": float(model.coupling_length_scale),
         "coupling_floor": float(model.coupling_floor),
         "coupling_bias_strength": float(model.coupling_bias_strength),
@@ -853,17 +1023,88 @@ def compute_generator_success_diagnostics(
         "conditioning_mode": model.conditioning_mode,
         "readout_mode": model.readout_mode,
         "num_condition_oscillators": int(model.num_condition_oscillators),
+        "num_coarse_oscillators": int(coarse_n),
+        "coarse_coupling_profile": getattr(
+            model,
+            "coarse_coupling_profile",
+            "none",
+        ),
+        "coarse_coupling_normalization": getattr(
+            model,
+            "coarse_coupling_normalization",
+            "none",
+        ),
+        "coarse_coupling_length_scale": float(
+            getattr(model, "coarse_coupling_length_scale", 0.0)
+        ),
+        "coarse_to_fine_strength": float(
+            getattr(model, "coarse_to_fine_strength", 0.0)
+        ),
+        "coarse_to_fine_profile": getattr(
+            model,
+            "coarse_to_fine_profile",
+            "none",
+        ),
+        "coarse_to_fine_normalization": getattr(
+            model,
+            "coarse_to_fine_normalization",
+            "none",
+        ),
+        "coarse_to_fine_length_scale": float(
+            getattr(model, "coarse_to_fine_length_scale", 0.0)
+        ),
+        "coarse_to_fine_floor": float(
+            getattr(model, "coarse_to_fine_floor", 0.0)
+        ),
+        "coarse_to_fine_profile_density": float(
+            coarse_to_fine_profile_nonzero / coarse_to_fine_profile_possible
+        ),
+        "coarse_to_fine_profile_row_sum_mean": float(
+            np.mean(coarse_to_fine_profile_row_sums)
+        ),
+        "coarse_to_fine_profile_row_sum_std": float(
+            np.std(coarse_to_fine_profile_row_sums)
+        ),
+        "coarse_to_fine_profile_row_sum_min": float(
+            np.min(coarse_to_fine_profile_row_sums)
+        ),
+        "coarse_to_fine_profile_row_sum_max": float(
+            np.max(coarse_to_fine_profile_row_sums)
+        ),
+        "coarse_conditioning_strength": float(
+            getattr(model, "coarse_conditioning_strength", 0.0)
+        ),
+        "output_feedback_strength": output_feedback_strength,
+        "output_feedback_mode": output_feedback_mode,
+        "output_feedback_init_scale": float(
+            getattr(model, "output_feedback_init_scale", 0.0)
+        ),
+        "output_feedback_basis_sigma": float(
+            getattr(model, "output_feedback_basis_sigma", 0.0)
+        ),
         "coupling_profile_mean": float(np.mean(off_diagonal_profile)),
         "coupling_profile_std": float(np.std(off_diagonal_profile)),
         "coupling_profile_min": float(np.min(off_diagonal_profile)),
         "coupling_profile_max": float(np.max(off_diagonal_profile)),
+        "coupling_profile_row_sum_mean": float(np.mean(coupling_profile_row_sums)),
+        "coupling_profile_row_sum_std": float(np.std(coupling_profile_row_sums)),
+        "coupling_profile_row_sum_min": float(np.min(coupling_profile_row_sums)),
+        "coupling_profile_row_sum_max": float(np.max(coupling_profile_row_sums)),
         "decoder_mode": model.decoder_mode,
         "steps": int(model.steps),
         "estimated_recurrent_ops_per_sample": estimated_recurrent_ops_per_sample,
         "estimated_decoder_ops_per_sample": estimated_decoder_ops_per_sample,
+        "estimated_output_feedback_ops_per_sample": (
+            estimated_output_feedback_ops_per_sample
+        ),
         "estimated_ops_per_sample": estimated_ops_per_sample,
         "estimated_recurrent_op_fraction": (
             float(estimated_recurrent_ops_per_sample / estimated_ops_per_sample)
+            if estimated_ops_per_sample > 0
+            else 0.0
+        ),
+        "estimated_output_feedback_op_fraction": (
+            float(estimated_output_feedback_ops_per_sample / estimated_ops_per_sample)
             if estimated_ops_per_sample > 0
             else 0.0
         ),

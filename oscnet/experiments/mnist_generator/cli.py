@@ -105,6 +105,9 @@ def build_arg_parser(preset: str = "none") -> argparse.ArgumentParser:
             "horn",
             "horn_decoder_only",
             "frozen_horn",
+            "coarse_horn",
+            "coarse_horn_decoder_only",
+            "frozen_coarse_horn",
             "state_mlp",
             "state_mlp_decoder_only",
             "frozen_state_mlp",
@@ -117,12 +120,32 @@ def build_arg_parser(preset: str = "none") -> argparse.ArgumentParser:
     parser.add_argument("--steps", type=int, default=8)
     parser.add_argument("--dt", type=float, default=0.1)
     parser.add_argument("--coupling-strength", type=float, default=1.0)
+    parser.add_argument(
+        "--main-coupling-strength",
+        type=float,
+        default=None,
+        help=(
+            "Optional recurrent oscillator coupling multiplier. Defaults to "
+            "--coupling-strength for backward-compatible dynamics; set this "
+            "separately to keep class drive fixed while sweeping main coupling."
+        ),
+    )
     parser.add_argument("--omega-scale", type=float, default=0.2)
     parser.add_argument("--coupling-init-scale", type=float, default=0.05)
     parser.add_argument(
         "--coupling-profile",
         choices=["dense", "distance_decay", "local_radius"],
         default="dense",
+    )
+    parser.add_argument(
+        "--coupling-normalization",
+        choices=["none", "row_sum"],
+        default="none",
+        help=(
+            "Optional profile normalization. 'row_sum' keeps every non-empty "
+            "row at the same recurrent gain scale, useful when comparing "
+            "spatial coupling topologies."
+        ),
     )
     parser.add_argument("--coupling-length-scale", type=float, default=0.0)
     parser.add_argument("--coupling-floor", type=float, default=0.0)
@@ -138,6 +161,52 @@ def build_arg_parser(preset: str = "none") -> argparse.ArgumentParser:
     parser.add_argument("--horn-damping", type=float, default=0.15)
     parser.add_argument("--horn-nonlinearity", type=float, default=0.05)
     parser.add_argument("--horn-state-bound", type=float, default=3.0)
+    parser.add_argument(
+        "--output-feedback-mode",
+        choices=["state_proxy", "image"],
+        default="state_proxy",
+        help=(
+            "Feedback source for HORN self-feedback. 'state_proxy' is cheap; "
+            "'image' decodes during every settling step and is expensive."
+        ),
+    )
+    parser.add_argument(
+        "--output-feedback-strength",
+        type=float,
+        default=0.0,
+        help=(
+            "Optional self-feedback from the current decoded image back into "
+            "HORN acceleration. Defaults to 0 to preserve plain settling."
+        ),
+    )
+    parser.add_argument("--output-feedback-init-scale", type=float, default=0.02)
+    parser.add_argument("--output-feedback-basis-sigma", type=float, default=0.0)
+    parser.add_argument("--num-coarse-oscillators", type=int, default=16)
+    parser.add_argument(
+        "--coarse-coupling-profile",
+        choices=["dense", "distance_decay", "local_radius"],
+        default="dense",
+    )
+    parser.add_argument(
+        "--coarse-coupling-normalization",
+        choices=["none", "row_sum"],
+        default="row_sum",
+    )
+    parser.add_argument("--coarse-coupling-length-scale", type=float, default=0.0)
+    parser.add_argument("--coarse-to-fine-strength", type=float, default=1.0)
+    parser.add_argument(
+        "--coarse-to-fine-profile",
+        choices=["dense", "distance_decay", "local_radius"],
+        default="dense",
+    )
+    parser.add_argument(
+        "--coarse-to-fine-normalization",
+        choices=["none", "row_sum"],
+        default="row_sum",
+    )
+    parser.add_argument("--coarse-to-fine-length-scale", type=float, default=0.0)
+    parser.add_argument("--coarse-to-fine-floor", type=float, default=0.0)
+    parser.add_argument("--coarse-conditioning-strength", type=float, default=1.0)
     parser.add_argument("--state-mlp-hidden-dim", type=int, default=48)
     parser.add_argument("--state-mlp-depth", type=int, default=1)
     parser.add_argument("--state-mlp-residual-scale", type=float, default=0.1)
@@ -343,9 +412,11 @@ def config_from_args(args: argparse.Namespace) -> MNISTGeneratorExperimentConfig
         steps=args.steps,
         dt=args.dt,
         coupling_strength=args.coupling_strength,
+        main_coupling_strength=args.main_coupling_strength,
         omega_scale=args.omega_scale,
         coupling_init_scale=args.coupling_init_scale,
         coupling_profile=args.coupling_profile,
+        coupling_normalization=args.coupling_normalization,
         coupling_length_scale=args.coupling_length_scale,
         coupling_floor=args.coupling_floor,
         coupling_bias_strength=args.coupling_bias_strength,
@@ -356,6 +427,20 @@ def config_from_args(args: argparse.Namespace) -> MNISTGeneratorExperimentConfig
         horn_damping=args.horn_damping,
         horn_nonlinearity=args.horn_nonlinearity,
         horn_state_bound=args.horn_state_bound,
+        output_feedback_mode=args.output_feedback_mode,
+        output_feedback_strength=args.output_feedback_strength,
+        output_feedback_init_scale=args.output_feedback_init_scale,
+        output_feedback_basis_sigma=args.output_feedback_basis_sigma,
+        num_coarse_oscillators=args.num_coarse_oscillators,
+        coarse_coupling_profile=args.coarse_coupling_profile,
+        coarse_coupling_normalization=args.coarse_coupling_normalization,
+        coarse_coupling_length_scale=args.coarse_coupling_length_scale,
+        coarse_to_fine_strength=args.coarse_to_fine_strength,
+        coarse_to_fine_profile=args.coarse_to_fine_profile,
+        coarse_to_fine_normalization=args.coarse_to_fine_normalization,
+        coarse_to_fine_length_scale=args.coarse_to_fine_length_scale,
+        coarse_to_fine_floor=args.coarse_to_fine_floor,
+        coarse_conditioning_strength=args.coarse_conditioning_strength,
         state_mlp_hidden_dim=args.state_mlp_hidden_dim,
         state_mlp_depth=args.state_mlp_depth,
         state_mlp_residual_scale=args.state_mlp_residual_scale,

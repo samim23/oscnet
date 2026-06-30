@@ -27,6 +27,7 @@ from .config import (
 )
 from .fractal import FractalHORNCell
 from .generative import (
+    CoarseToFineHORNImageGenerator,
     HORNImageGenerator,
     KuramotoImageGenerator,
     KuramotoPhaseVAE,
@@ -155,6 +156,7 @@ __all__ = [
     "WinfreePriorRefinementPatchDenoiser",
     "WONNPatchAutoencoder",
     "FractalHORNCell",
+    "CoarseToFineHORNImageGenerator",
     "HORNImageGenerator",
     "KuramotoImageGenerator",
     "StateMLPImageGenerator",
