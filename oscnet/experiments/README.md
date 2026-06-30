@@ -222,6 +222,11 @@ What to keep honest:
   it does not make C2F visibly win; full `output_feedback_mode="image"` feedback
   is available for tiny probes but is too expensive to put inside every
   `resize_conv` settling step at CIFAR scale.
+  The next scaffold is `multiscale_horn`: an explicit layered oscillator stack
+  with horizontal per-layer coupling and vertical inter-layer coupling. Use
+  `sparse_horn_cifar10_rgb_multiscale16_64_local050_fb005` against
+  `sparse_horn_cifar10_rgb_multiscale16_64_no_vertical` to test whether
+  bidirectional vertical settling adds value beyond extra auxiliary banks.
 - Detailed results and caveats live in `docs/experiment_report.md`.
 
 ## Harness Menu

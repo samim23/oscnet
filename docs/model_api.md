@@ -320,6 +320,28 @@ and internally convert them to patch sequences.
   probe is `sparse_horn_cifar10_rgb_coarse16_normlocal_gentle_local050`, which
   weakens coarse-to-fine drive and restricts it to nearby fine oscillators.
 
+`MultiscaleHORNImageGenerator`
+: A layered HORN generator for explicit oscillator stacks. It generalizes the
+  single coarse-to-fine model into any number of auxiliary populations plus the
+  decoded fine field. Each auxiliary layer has its own oscillator count,
+  frequency scale, recurrent coupling profile, and optional class-coupling
+  drive. Adjacent layers are connected by directed vertical coupling specs, so
+  the same class can represent one-way coarse-to-fine drive, bidirectional
+  feedback, phase-lagged projections, and no-vertical controls. The decoder
+  still reads only the fine field, which keeps attribution focused on whether
+  vertical settling improves the fine oscillator substrate rather than adding a
+  hidden image decoder.
+
+  Use `model_family="multiscale_horn"` for the active model,
+  `"multiscale_horn_decoder_only"` for decoder-only controls, and
+  `"frozen_multiscale_horn"` for frozen-dynamics controls. CIFAR RGB probe
+  presets start with
+  `sparse_horn_cifar10_rgb_multiscale16_64_local050_fb005` and
+  `sparse_horn_cifar10_rgb_multiscale16_64_no_vertical`. Summaries count
+  auxiliary recurrent params, vertical recurrent params, multiscale
+  conditioning params, vertical profile density/row gain, and per-layer
+  energy/update/coupling proxies.
+
 `StateMLPImageGenerator`
 : A non-oscillatory latent-state control for the HORN generator. It keeps the
   same position/velocity state, relative readout, and decoder surface, but

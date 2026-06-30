@@ -177,6 +177,64 @@ def test_generator_cli_accepts_coarse_horn_options():
     assert parsed.output_feedback_basis_sigma == 0.2
 
 
+def test_generator_cli_accepts_multiscale_horn_options():
+    parsed = config_from_args(
+        parse_args(
+            [
+                "--model-family",
+                "multiscale_horn",
+                "--multiscale-layer-sizes",
+                "4,16",
+                "--multiscale-frequency-scales",
+                "0.5,0.8",
+                "--multiscale-coupling-profile",
+                "distance_decay",
+                "--multiscale-coupling-normalization",
+                "row_sum",
+                "--multiscale-coupling-length-scale",
+                "0.6",
+                "--multiscale-coupling-floor",
+                "0.05",
+                "--multiscale-vertical-strength",
+                "0.25",
+                "--multiscale-feedback-strength",
+                "0.1",
+                "--multiscale-vertical-profile",
+                "local_radius",
+                "--multiscale-vertical-normalization",
+                "row_sum",
+                "--multiscale-vertical-length-scale",
+                "0.8",
+                "--multiscale-vertical-floor",
+                "0.02",
+                "--multiscale-vertical-phase-lag",
+                "0.3",
+                "--multiscale-feedback-phase-lag",
+                "-0.2",
+                "--multiscale-conditioning-strength",
+                "0.75",
+            ]
+        )
+    )
+
+    assert parsed.model_family == "multiscale_horn"
+    assert parsed.multiscale_layer_sizes == (4, 16)
+    assert parsed.multiscale_frequency_scales == (0.5, 0.8)
+    assert parsed.multiscale_coupling_profile == "distance_decay"
+    assert parsed.multiscale_coupling_normalization == "row_sum"
+    assert parsed.multiscale_coupling_length_scale == 0.6
+    assert parsed.multiscale_coupling_floor == 0.05
+    assert parsed.multiscale_vertical_strength == 0.25
+    assert parsed.multiscale_feedback_strength == 0.1
+    assert parsed.multiscale_vertical_profile == "local_radius"
+    assert parsed.multiscale_vertical_normalization == "row_sum"
+    assert parsed.multiscale_vertical_length_scale == 0.8
+    assert parsed.multiscale_vertical_floor == 0.02
+    assert parsed.multiscale_vertical_phase_lag == 0.3
+    assert parsed.multiscale_feedback_phase_lag == -0.2
+    assert parsed.multiscale_conditioning_strength == 0.75
+
+
 def test_config_from_args_rejects_unapplied_preset_defaults():
     parser = build_arg_parser()
     args = parser.parse_args(["--preset", "sparse_horn_mnist"])
@@ -254,6 +312,12 @@ def test_sparse_horn_mnist_control_presets_share_recipe():
         "sparse_horn_cifar10_rgb_coarse16_normlocal_gentle_local050": (
             "coarse_horn"
         ),
+        "sparse_horn_cifar10_rgb_multiscale16_64_local050_fb005": (
+            "multiscale_horn"
+        ),
+        "sparse_horn_cifar10_rgb_multiscale16_64_no_vertical": (
+            "multiscale_horn"
+        ),
         "sparse_horn_cifar10_rgb_recommended_drive025_spatial_grid": "horn",
         "sparse_horn_cifar10_rgb_recommended_drive025_center_block": "horn",
         "sparse_horn_cifar10_rgb_recommended_drive010": "horn",
@@ -311,6 +375,14 @@ def test_sparse_horn_mnist_control_presets_share_recipe():
                 if preset.endswith("_local050"):
                     assert parsed.coarse_to_fine_profile == "local_radius"
                     assert parsed.coarse_to_fine_length_scale == 0.5
+        elif preset.startswith("sparse_horn_cifar10_rgb_multiscale16_64"):
+            assert parsed.loss_mode == "pixel_feature_drift"
+            assert parsed.train_limit == 2000
+            assert parsed.model_family == "multiscale_horn"
+            assert parsed.multiscale_layer_sizes == (16, 64)
+            assert parsed.multiscale_coupling_normalization == "row_sum"
+            assert parsed.multiscale_vertical_profile == "local_radius"
+            assert parsed.multiscale_vertical_length_scale == 0.5
         else:
             assert parsed.loss_mode == "pixel_drift"
         if parsed.dataset_name in ("cifar10_gray", "cifar10_rgb"):
@@ -556,6 +628,31 @@ def test_sparse_horn_mnist_control_presets_share_recipe():
     )
     assert cifar_rgb_c2f_ch32_dist.distributional_weight == 0.025
     assert cifar_rgb_c2f_ch32_dist.resize_conv_min_channels == 32
+
+    cifar_rgb_multiscale = config_from_args(
+        parse_args(
+            [
+                "--preset",
+                "sparse_horn_cifar10_rgb_multiscale16_64_local050_fb005",
+            ]
+        )
+    )
+    assert cifar_rgb_multiscale.model_family == "multiscale_horn"
+    assert cifar_rgb_multiscale.multiscale_layer_sizes == (16, 64)
+    assert cifar_rgb_multiscale.multiscale_vertical_strength == 0.25
+    assert cifar_rgb_multiscale.multiscale_feedback_strength == 0.05
+
+    cifar_rgb_multiscale_no_vertical = config_from_args(
+        parse_args(
+            [
+                "--preset",
+                "sparse_horn_cifar10_rgb_multiscale16_64_no_vertical",
+            ]
+        )
+    )
+    assert cifar_rgb_multiscale_no_vertical.model_family == "multiscale_horn"
+    assert cifar_rgb_multiscale_no_vertical.multiscale_vertical_strength == 0.0
+    assert cifar_rgb_multiscale_no_vertical.multiscale_feedback_strength == 0.0
 
     cifar_rgb_drive025 = config_from_args(
         parse_args(["--preset", "sparse_horn_cifar10_rgb_recommended_drive025"])
@@ -1665,6 +1762,66 @@ def test_coarse_to_fine_horn_generator_samples_and_counts_coarse_params():
     )
     assert no_drive_diagnostics["coarse_to_fine_potential_proxy_final"] == 0.0
     assert no_drive_diagnostics["coarse_to_fine_potential_proxy_delta"] == 0.0
+
+
+def test_multiscale_horn_generator_samples_and_counts_layered_params():
+    from oscnet.models import MultiscaleHORNImageGenerator
+
+    model = MultiscaleHORNImageGenerator(
+        num_oscillators=8,
+        image_shape=(8, 8),
+        decoder_mode="resize_conv",
+        resize_conv_seed_shape=(2, 2),
+        resize_conv_upsamples=2,
+        resize_conv_min_channels=4,
+        steps=2,
+        num_classes=3,
+        num_condition_oscillators=3,
+        conditioning_mode="class_coupling",
+        label_phase_scale=0.0,
+        coupling_profile="local_radius",
+        coupling_normalization="row_sum",
+        coupling_length_scale=0.8,
+        multiscale_layer_sizes=(2, 4),
+        multiscale_frequency_scales=(0.5, 0.8),
+        multiscale_coupling_profile="dense",
+        multiscale_coupling_normalization="row_sum",
+        multiscale_vertical_strength=0.25,
+        multiscale_feedback_strength=0.1,
+        multiscale_vertical_profile="local_radius",
+        multiscale_vertical_length_scale=1.0,
+        key=jax.random.PRNGKey(940),
+    )
+    labels = jnp.asarray([0, 1, 2], dtype=jnp.int32)
+    generated = model(jax.random.PRNGKey(941), 3, labels)
+    trace = model.collect_trace(jax.random.PRNGKey(942), 3, labels)
+    diagnostics = compute_generator_success_diagnostics(
+        model,
+        trace=trace,
+        sample_count=12,
+        total_train_seconds=2.0,
+    )
+
+    assert generated.shape == (3, 64)
+    assert model.num_auxiliary_layers == 2
+    assert model.num_vertical_couplings == 4
+    assert trace["aux_0_theta_trajectory"].shape == (2, 3, 2)
+    assert trace["aux_1_theta_trajectory"].shape == (2, 3, 4)
+    assert trace["vertical_0_coupling"].shape == (4, 2)
+    assert trace["vertical_1_coupling"].shape == (2, 4)
+    assert diagnostics["dynamics_family"] == "multiscale_horn"
+    assert diagnostics["multiscale_layer_sizes"] == [2, 4]
+    assert diagnostics["num_auxiliary_layers"] == 2
+    assert diagnostics["num_vertical_couplings"] == 4
+    assert diagnostics["auxiliary_recurrent_params"] == 2 + 4 + 4 + 16
+    assert diagnostics["vertical_recurrent_params"] == 2 * 4 + 4 * 2 + 4 * 8 + 8 * 4
+    assert diagnostics["multiscale_conditioning_params"] == (3 * 2 * 3 + 3 * 4 * 3)
+    assert diagnostics["vertical_profile_density"] <= 1.0
+    assert diagnostics["estimated_recurrent_ops_per_sample"] > 2 * 8 * 8
+    assert diagnostics["aux_0_state_energy_final"] >= 0.0
+    assert diagnostics["aux_1_state_update_rms_mean"] >= 0.0
+    assert diagnostics["vertical_0_potential_proxy_final"] >= 0.0
+    assert "vertical_potential_proxy_delta_mean" in diagnostics
 
 
 def test_generator_settling_metrics_score_multiple_step_depths():

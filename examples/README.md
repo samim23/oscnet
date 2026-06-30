@@ -222,6 +222,11 @@ The `coarse16_normlocal_gentle_local050` preset is the multiscale HORN probe:
 a small coarse oscillator bank sends weak local-radius drive into the fine
 field. It is useful for testing coarse-to-fine coordination, but it is not the
 default because the no-drive coarse control still wins some raw quality metrics.
+The newer `multiscale16_64_local050_fb005` preset extends this into an explicit
+layered HORN stack with two auxiliary populations, local horizontal coupling,
+and weak bidirectional vertical coupling. Compare it with
+`multiscale16_64_no_vertical` when testing whether layered settling matters
+beyond the added oscillator banks.
 
 ## Example Menu
 

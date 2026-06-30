@@ -940,6 +940,64 @@ def run_mnist_generator_experiment(
             "coarse_conditioning_strength": float(
                 getattr(model, "coarse_conditioning_strength", 0.0)
             ),
+            "multiscale_layer_sizes": [
+                int(size) for size in getattr(model, "multiscale_layer_sizes", ())
+            ],
+            "multiscale_frequency_scales": [
+                float(scale)
+                for scale in getattr(model, "multiscale_frequency_scales", ())
+            ],
+            "multiscale_coupling_profile": getattr(
+                model,
+                "multiscale_coupling_profile",
+                "none",
+            ),
+            "multiscale_coupling_normalization": getattr(
+                model,
+                "multiscale_coupling_normalization",
+                "none",
+            ),
+            "multiscale_coupling_length_scale": float(
+                getattr(model, "multiscale_coupling_length_scale", 0.0)
+            ),
+            "multiscale_coupling_floor": float(
+                getattr(model, "multiscale_coupling_floor", 0.0)
+            ),
+            "multiscale_vertical_strength": float(
+                getattr(model, "multiscale_vertical_strength", 0.0)
+            ),
+            "multiscale_feedback_strength": float(
+                getattr(model, "multiscale_feedback_strength", 0.0)
+            ),
+            "multiscale_vertical_profile": getattr(
+                model,
+                "multiscale_vertical_profile",
+                "none",
+            ),
+            "multiscale_vertical_normalization": getattr(
+                model,
+                "multiscale_vertical_normalization",
+                "none",
+            ),
+            "multiscale_vertical_length_scale": float(
+                getattr(model, "multiscale_vertical_length_scale", 0.0)
+            ),
+            "multiscale_vertical_floor": float(
+                getattr(model, "multiscale_vertical_floor", 0.0)
+            ),
+            "multiscale_vertical_phase_lag": float(
+                getattr(model, "multiscale_vertical_phase_lag", 0.0)
+            ),
+            "multiscale_feedback_phase_lag": float(
+                getattr(model, "multiscale_feedback_phase_lag", 0.0)
+            ),
+            "multiscale_conditioning_strength": float(
+                getattr(model, "multiscale_conditioning_strength", 0.0)
+            ),
+            "num_auxiliary_layers": int(getattr(model, "num_auxiliary_layers", 0)),
+            "num_vertical_couplings": int(
+                getattr(model, "num_vertical_couplings", 0)
+            ),
             "state_mlp_hidden_dim": config.state_mlp_hidden_dim,
             "state_mlp_depth": config.state_mlp_depth,
             "state_mlp_residual_scale": config.state_mlp_residual_scale,

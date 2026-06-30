@@ -517,6 +517,115 @@ def compute_generator_trace_dynamics(
                     )
                 )
 
+    aux_position_series = []
+    for layer_index in range(int(getattr(model, "num_auxiliary_layers", 0))):
+        initial_key = f"aux_{layer_index}_initial_theta"
+        trajectory_key = f"aux_{layer_index}_theta_trajectory"
+        if initial_key not in trace or trajectory_key not in trace:
+            continue
+        aux_initial = np.asarray(trace[initial_key], dtype=np.float32)
+        aux_trajectory = np.asarray(trace[trajectory_key], dtype=np.float32)
+        aux_positions = np.concatenate([aux_initial[None, ...], aux_trajectory], axis=0)
+        aux_position_series.append(aux_positions)
+
+        velocity_initial_key = f"aux_{layer_index}_initial_velocity"
+        velocity_trajectory_key = f"aux_{layer_index}_velocity_trajectory"
+        if (
+            velocity_initial_key in trace
+            and velocity_trajectory_key in trace
+        ):
+            aux_initial_velocity = np.asarray(
+                trace[velocity_initial_key],
+                dtype=np.float32,
+            )
+            aux_velocity_trajectory = np.asarray(
+                trace[velocity_trajectory_key],
+                dtype=np.float32,
+            )
+            aux_velocities = np.concatenate(
+                [aux_initial_velocity[None, ...], aux_velocity_trajectory],
+                axis=0,
+            )
+            diagnostics.update(
+                _second_order_state_dynamics(
+                    f"aux_{layer_index}_state",
+                    aux_positions,
+                    aux_velocities,
+                    dt=float(getattr(model, "dt", 1.0)),
+                )
+            )
+
+        coupling_key = f"aux_{layer_index}_coupling"
+        coupling_profile_key = f"aux_{layer_index}_coupling_profile"
+        if coupling_key in trace and coupling_profile_key in trace:
+            effective_aux_coupling = (
+                np.asarray(trace[coupling_key], dtype=np.float32)
+                * np.asarray(trace[coupling_profile_key], dtype=np.float32)
+                * float(getattr(model, "main_coupling_strength", 1.0))
+            )
+            if effective_aux_coupling.shape == (
+                aux_positions.shape[-1],
+                aux_positions.shape[-1],
+            ):
+                diagnostics.update(
+                    _series_summary(
+                        f"aux_{layer_index}_coupling_potential_proxy",
+                        _coupling_potential_proxy(
+                            aux_positions,
+                            effective_aux_coupling,
+                        ),
+                    )
+                )
+
+    if aux_position_series:
+        layer_position_series = [*aux_position_series, position_series]
+        vertical_count = int(getattr(model, "num_vertical_couplings", 0))
+        vertical_deltas = []
+        for spec_index in range(vertical_count):
+            coupling_key = f"vertical_{spec_index}_coupling"
+            profile_key = f"vertical_{spec_index}_profile"
+            source_key = f"vertical_{spec_index}_source_layer"
+            target_key = f"vertical_{spec_index}_target_layer"
+            if (
+                coupling_key not in trace
+                or profile_key not in trace
+                or source_key not in trace
+                or target_key not in trace
+            ):
+                continue
+            source_layer = int(np.asarray(trace[source_key]))
+            target_layer = int(np.asarray(trace[target_key]))
+            if (
+                source_layer >= len(layer_position_series)
+                or target_layer >= len(layer_position_series)
+            ):
+                continue
+            coupling = np.asarray(trace[coupling_key], dtype=np.float32)
+            profile = np.asarray(trace[profile_key], dtype=np.float32)
+            effective_vertical = coupling * profile
+            if effective_vertical.shape != (
+                layer_position_series[target_layer].shape[-1],
+                layer_position_series[source_layer].shape[-1],
+            ):
+                continue
+            summary = _series_summary(
+                f"vertical_{spec_index}_potential_proxy",
+                _rectangular_coupling_potential_proxy(
+                    layer_position_series[target_layer],
+                    layer_position_series[source_layer],
+                    effective_vertical,
+                ),
+            )
+            diagnostics.update(summary)
+            if f"vertical_{spec_index}_potential_proxy_delta" in summary:
+                vertical_deltas.append(
+                    summary[f"vertical_{spec_index}_potential_proxy_delta"]
+                )
+        if vertical_deltas:
+            diagnostics["vertical_potential_proxy_delta_mean"] = _finite_mean(
+                np.asarray(vertical_deltas, dtype=np.float64)
+            )
+
     decoded = _decode_trace_outputs(model, trace)
     if decoded is not None and decoded.shape[0] > 1:
         output_step_mse = np.mean(np.diff(decoded, axis=0) ** 2, axis=(1, 2))
@@ -827,6 +936,20 @@ def compute_generator_success_diagnostics(
         + _array_size(getattr(model, "coarse_coupling", None))
         + _array_size(getattr(model, "coarse_to_fine_coupling", None))
     )
+    auxiliary_recurrent_params = sum(
+        _array_size(value)
+        for value in getattr(model, "auxiliary_omega", ())
+    ) + sum(
+        _array_size(value)
+        for value in getattr(model, "auxiliary_coupling", ())
+    )
+    vertical_recurrent_params = sum(
+        _array_size(value)
+        for value in getattr(model, "vertical_coupling", ())
+    )
+    multiscale_recurrent_params = (
+        auxiliary_recurrent_params + vertical_recurrent_params
+    )
     output_feedback_params = _array_size(
         getattr(model, "output_feedback_gain", None)
     )
@@ -835,10 +958,15 @@ def compute_generator_success_diagnostics(
         if dynamics_family == "state_mlp"
         else _array_size(model.omega) + _array_size(model.coupling)
         + coarse_recurrent_params
+        + multiscale_recurrent_params
         + output_feedback_params
     )
     coarse_conditioning_params = _array_size(
         getattr(model, "coarse_label_condition_coupling", None)
+    )
+    multiscale_conditioning_params = sum(
+        _array_size(value)
+        for value in getattr(model, "auxiliary_label_condition_coupling", ())
     )
     conditioning_params = (
         _array_size(model.label_phase_shift)
@@ -847,6 +975,7 @@ def compute_generator_success_diagnostics(
         + _array_size(model.condition_coupling)
         + _array_size(model.label_condition_coupling)
         + coarse_conditioning_params
+        + multiscale_conditioning_params
     )
     total_params = int(decoder_params + recurrent_params + conditioning_params)
     trainable_main_recurrent_params = (
@@ -883,6 +1012,34 @@ def compute_generator_success_diagnostics(
         if coarse_to_fine_profile.size > 0
         else np.asarray([0.0], dtype=np.float32)
     )
+    multiscale_layer_sizes = tuple(
+        int(size) for size in getattr(model, "multiscale_layer_sizes", ())
+    )
+    vertical_profiles = []
+    if hasattr(model, "vertical_profile_matrix"):
+        for spec_index in range(int(getattr(model, "num_vertical_couplings", 0))):
+            vertical_profiles.append(
+                np.asarray(
+                    model.vertical_profile_matrix(spec_index),
+                    dtype=np.float32,
+                )
+    )
+    if vertical_profiles:
+        vertical_nonzero = sum(
+            int(np.count_nonzero(profile))
+            for profile in vertical_profiles
+        )
+        vertical_possible = max(
+            sum(int(profile.size) for profile in vertical_profiles),
+            1,
+        )
+        vertical_row_sums = np.concatenate(
+            [np.sum(profile, axis=-1).reshape(-1) for profile in vertical_profiles]
+        )
+    else:
+        vertical_nonzero = 0
+        vertical_possible = 1
+        vertical_row_sums = np.asarray([0.0], dtype=np.float32)
     if dynamics_family == "state_mlp":
         transition_ops = sum(
             int(layer.in_features * layer.out_features)
@@ -890,11 +1047,15 @@ def compute_generator_success_diagnostics(
         )
         estimated_recurrent_ops_per_sample = int(model.steps * transition_ops)
     else:
+        multiscale_intra_ops = sum(size * size for size in multiscale_layer_sizes)
+        multiscale_vertical_ops = sum(int(profile.size) for profile in vertical_profiles)
         estimated_recurrent_ops_per_sample = int(
             model.steps
             * (
                 n * n
                 + (coarse_n * coarse_n + n * coarse_n if coarse_n > 0 else 0)
+                + multiscale_intra_ops
+                + multiscale_vertical_ops
                 + (
                     condition_n * condition_n + n * condition_n
                     if model.conditioning_mode == "class_oscillator"
@@ -983,10 +1144,14 @@ def compute_generator_success_diagnostics(
         "decoder_params": int(decoder_params),
         "recurrent_params": int(recurrent_params),
         "coarse_recurrent_params": int(coarse_recurrent_params),
+        "auxiliary_recurrent_params": int(auxiliary_recurrent_params),
+        "vertical_recurrent_params": int(vertical_recurrent_params),
+        "multiscale_recurrent_params": int(multiscale_recurrent_params),
         "output_feedback_params": int(output_feedback_params),
         "transition_params": int(transition_params),
         "conditioning_params": int(conditioning_params),
         "coarse_conditioning_params": int(coarse_conditioning_params),
+        "multiscale_conditioning_params": int(multiscale_conditioning_params),
         "train_recurrent_dynamics": bool(model.train_recurrent_dynamics),
         "train_conditioning_dynamics": bool(model.train_conditioning_dynamics),
         "trainable_main_recurrent_params": trainable_main_recurrent_params,
@@ -1074,6 +1239,65 @@ def compute_generator_success_diagnostics(
         "coarse_conditioning_strength": float(
             getattr(model, "coarse_conditioning_strength", 0.0)
         ),
+        "multiscale_layer_sizes": list(multiscale_layer_sizes),
+        "multiscale_frequency_scales": [
+            float(value)
+            for value in getattr(model, "multiscale_frequency_scales", ())
+        ],
+        "multiscale_coupling_profile": getattr(
+            model,
+            "multiscale_coupling_profile",
+            "none",
+        ),
+        "multiscale_coupling_normalization": getattr(
+            model,
+            "multiscale_coupling_normalization",
+            "none",
+        ),
+        "multiscale_coupling_length_scale": float(
+            getattr(model, "multiscale_coupling_length_scale", 0.0)
+        ),
+        "multiscale_coupling_floor": float(
+            getattr(model, "multiscale_coupling_floor", 0.0)
+        ),
+        "multiscale_vertical_strength": float(
+            getattr(model, "multiscale_vertical_strength", 0.0)
+        ),
+        "multiscale_feedback_strength": float(
+            getattr(model, "multiscale_feedback_strength", 0.0)
+        ),
+        "multiscale_vertical_profile": getattr(
+            model,
+            "multiscale_vertical_profile",
+            "none",
+        ),
+        "multiscale_vertical_normalization": getattr(
+            model,
+            "multiscale_vertical_normalization",
+            "none",
+        ),
+        "multiscale_vertical_length_scale": float(
+            getattr(model, "multiscale_vertical_length_scale", 0.0)
+        ),
+        "multiscale_vertical_floor": float(
+            getattr(model, "multiscale_vertical_floor", 0.0)
+        ),
+        "multiscale_vertical_phase_lag": float(
+            getattr(model, "multiscale_vertical_phase_lag", 0.0)
+        ),
+        "multiscale_feedback_phase_lag": float(
+            getattr(model, "multiscale_feedback_phase_lag", 0.0)
+        ),
+        "multiscale_conditioning_strength": float(
+            getattr(model, "multiscale_conditioning_strength", 0.0)
+        ),
+        "num_auxiliary_layers": int(getattr(model, "num_auxiliary_layers", 0)),
+        "num_vertical_couplings": int(getattr(model, "num_vertical_couplings", 0)),
+        "vertical_profile_density": float(vertical_nonzero / vertical_possible),
+        "vertical_profile_row_sum_mean": float(np.mean(vertical_row_sums)),
+        "vertical_profile_row_sum_std": float(np.std(vertical_row_sums)),
+        "vertical_profile_row_sum_min": float(np.min(vertical_row_sums)),
+        "vertical_profile_row_sum_max": float(np.max(vertical_row_sums)),
         "output_feedback_strength": output_feedback_strength,
         "output_feedback_mode": output_feedback_mode,
         "output_feedback_init_scale": float(

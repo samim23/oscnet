@@ -108,6 +108,9 @@ def build_arg_parser(preset: str = "none") -> argparse.ArgumentParser:
             "coarse_horn",
             "coarse_horn_decoder_only",
             "frozen_coarse_horn",
+            "multiscale_horn",
+            "multiscale_horn_decoder_only",
+            "frozen_multiscale_horn",
             "state_mlp",
             "state_mlp_decoder_only",
             "frozen_state_mlp",
@@ -207,6 +210,53 @@ def build_arg_parser(preset: str = "none") -> argparse.ArgumentParser:
     parser.add_argument("--coarse-to-fine-length-scale", type=float, default=0.0)
     parser.add_argument("--coarse-to-fine-floor", type=float, default=0.0)
     parser.add_argument("--coarse-conditioning-strength", type=float, default=1.0)
+    parser.add_argument(
+        "--multiscale-layer-sizes",
+        type=_parse_int_tuple,
+        default=(16, 64),
+        help=(
+            "Comma-separated auxiliary HORN layer sizes, coarse to fine, "
+            "excluding the decoded fine layer. Example: '16,64'."
+        ),
+    )
+    parser.add_argument(
+        "--multiscale-frequency-scales",
+        type=_parse_float_tuple,
+        default=(),
+        help=(
+            "Optional comma-separated frequency scales for auxiliary layers. "
+            "Empty uses a slow-to-mid default."
+        ),
+    )
+    parser.add_argument(
+        "--multiscale-coupling-profile",
+        choices=["dense", "distance_decay", "local_radius"],
+        default="local_radius",
+    )
+    parser.add_argument(
+        "--multiscale-coupling-normalization",
+        choices=["none", "row_sum"],
+        default="row_sum",
+    )
+    parser.add_argument("--multiscale-coupling-length-scale", type=float, default=0.0)
+    parser.add_argument("--multiscale-coupling-floor", type=float, default=0.0)
+    parser.add_argument("--multiscale-vertical-strength", type=float, default=0.25)
+    parser.add_argument("--multiscale-feedback-strength", type=float, default=0.0)
+    parser.add_argument(
+        "--multiscale-vertical-profile",
+        choices=["dense", "distance_decay", "local_radius"],
+        default="local_radius",
+    )
+    parser.add_argument(
+        "--multiscale-vertical-normalization",
+        choices=["none", "row_sum"],
+        default="row_sum",
+    )
+    parser.add_argument("--multiscale-vertical-length-scale", type=float, default=0.0)
+    parser.add_argument("--multiscale-vertical-floor", type=float, default=0.0)
+    parser.add_argument("--multiscale-vertical-phase-lag", type=float, default=0.0)
+    parser.add_argument("--multiscale-feedback-phase-lag", type=float, default=0.0)
+    parser.add_argument("--multiscale-conditioning-strength", type=float, default=1.0)
     parser.add_argument("--state-mlp-hidden-dim", type=int, default=48)
     parser.add_argument("--state-mlp-depth", type=int, default=1)
     parser.add_argument("--state-mlp-residual-scale", type=float, default=0.1)
@@ -441,6 +491,21 @@ def config_from_args(args: argparse.Namespace) -> MNISTGeneratorExperimentConfig
         coarse_to_fine_length_scale=args.coarse_to_fine_length_scale,
         coarse_to_fine_floor=args.coarse_to_fine_floor,
         coarse_conditioning_strength=args.coarse_conditioning_strength,
+        multiscale_layer_sizes=args.multiscale_layer_sizes,
+        multiscale_frequency_scales=args.multiscale_frequency_scales,
+        multiscale_coupling_profile=args.multiscale_coupling_profile,
+        multiscale_coupling_normalization=args.multiscale_coupling_normalization,
+        multiscale_coupling_length_scale=args.multiscale_coupling_length_scale,
+        multiscale_coupling_floor=args.multiscale_coupling_floor,
+        multiscale_vertical_strength=args.multiscale_vertical_strength,
+        multiscale_feedback_strength=args.multiscale_feedback_strength,
+        multiscale_vertical_profile=args.multiscale_vertical_profile,
+        multiscale_vertical_normalization=args.multiscale_vertical_normalization,
+        multiscale_vertical_length_scale=args.multiscale_vertical_length_scale,
+        multiscale_vertical_floor=args.multiscale_vertical_floor,
+        multiscale_vertical_phase_lag=args.multiscale_vertical_phase_lag,
+        multiscale_feedback_phase_lag=args.multiscale_feedback_phase_lag,
+        multiscale_conditioning_strength=args.multiscale_conditioning_strength,
         state_mlp_hidden_dim=args.state_mlp_hidden_dim,
         state_mlp_depth=args.state_mlp_depth,
         state_mlp_residual_scale=args.state_mlp_residual_scale,

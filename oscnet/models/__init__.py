@@ -31,6 +31,7 @@ from .generative import (
     HORNImageGenerator,
     KuramotoImageGenerator,
     KuramotoPhaseVAE,
+    MultiscaleHORNImageGenerator,
     StateMLPImageGenerator,
 )
 from .jepa import (
@@ -159,6 +160,7 @@ __all__ = [
     "CoarseToFineHORNImageGenerator",
     "HORNImageGenerator",
     "KuramotoImageGenerator",
+    "MultiscaleHORNImageGenerator",
     "StateMLPImageGenerator",
     "FeedForwardPatchJEPAPredictor",
     "RecurrentConvPatchJEPAPredictor",

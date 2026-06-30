@@ -9,6 +9,13 @@ from oscnet.core.coupling import (
     rectangular_coupling_profile_from_name,
     row_laplacian,
 )
+from oscnet.core.layered import (
+    OscillatorLayerSpec,
+    adjacent_inter_layer_specs,
+    inter_layer_profile,
+    intra_layer_profile,
+    validate_layer_specs,
+)
 
 
 def test_oscillator_grid_coordinates_are_near_square():
@@ -93,3 +100,46 @@ def test_row_laplacian_reports_degree_and_zero_row_sum():
     assert degree.shape == (9,)
     assert jnp.allclose(degree, 9.0, atol=1e-5)
     assert jnp.allclose(jnp.sum(laplacian, axis=-1), 0.0, atol=1e-5)
+
+
+def test_layered_oscillator_specs_build_horizontal_and_vertical_profiles():
+    layers = validate_layer_specs(
+        (
+            OscillatorLayerSpec(
+                name="coarse",
+                num_oscillators=4,
+                frequency_scale=0.5,
+                coupling_profile="dense",
+            ),
+            OscillatorLayerSpec(
+                name="fine",
+                num_oscillators=16,
+                frequency_scale=1.0,
+                coupling_profile="local_radius",
+                coupling_length_scale=0.7,
+            ),
+        )
+    )
+    vertical_specs = adjacent_inter_layer_specs(
+        num_layers=len(layers),
+        forward_strength=0.25,
+        feedback_strength=0.05,
+        profile="distance_decay",
+        length_scale=0.8,
+    )
+
+    coarse_profile = intra_layer_profile(layers[0])
+    fine_profile = intra_layer_profile(layers[1])
+    down_profile = inter_layer_profile(vertical_specs[0], layers)
+    up_profile = inter_layer_profile(vertical_specs[1], layers)
+
+    assert coarse_profile.shape == (4, 4)
+    assert fine_profile.shape == (16, 16)
+    assert down_profile.shape == (16, 4)
+    assert up_profile.shape == (4, 16)
+    assert jnp.allclose(jnp.sum(down_profile, axis=-1), 4.0, atol=1e-5)
+    assert jnp.allclose(jnp.sum(up_profile, axis=-1), 16.0, atol=1e-5)
+    assert vertical_specs[0].source_layer == 0
+    assert vertical_specs[0].target_layer == 1
+    assert vertical_specs[1].source_layer == 1
+    assert vertical_specs[1].target_layer == 0

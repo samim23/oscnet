@@ -266,6 +266,10 @@ SWEEP_CSVS = {
         "outputs/analysis/"
         "modal_mnist_generator_cifar10_rgb_coarse_to_fine_feedback_probe.csv"
     ),
+    "mnist_generator_cifar10_rgb_multiscale_layered_probe": Path(
+        "outputs/analysis/"
+        "modal_mnist_generator_cifar10_rgb_multiscale_layered_probe.csv"
+    ),
     "mnist_generator_cifar10_rgb_attribution_probe": Path(
         "outputs/analysis/"
         "modal_mnist_generator_cifar10_rgb_attribution_probe.csv"
@@ -3482,6 +3486,47 @@ def _mnist_generator_cifar10_rgb_coarse_to_fine_feedback_probe() -> list[
     return entries
 
 
+def _mnist_generator_cifar10_rgb_multiscale_layered_probe() -> list[
+    tuple[list[str], str]
+]:
+    """Test layered HORN vertical coupling against matched controls."""
+
+    entries = []
+    variants = (
+        (
+            "normlocal_plain",
+            "sparse_horn_cifar10_rgb_recommended_normlocal",
+            (),
+        ),
+        (
+            "multiscale_no_vertical",
+            "sparse_horn_cifar10_rgb_multiscale16_64_no_vertical",
+            (),
+        ),
+        (
+            "multiscale_local050_fb005",
+            "sparse_horn_cifar10_rgb_multiscale16_64_local050_fb005",
+            (),
+        ),
+    )
+    for seed in (11, 23):
+        for variant_name, preset_name, extra_args in variants:
+            run_name = (
+                "mnist_generator_cifar10_rgb_multiscale_layered_"
+                f"{variant_name}_n256_resizeconv_train2000_seed{seed}_20e"
+            )
+            variant_args = [
+                f"--seed {seed}",
+                f"--preset {preset_name}",
+                *extra_args,
+            ]
+            args = shlex.split(" ".join(variant_args))
+            output_dir = VOLUME_MOUNT / "mnist_generator" / run_name
+            args = _with_default_arg(args, "--output-dir", output_dir)
+            entries.append((args, run_name))
+    return entries
+
+
 def _mnist_generator_cifar10_rgb_main_coupling_strength_entries(
     *,
     seeds: tuple[int, ...],
@@ -3911,6 +3956,8 @@ def _sweep_entries(preset: str) -> list[tuple[list[str], str]]:
         return _mnist_generator_cifar10_rgb_coarse_to_fine_conversion_probe()
     if preset == "mnist_generator_cifar10_rgb_coarse_to_fine_feedback_probe":
         return _mnist_generator_cifar10_rgb_coarse_to_fine_feedback_probe()
+    if preset == "mnist_generator_cifar10_rgb_multiscale_layered_probe":
+        return _mnist_generator_cifar10_rgb_multiscale_layered_probe()
     if preset == "mnist_generator_cifar10_rgb_attribution_probe":
         return _mnist_generator_cifar10_rgb_attribution_probe_sweep()
     if preset == "mnist_generator_cifar10_rgb_sparse_drive_probe":
@@ -4041,6 +4088,10 @@ def _write_sweep_csv(results: list[dict[str, Any]], path: Path) -> None:
         "generator.success_diagnostics.trainable_conditioning_params",
         "generator.success_diagnostics.coarse_recurrent_params",
         "generator.success_diagnostics.coarse_conditioning_params",
+        "generator.success_diagnostics.auxiliary_recurrent_params",
+        "generator.success_diagnostics.vertical_recurrent_params",
+        "generator.success_diagnostics.multiscale_recurrent_params",
+        "generator.success_diagnostics.multiscale_conditioning_params",
         "generator.success_diagnostics.transition_params",
         "generator.success_diagnostics.estimated_recurrent_op_fraction",
         "generator.success_diagnostics.coupling_profile",
@@ -4076,6 +4127,24 @@ def _write_sweep_csv(results: list[dict[str, Any]], path: Path) -> None:
         "generator.success_diagnostics.coarse_to_fine_profile_row_sum_min",
         "generator.success_diagnostics.coarse_to_fine_profile_row_sum_max",
         "generator.success_diagnostics.coarse_conditioning_strength",
+        "generator.success_diagnostics.multiscale_layer_sizes",
+        "generator.success_diagnostics.multiscale_frequency_scales",
+        "generator.success_diagnostics.multiscale_coupling_profile",
+        "generator.success_diagnostics.multiscale_coupling_normalization",
+        "generator.success_diagnostics.multiscale_coupling_length_scale",
+        "generator.success_diagnostics.multiscale_vertical_strength",
+        "generator.success_diagnostics.multiscale_feedback_strength",
+        "generator.success_diagnostics.multiscale_vertical_profile",
+        "generator.success_diagnostics.multiscale_vertical_normalization",
+        "generator.success_diagnostics.multiscale_vertical_length_scale",
+        "generator.success_diagnostics.multiscale_vertical_phase_lag",
+        "generator.success_diagnostics.multiscale_feedback_phase_lag",
+        "generator.success_diagnostics.multiscale_conditioning_strength",
+        "generator.success_diagnostics.num_auxiliary_layers",
+        "generator.success_diagnostics.num_vertical_couplings",
+        "generator.success_diagnostics.vertical_profile_density",
+        "generator.success_diagnostics.vertical_profile_row_sum_mean",
+        "generator.success_diagnostics.vertical_profile_row_sum_std",
         "generator.success_diagnostics.output_feedback_mode",
         "generator.success_diagnostics.output_feedback_strength",
         "generator.success_diagnostics.output_feedback_init_scale",
@@ -4129,6 +4198,7 @@ def _write_sweep_csv(results: list[dict[str, Any]], path: Path) -> None:
         "generator.success_diagnostics.coarse_to_fine_potential_proxy_initial",
         "generator.success_diagnostics.coarse_to_fine_potential_proxy_final",
         "generator.success_diagnostics.coarse_to_fine_potential_proxy_delta",
+        "generator.success_diagnostics.vertical_potential_proxy_delta_mean",
         "generator.success_diagnostics.output_step_mse_initial",
         "generator.success_diagnostics.output_step_mse_final",
         "generator.success_diagnostics.output_step_mse_mean",

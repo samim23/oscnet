@@ -7079,6 +7079,25 @@ Updated feedback read:
   explicit coarse objective. More scalar strength sweeps are unlikely to
   unlock the visible-quality gap.
 
+### Layered HORN Scaffold
+
+Follow-up infrastructure now treats this as a framework-level layered
+oscillator-field problem instead of another single C2F variant:
+
+- `oscnet.core.layered` defines oscillator layer specs and directed inter-layer
+  coupling specs.
+- `MultiscaleHORNImageGenerator` supports multiple auxiliary HORN populations,
+  per-layer horizontal coupling, directed vertical coupling, optional
+  bidirectional feedback, phase lags, and per-layer conditioning drive.
+- Diagnostics count auxiliary/vertical params and ops separately and report
+  per-layer energy/update/coupling proxies plus vertical disagreement proxies.
+
+The first disciplined probe should compare
+`sparse_horn_cifar10_rgb_multiscale16_64_local050_fb005` with
+`sparse_horn_cifar10_rgb_multiscale16_64_no_vertical`. This asks whether
+vertical layered settling adds value beyond simply giving the model more
+auxiliary oscillator banks.
+
 ## Maintenance Notes
 
 - Put numerical benchmark summaries in this file and/or `outputs/analysis`.

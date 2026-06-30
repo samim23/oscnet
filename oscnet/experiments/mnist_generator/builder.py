@@ -9,6 +9,7 @@ from oscnet.models import (
     CoarseToFineHORNImageGenerator,
     HORNImageGenerator,
     KuramotoImageGenerator,
+    MultiscaleHORNImageGenerator,
     StateMLPImageGenerator,
 )
 
@@ -20,13 +21,20 @@ def build_mnist_generator_model(
 ) -> eqx.Module:
     """Build the requested oscillator generator or control."""
 
-    if config.model_family in ("kuramoto", "horn", "coarse_horn", "state_mlp"):
+    if config.model_family in (
+        "kuramoto",
+        "horn",
+        "coarse_horn",
+        "multiscale_horn",
+        "state_mlp",
+    ):
         steps = config.steps
         train_dynamics = True
     elif config.model_family in (
         "decoder_only",
         "horn_decoder_only",
         "coarse_horn_decoder_only",
+        "multiscale_horn_decoder_only",
         "state_mlp_decoder_only",
     ):
         steps = 0
@@ -35,6 +43,7 @@ def build_mnist_generator_model(
         "frozen_kuramoto",
         "frozen_horn",
         "frozen_coarse_horn",
+        "frozen_multiscale_horn",
         "frozen_state_mlp",
     ):
         steps = config.steps
@@ -44,6 +53,8 @@ def build_mnist_generator_model(
             "model_family must be 'kuramoto', 'decoder_only', "
             "'frozen_kuramoto', 'horn', 'horn_decoder_only', 'frozen_horn', "
             "'coarse_horn', 'coarse_horn_decoder_only', 'frozen_coarse_horn', "
+            "'multiscale_horn', 'multiscale_horn_decoder_only', "
+            "'frozen_multiscale_horn', "
             "'state_mlp', 'state_mlp_decoder_only', or 'frozen_state_mlp'"
         )
     train_recurrent_dynamics = (
@@ -63,6 +74,12 @@ def build_mnist_generator_model(
         "frozen_coarse_horn",
     ):
         model_class = CoarseToFineHORNImageGenerator
+    elif config.model_family in (
+        "multiscale_horn",
+        "multiscale_horn_decoder_only",
+        "frozen_multiscale_horn",
+    ):
+        model_class = MultiscaleHORNImageGenerator
     elif config.model_family in ("horn", "horn_decoder_only", "frozen_horn"):
         model_class = HORNImageGenerator
     elif config.model_family in (
@@ -115,7 +132,11 @@ def build_mnist_generator_model(
         "output_bias_init": config.output_bias_init,
         "key": key,
     }
-    if model_class in (HORNImageGenerator, CoarseToFineHORNImageGenerator):
+    if model_class in (
+        HORNImageGenerator,
+        CoarseToFineHORNImageGenerator,
+        MultiscaleHORNImageGenerator,
+    ):
         model_kwargs.update(
             {
                 "horn_frequency": config.horn_frequency,
@@ -146,6 +167,38 @@ def build_mnist_generator_model(
                 "coarse_to_fine_floor": config.coarse_to_fine_floor,
                 "coarse_conditioning_strength": (
                     config.coarse_conditioning_strength
+                ),
+            }
+        )
+    if model_class is MultiscaleHORNImageGenerator:
+        model_kwargs.update(
+            {
+                "multiscale_layer_sizes": config.multiscale_layer_sizes,
+                "multiscale_frequency_scales": config.multiscale_frequency_scales,
+                "multiscale_coupling_profile": config.multiscale_coupling_profile,
+                "multiscale_coupling_normalization": (
+                    config.multiscale_coupling_normalization
+                ),
+                "multiscale_coupling_length_scale": (
+                    config.multiscale_coupling_length_scale
+                ),
+                "multiscale_coupling_floor": config.multiscale_coupling_floor,
+                "multiscale_vertical_strength": config.multiscale_vertical_strength,
+                "multiscale_feedback_strength": config.multiscale_feedback_strength,
+                "multiscale_vertical_profile": config.multiscale_vertical_profile,
+                "multiscale_vertical_normalization": (
+                    config.multiscale_vertical_normalization
+                ),
+                "multiscale_vertical_length_scale": (
+                    config.multiscale_vertical_length_scale
+                ),
+                "multiscale_vertical_floor": config.multiscale_vertical_floor,
+                "multiscale_vertical_phase_lag": config.multiscale_vertical_phase_lag,
+                "multiscale_feedback_phase_lag": (
+                    config.multiscale_feedback_phase_lag
+                ),
+                "multiscale_conditioning_strength": (
+                    config.multiscale_conditioning_strength
                 ),
             }
         )

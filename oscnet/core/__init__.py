@@ -43,6 +43,14 @@ from .coupling import (
     rectangular_local_radius_coupling_profile,
     row_laplacian,
 )
+from .layered import (
+    InterLayerCouplingSpec,
+    OscillatorLayerSpec,
+    adjacent_inter_layer_specs,
+    inter_layer_profile,
+    intra_layer_profile,
+    validate_layer_specs,
+)
 
 from .fractal_coupling import (
     HierarchicalCouplingLayer,
@@ -92,6 +100,12 @@ __all__ = [
     "rectangular_distance_decay_coupling_profile",
     "rectangular_local_radius_coupling_profile",
     "row_laplacian",
+    "InterLayerCouplingSpec",
+    "OscillatorLayerSpec",
+    "adjacent_inter_layer_specs",
+    "inter_layer_profile",
+    "intra_layer_profile",
+    "validate_layer_specs",
     
     # Fractal coupling
     "HierarchicalCouplingLayer",
