@@ -230,6 +230,59 @@ beyond the added oscillator banks. Current two-seed result: the no-vertical
 auxiliary banks improve generated-label accuracy over plain normalized-local
 HORN, while active weak vertical coupling improves nearest-real proximity but
 hurts class consistency/basin quality.
+The `*_auxlow8` variants add a low-resolution target on the coarsest auxiliary
+layer. They are useful for testing whether coarse layers become meaningful when
+given their own objective. Current read: the auxiliary target improves some
+proximity/accuracy metrics, especially without vertical coupling, but active
+vertical coupling still trades away semantic/diversity quality.
+The `*_vgate_conditioning` and `*_vgate_non_conditioning` variants route
+vertical drive only into selected fine oscillators. The current two-seed read is
+that `vgate_conditioning` is much less destructive than all-target vertical
+drive and improves nearest-real MSE, but `no_vertical_auxlow8` remains the
+stronger semantic/attractor baseline.
+The `*_gain_all` and `*_gain_conditioning` variants use the coarse/auxiliary
+projection as a bounded gain on fine-layer dynamics instead of as additive
+vertical acceleration. The current two-seed read is that `gain_all_auxlow8` is
+the strongest active vertical hierarchy signal so far: it improves
+class-consistency, diversity, feature diversity, and attractor metrics over
+`no_vertical_auxlow8`, while giving up nearest-pixel MSE and speed.
+The follow-up vertical intervention audit is more cautious: zeroing,
+shuffling, flipping, or scaling the trained vertical path barely changes
+sample-time outputs, so current gain variants should be treated as useful
+training recipes and diagnostics, not proven causal hierarchy wins.
+The newer `*_vscale10` and `*_vscale30` calibration variants make that
+vertical route measurably causal. The `*_dual_gain_*` variants combine broad
+positive gain with selective signed gain; they are useful hierarchy probes, but
+the current CIFAR RGB result does not make them the default because broad gain
+or no-vertical auxiliary banks still win the main semantic/attractor frontier.
+The `*_normstd015` variants add homeostatic gain normalization: vertical
+modulation is centered and RMS-controlled so hierarchy can redistribute
+fine-column drive without raising the average drive energy. Current read:
+normalized selective signed gain is the cleanest hierarchy lead so far on
+CIFAR RGB, improving class consistency, attractor accuracy, basin score,
+feature diversity, output settling, and nearest-real MSE against both
+no-vertical and raw selective signed gain in the two-seed probe. Normalized
+dual-gain gets worse, so this is a selective/homeostatic gain clue, not a
+general hierarchy default. A follow-up calibration found that `center`
+normalization alone is the stronger semantic/diversity/basin candidate, while
+fixed-RMS `center_rms` variants mostly trade that frontier for pixel/feature
+proximity. A timing probe found that immediate centered gain remains the
+stronger semantic/attractor route; delayed gain mostly trades class accuracy
+for diversity, and ramped gain behaves like a proximity regularizer.
+The `*_drive2` variants weaken both fine and auxiliary class drive. In that
+setting, selective additive routing to the class-conditioned columns is the
+stronger semantic/basin result, while broad gain mostly preserves diversity.
+Use this when testing whether hierarchy still helps after label shortcuts are
+reduced.
+The `*_signed_gain_*` variants let coarse vertical modulation become
+inhibitory as well as excitatory. Current read: broad signed gain improves
+attractor/basin metrics, while selective signed gain is the better
+accuracy/proximity compromise and the strongest weak-drive hierarchy variant
+so far.
+The `*_soft025` variants give non-target fine columns a weak 25% vertical
+gain floor. They are useful diagnostics, but not current defaults: the soft
+floor helps unsigned selective gain a little and hurts selective signed gain's
+class consistency/basin strength.
 
 ## Example Menu
 

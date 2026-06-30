@@ -163,7 +163,36 @@ def _checkpoint_hyperparams(config: MNISTGeneratorExperimentConfig) -> Dict[str,
         "multiscale_vertical_floor": config.multiscale_vertical_floor,
         "multiscale_vertical_phase_lag": config.multiscale_vertical_phase_lag,
         "multiscale_feedback_phase_lag": config.multiscale_feedback_phase_lag,
+        "multiscale_vertical_signal_scale": (
+            config.multiscale_vertical_signal_scale
+        ),
+        "multiscale_vertical_target_gate": config.multiscale_vertical_target_gate,
+        "multiscale_vertical_soft_gate_floor": (
+            config.multiscale_vertical_soft_gate_floor
+        ),
+        "multiscale_vertical_mode": config.multiscale_vertical_mode,
+        "multiscale_vertical_gain_target": config.multiscale_vertical_gain_target,
+        "multiscale_vertical_gain_normalization": (
+            config.multiscale_vertical_gain_normalization
+        ),
+        "multiscale_vertical_gain_target_std": (
+            config.multiscale_vertical_gain_target_std
+        ),
+        "multiscale_vertical_broad_gain_scale": (
+            config.multiscale_vertical_broad_gain_scale
+        ),
+        "multiscale_vertical_selective_gain_scale": (
+            config.multiscale_vertical_selective_gain_scale
+        ),
+        "multiscale_vertical_schedule": config.multiscale_vertical_schedule,
+        "multiscale_vertical_onset_step": config.multiscale_vertical_onset_step,
+        "multiscale_vertical_ramp_steps": config.multiscale_vertical_ramp_steps,
         "multiscale_conditioning_strength": config.multiscale_conditioning_strength,
+        "multiscale_auxiliary_readout_layer": (
+            config.multiscale_auxiliary_readout_layer
+        ),
+        "coarse_auxiliary_weight": config.coarse_auxiliary_weight,
+        "coarse_auxiliary_target_size": config.coarse_auxiliary_target_size,
         "train_recurrent_dynamics": config.train_recurrent_dynamics,
         "train_conditioning_dynamics": config.train_conditioning_dynamics,
         "conditional": config.conditional,
@@ -211,4 +240,6 @@ def _checkpoint_hyperparams(config: MNISTGeneratorExperimentConfig) -> Dict[str,
         "train_settling_steps": config.train_settling_steps,
         "settling_steps": config.settling_steps,
         "attractor_variants_per_class": config.attractor_variants_per_class,
+        "vertical_audit_modes": config.vertical_audit_modes,
+        "vertical_audit_sample_count": config.vertical_audit_sample_count,
     }

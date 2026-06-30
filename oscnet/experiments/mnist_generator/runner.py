@@ -36,13 +36,14 @@ from .features import (
     make_projection_matrix,
     train_mnist_feature_classifier,
 )
-from .losses import generator_loss
+from .losses import coarse_auxiliary_image_loss, generator_loss
 from .metrics import (
     _model_with_steps,
     compute_generator_attractor_robustness,
     compute_generator_quality_metrics,
     compute_generator_settling_metrics,
     compute_generator_success_diagnostics,
+    compute_generator_vertical_intervention_audit,
     sample_generator_images,
 )
 from .queue import MNISTDriftQueue
@@ -73,6 +74,9 @@ def _train_step(
     drift_gamma: float,
     drift_temperatures: Tuple[float, ...],
     train_settling_steps: Tuple[int, ...],
+    coarse_auxiliary_weight: float,
+    coarse_auxiliary_target_size: int,
+    image_shape: Tuple[int, ...],
     num_classes: int,
 ):
     def loss_fn(current_model):
@@ -114,6 +118,25 @@ def _train_step(
                 drift_gamma=drift_gamma,
                 drift_temperatures=drift_temperatures,
             )
+            if coarse_auxiliary_weight > 0.0 and hasattr(
+                step_model,
+                "sample_auxiliary_image",
+            ):
+                auxiliary_loss = coarse_auxiliary_image_loss(
+                    step_model,
+                    real_batch,
+                    key=jax.random.fold_in(sample_key, step_index + 100_003),
+                    labels=label_batch,
+                    image_shape=image_shape,
+                    target_size=coarse_auxiliary_target_size,
+                )
+                loss = loss + float(coarse_auxiliary_weight) * auxiliary_loss
+                parts["coarse_auxiliary_loss"] = auxiliary_loss
+            else:
+                parts["coarse_auxiliary_loss"] = jnp.asarray(
+                    0.0,
+                    dtype=real_batch.dtype,
+                )
             losses.append(loss)
             for name, value in parts.items():
                 parts_by_name.setdefault(name, []).append(value)
@@ -155,6 +178,9 @@ def _eval_step(
     distributional_weight: float,
     drift_gamma: float,
     drift_temperatures: Tuple[float, ...],
+    coarse_auxiliary_weight: float,
+    coarse_auxiliary_target_size: int,
+    image_shape: Tuple[int, ...],
     num_classes: int,
 ):
     generated = model(sample_key, real_batch.shape[0], label_batch)
@@ -178,6 +204,19 @@ def _eval_step(
         drift_gamma=drift_gamma,
         drift_temperatures=drift_temperatures,
     )
+    if coarse_auxiliary_weight > 0.0 and hasattr(model, "sample_auxiliary_image"):
+        auxiliary_loss = coarse_auxiliary_image_loss(
+            model,
+            real_batch,
+            key=jax.random.fold_in(sample_key, 200_003),
+            labels=label_batch,
+            image_shape=image_shape,
+            target_size=coarse_auxiliary_target_size,
+        )
+        loss = loss + float(coarse_auxiliary_weight) * auxiliary_loss
+        parts["coarse_auxiliary_loss"] = auxiliary_loss
+    else:
+        parts["coarse_auxiliary_loss"] = jnp.asarray(0.0, dtype=real_batch.dtype)
     return loss, parts
 
 
@@ -202,6 +241,9 @@ def evaluate_generator_loss(
     distributional_weight: float = 0.0,
     drift_gamma: float = 0.2,
     drift_temperatures: Tuple[float, ...] = (0.02, 0.05, 0.2),
+    coarse_auxiliary_weight: float = 0.0,
+    coarse_auxiliary_target_size: int = 8,
+    image_shape: Tuple[int, ...] = (28, 28),
     num_classes: int = 0,
 ) -> Tuple[float, Dict[str, float]]:
     """Evaluate mean distributional loss over real-image batches."""
@@ -214,6 +256,7 @@ def evaluate_generator_loss(
     prototype_losses = []
     pixel_drift_losses = []
     feature_drift_losses = []
+    coarse_auxiliary_losses = []
     if labels is None:
         iterator = (
             (batch, None)
@@ -253,6 +296,9 @@ def evaluate_generator_loss(
             distributional_weight,
             drift_gamma,
             drift_temperatures,
+            coarse_auxiliary_weight,
+            coarse_auxiliary_target_size,
+            image_shape,
             num_classes,
         )
         losses.append(float(loss))
@@ -263,6 +309,7 @@ def evaluate_generator_loss(
         prototype_losses.append(float(parts["prototype_loss"]))
         pixel_drift_losses.append(float(parts["pixel_drift_loss"]))
         feature_drift_losses.append(float(parts["feature_drift_loss"]))
+        coarse_auxiliary_losses.append(float(parts["coarse_auxiliary_loss"]))
     if not losses:
         return float("nan"), {
             "eval_sliced_wasserstein": float("nan"),
@@ -272,6 +319,7 @@ def evaluate_generator_loss(
             "eval_prototype_loss": float("nan"),
             "eval_pixel_drift_loss": float("nan"),
             "eval_feature_drift_loss": float("nan"),
+            "eval_coarse_auxiliary_loss": float("nan"),
         }
     return float(np.mean(losses)), {
         "eval_sliced_wasserstein": float(np.mean(swd_losses)),
@@ -281,6 +329,7 @@ def evaluate_generator_loss(
         "eval_prototype_loss": float(np.mean(prototype_losses)),
         "eval_pixel_drift_loss": float(np.mean(pixel_drift_losses)),
         "eval_feature_drift_loss": float(np.mean(feature_drift_losses)),
+        "eval_coarse_auxiliary_loss": float(np.mean(coarse_auxiliary_losses)),
     }
 
 
@@ -487,6 +536,7 @@ def run_mnist_generator_experiment(
         "train_prototype_loss": [],
         "train_pixel_drift_loss": [],
         "train_feature_drift_loss": [],
+        "train_coarse_auxiliary_loss": [],
         "train_drift_queue_ready": [],
         "eval_sliced_wasserstein": [],
         "eval_moment_loss": [],
@@ -495,6 +545,7 @@ def run_mnist_generator_experiment(
         "eval_prototype_loss": [],
         "eval_pixel_drift_loss": [],
         "eval_feature_drift_loss": [],
+        "eval_coarse_auxiliary_loss": [],
         "best_eval_loss": None,
         "best_epoch": None,
     }
@@ -518,6 +569,7 @@ def run_mnist_generator_experiment(
         prototype_losses = []
         pixel_drift_losses = []
         feature_drift_losses = []
+        coarse_auxiliary_losses = []
         drift_queue_ready_values = []
 
         if config.conditional:
@@ -575,6 +627,9 @@ def run_mnist_generator_experiment(
                 config.drift_gamma,
                 config.drift_temperatures,
                 config.train_settling_steps,
+                config.coarse_auxiliary_weight,
+                config.coarse_auxiliary_target_size,
+                config.image_shape,
                 config.num_classes if config.conditional else 0,
             )
             losses.append(float(loss))
@@ -586,6 +641,7 @@ def run_mnist_generator_experiment(
             prototype_losses.append(float(parts["prototype_loss"]))
             pixel_drift_losses.append(float(parts["pixel_drift_loss"]))
             feature_drift_losses.append(float(parts["feature_drift_loss"]))
+            coarse_auxiliary_losses.append(float(parts["coarse_auxiliary_loss"]))
             drift_queue_ready_values.append(float(drift_queue_ready))
 
         train_loss = float(np.mean(losses)) if losses else float("nan")
@@ -613,6 +669,11 @@ def run_mnist_generator_experiment(
             if feature_drift_losses
             else float("nan")
         )
+        train_coarse_auxiliary = (
+            float(np.mean(coarse_auxiliary_losses))
+            if coarse_auxiliary_losses
+            else float("nan")
+        )
         train_drift_queue_ready = (
             float(np.mean(drift_queue_ready_values))
             if drift_queue_ready_values
@@ -627,6 +688,7 @@ def run_mnist_generator_experiment(
             "eval_prototype_loss": None,
             "eval_pixel_drift_loss": None,
             "eval_feature_drift_loss": None,
+            "eval_coarse_auxiliary_loss": None,
         }
         if epoch % config.run.eval_every == 0:
             eval_key = jax.random.fold_in(key, epoch + 20_000)
@@ -650,6 +712,9 @@ def run_mnist_generator_experiment(
                 distributional_weight=config.distributional_weight,
                 drift_gamma=config.drift_gamma,
                 drift_temperatures=config.drift_temperatures,
+                coarse_auxiliary_weight=config.coarse_auxiliary_weight,
+                coarse_auxiliary_target_size=config.coarse_auxiliary_target_size,
+                image_shape=config.image_shape,
                 num_classes=config.num_classes if config.conditional else 0,
             )
 
@@ -676,6 +741,7 @@ def run_mnist_generator_experiment(
         metrics["train_prototype_loss"].append(train_prototype)
         metrics["train_pixel_drift_loss"].append(train_pixel_drift)
         metrics["train_feature_drift_loss"].append(train_feature_drift)
+        metrics["train_coarse_auxiliary_loss"].append(train_coarse_auxiliary)
         metrics["train_drift_queue_ready"].append(train_drift_queue_ready)
         metrics["eval_sliced_wasserstein"].append(
             eval_parts["eval_sliced_wasserstein"]
@@ -693,6 +759,9 @@ def run_mnist_generator_experiment(
         )
         metrics["eval_feature_drift_loss"].append(
             eval_parts["eval_feature_drift_loss"]
+        )
+        metrics["eval_coarse_auxiliary_loss"].append(
+            eval_parts["eval_coarse_auxiliary_loss"]
         )
 
         logger.info(
@@ -808,6 +877,28 @@ def run_mnist_generator_experiment(
         num_classes=config.num_classes,
         classifier=quality_classifier_model,
     )
+    vertical_intervention_audit = compute_generator_vertical_intervention_audit(
+        model,
+        key=jax.random.fold_in(key, 56_000),
+        real_images=eval_images[:eval_count],
+        sample_count=(
+            config.vertical_audit_sample_count
+            if config.vertical_audit_sample_count > 0
+            else eval_count
+        ),
+        batch_size=config.run.batch_size,
+        labels=eval_labels[:eval_count] if config.conditional else None,
+        prototypes=prototypes,
+        classifier=quality_classifier_model,
+        modes=config.vertical_audit_modes,
+        attractor_variants_per_class=(
+            config.attractor_variants_per_class
+            if config.conditional and config.vertical_audit_modes
+            else 0
+        ),
+        num_classes=config.num_classes,
+        trace_batch_size=diagnostic_count,
+    )
     summary = {
         "final_train_loss": metrics["train_loss"][-1],
         "final_eval_loss": metrics["eval_loss"][-1],
@@ -815,6 +906,12 @@ def run_mnist_generator_experiment(
         "final_eval_pixel_drift_loss": metrics["eval_pixel_drift_loss"][-1],
         "final_train_feature_drift_loss": metrics["train_feature_drift_loss"][-1],
         "final_eval_feature_drift_loss": metrics["eval_feature_drift_loss"][-1],
+        "final_train_coarse_auxiliary_loss": metrics[
+            "train_coarse_auxiliary_loss"
+        ][-1],
+        "final_eval_coarse_auxiliary_loss": metrics[
+            "eval_coarse_auxiliary_loss"
+        ][-1],
         "final_train_drift_queue_ready": metrics["train_drift_queue_ready"][-1],
         "best_loss": best_loss,
         "best_epoch": metrics["best_epoch"],
@@ -991,9 +1088,63 @@ def run_mnist_generator_experiment(
             "multiscale_feedback_phase_lag": float(
                 getattr(model, "multiscale_feedback_phase_lag", 0.0)
             ),
+            "multiscale_vertical_signal_scale": float(
+                getattr(model, "multiscale_vertical_signal_scale", 1.0)
+            ),
+            "multiscale_vertical_target_gate": getattr(
+                model,
+                "multiscale_vertical_target_gate",
+                "all",
+            ),
+            "multiscale_vertical_soft_gate_floor": float(
+                getattr(model, "multiscale_vertical_soft_gate_floor", 0.0)
+            ),
+            "multiscale_vertical_mode": getattr(
+                model,
+                "multiscale_vertical_mode",
+                "additive",
+            ),
+            "multiscale_vertical_gain_target": getattr(
+                model,
+                "multiscale_vertical_gain_target",
+                "drive",
+            ),
+            "multiscale_vertical_gain_normalization": getattr(
+                model,
+                "multiscale_vertical_gain_normalization",
+                "none",
+            ),
+            "multiscale_vertical_gain_target_std": float(
+                getattr(model, "multiscale_vertical_gain_target_std", 0.0)
+            ),
+            "multiscale_vertical_broad_gain_scale": float(
+                getattr(model, "multiscale_vertical_broad_gain_scale", 1.0)
+            ),
+            "multiscale_vertical_selective_gain_scale": float(
+                getattr(model, "multiscale_vertical_selective_gain_scale", 1.0)
+            ),
+            "multiscale_vertical_schedule": getattr(
+                model,
+                "multiscale_vertical_schedule",
+                "constant",
+            ),
+            "multiscale_vertical_onset_step": int(
+                getattr(model, "multiscale_vertical_onset_step", 0)
+            ),
+            "multiscale_vertical_ramp_steps": int(
+                getattr(model, "multiscale_vertical_ramp_steps", 0)
+            ),
             "multiscale_conditioning_strength": float(
                 getattr(model, "multiscale_conditioning_strength", 0.0)
             ),
+            "multiscale_auxiliary_readout_layer": int(
+                getattr(model, "multiscale_auxiliary_readout_layer", 0)
+            ),
+            "multiscale_auxiliary_readout_size": int(
+                getattr(model, "multiscale_auxiliary_readout_size", 0)
+            ),
+            "coarse_auxiliary_weight": config.coarse_auxiliary_weight,
+            "coarse_auxiliary_target_size": config.coarse_auxiliary_target_size,
             "num_auxiliary_layers": int(getattr(model, "num_auxiliary_layers", 0)),
             "num_vertical_couplings": int(
                 getattr(model, "num_vertical_couplings", 0)
@@ -1011,6 +1162,7 @@ def run_mnist_generator_experiment(
             "resize_conv_min_channels": config.resize_conv_min_channels,
             "settling": settling,
             "attractor_robustness": attractor_robustness,
+            "vertical_intervention_audit": vertical_intervention_audit,
             **quality,
             "success_diagnostics": success_diagnostics,
         },

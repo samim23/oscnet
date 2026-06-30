@@ -18,6 +18,8 @@ from .features import (
 from .losses import (
     conditional_feature_drift_loss,
     conditional_pixel_drift_loss,
+    coarse_auxiliary_image_loss,
+    downsample_image_batch,
     generator_distribution_loss,
     generator_loss,
     sliced_wasserstein_loss,
@@ -28,6 +30,7 @@ from .metrics import (
     compute_generator_settling_metrics,
     compute_generator_success_diagnostics,
     compute_generator_trace_dynamics,
+    compute_generator_vertical_intervention_audit,
     sample_generator_images,
 )
 from .presets import GENERATOR_PRESETS, RECOMMENDED_GENERATOR_PRESET, preset_defaults
@@ -51,9 +54,12 @@ __all__ = [
     "compute_generator_settling_metrics",
     "compute_generator_success_diagnostics",
     "compute_generator_trace_dynamics",
+    "compute_generator_vertical_intervention_audit",
     "conditional_feature_drift_loss",
     "conditional_pixel_drift_loss",
+    "coarse_auxiliary_image_loss",
     "config_from_args",
+    "downsample_image_batch",
     "evaluate_generator_loss",
     "generator_distribution_loss",
     "generator_loss",

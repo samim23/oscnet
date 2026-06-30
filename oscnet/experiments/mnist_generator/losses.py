@@ -7,8 +7,64 @@ from typing import Dict, Optional, Sequence, Tuple
 import jax
 import jax.numpy as jnp
 
+from oscnet.models.generative.common import _image_hw_channels
+
 from .common import Array
 from .features import FeatureClassifier, mnist_feature_map
+
+
+def downsample_image_batch(
+    images: Array,
+    *,
+    image_shape: Tuple[int, ...],
+    target_size: int,
+) -> Array:
+    """Resize flat image batches to a square low-resolution target."""
+
+    height, width, channels = _image_hw_channels(tuple(int(size) for size in image_shape))
+    target_size = int(target_size)
+    if target_size < 1:
+        raise ValueError("target_size must be positive")
+    images_hw = images.reshape(images.shape[0], height, width, channels)
+    if height % target_size == 0 and width % target_size == 0:
+        block_h = height // target_size
+        block_w = width // target_size
+        lowres = images_hw.reshape(
+            images.shape[0],
+            target_size,
+            block_h,
+            target_size,
+            block_w,
+            channels,
+        )
+        lowres = jnp.mean(lowres, axis=(2, 4))
+    else:
+        lowres = jax.image.resize(
+            images_hw,
+            (images.shape[0], target_size, target_size, channels),
+            method="linear",
+        )
+    return lowres.reshape(images.shape[0], target_size * target_size * channels)
+
+
+def coarse_auxiliary_image_loss(
+    model,
+    real: Array,
+    *,
+    key: jax.random.PRNGKey,
+    labels: Optional[Array],
+    image_shape: Tuple[int, ...],
+    target_size: int,
+) -> Array:
+    """Match a multiscale auxiliary layer to a low-resolution image target."""
+
+    generated = model.sample_auxiliary_image(key, real.shape[0], labels)
+    target = downsample_image_batch(
+        real,
+        image_shape=image_shape,
+        target_size=target_size,
+    )
+    return jnp.mean((generated - jax.lax.stop_gradient(target)) ** 2)
 
 def sliced_wasserstein_loss(real: Array, generated: Array, projections: Array) -> Array:
     """Compare two batches by sorted random one-dimensional projections."""
@@ -411,4 +467,3 @@ def generator_loss(
         "total_loss": total,
     }
     return total, parts
-

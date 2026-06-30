@@ -7139,6 +7139,881 @@ Updated layered read:
   or supervised by an explicit coarse objective. Simple weak local vertical
   springs trade semantic class coherence for sample proximity.
 
+### Coarse Auxiliary Objective Probe
+
+The next disciplined test gave the coarsest auxiliary HORN layer its own
+low-resolution image target. This was meant to test whether hierarchy becomes
+useful when the coarse layer has a real job, instead of acting as an
+unsupervised spring connected to the fine layer.
+
+Implementation:
+
+- `MultiscaleHORNImageGenerator` now has an auxiliary low-resolution readout
+  attached to a selected auxiliary layer.
+- The generator harness supports `coarse_auxiliary_weight`,
+  `coarse_auxiliary_target_size`, and `multiscale_auxiliary_readout_layer`.
+- The auxiliary target is a downsampled image batch; the objective is opt-in
+  and is tracked separately as `train/eval_coarse_auxiliary_loss`.
+
+Probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=8 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_multiscale_auxiliary_probe
+```
+
+Artifacts:
+
+```text
+outputs/analysis/modal_mnist_generator_cifar10_rgb_multiscale_auxiliary_probe.csv
+outputs/analysis/modal_mnist_generator_cifar10_rgb_multiscale_auxiliary_probe.json
+outputs/analysis/cifar10_rgb_multiscale_auxiliary_probe/frontier_summary.md
+outputs/analysis/cifar10_rgb_multiscale_auxiliary_probe/paired_deltas.md
+```
+
+Aggregate result across seeds 11 and 23:
+
+| Variant | Runs | Acc | Diversity | Nearest-real MSE | Feature diversity | Feature nearest-real | Attractor acc | Basin score | Samples/sec |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `no_vertical_auxlow8` | 2 | 0.4102 | 0.9591 | 0.0283 | 0.8731 | 0.3393 | 0.4063 | 1.5816 | 344.0 |
+| `local050_fb005` | 2 | 0.3906 | 0.9778 | 0.0275 | 0.8489 | 0.3637 | 0.4313 | 1.5998 | 313.7 |
+| `no_vertical` | 2 | 0.3818 | 0.9944 | 0.0296 | 0.8683 | 0.3583 | 0.4125 | 1.6467 | 408.7 |
+| `local050_fb005_auxlow8` | 2 | 0.3643 | 0.9155 | 0.0247 | 0.8149 | 0.3486 | 0.3813 | 1.3300 | 208.1 |
+
+Paired read:
+
+- Adding the coarse auxiliary target without vertical coupling improved mean
+  generated-label accuracy by `+0.0283`, improved nearest-real MSE by
+  `-0.0013`, and improved feature nearest-real MSE by `-0.0189`, but reduced
+  pixel diversity and slightly reduced attractor/basin metrics.
+- Active vertical coupling without the auxiliary target improved nearest-real
+  MSE by `-0.0021` and output settling by `-0.0226`, with a small accuracy
+  increase, but reduced diversity and feature diversity.
+- Active vertical coupling with the auxiliary target was the best
+  nearest-real-MSE row (`0.0247`) and the best output-settling row, but it was
+  worse on generated-label accuracy, diversity, attractor accuracy, and basin
+  score. It was also the slowest row.
+
+Updated auxiliary-objective read:
+
+- The low-resolution auxiliary objective is learnable and useful as framework
+  infrastructure. It gives future multiscale experiments a way to make coarse
+  layers meaningful rather than purely decorative.
+- This first version does not validate active weak vertical coupling as the
+  quality path. It mostly trades diversity/semantic basin quality for pixel or
+  feature proximity.
+- The most interesting row is `no_vertical_auxlow8`: because vertical coupling
+  is disabled, its accuracy gain probably comes from the coarse objective
+  shaping shared conditioning/readout parameters, not from hierarchy
+  transmitting useful image structure to the fine field.
+- Next multiscale work should not simply increase vertical strength. The more
+  plausible path is selective vertical coupling: gated, signed
+  excitatory/inhibitory, phase-lagged, or a bidirectional mechanism where the
+  coarse target and fine field negotiate rather than one weak spring tugging on
+  the other.
+
+### Selective Vertical Gate Probe
+
+The follow-up probe tested whether vertical hierarchy fails because the coarse
+drive is sprayed too broadly across the fine field. `MultiscaleHORNImageGenerator`
+now supports `multiscale_vertical_target_gate`:
+
+- `all`: every fine oscillator can receive vertical drive.
+- `conditioning`: vertical drive into the decoded fine layer is restricted to
+  the same oscillator subset that receives direct class-coupling drive.
+- `non_conditioning`: vertical drive is restricted to the complement of that
+  class-drive subset.
+
+Probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=8 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_multiscale_gated_probe
+```
+
+Artifacts:
+
+```text
+outputs/analysis/modal_mnist_generator_cifar10_rgb_multiscale_gated_probe.csv
+outputs/analysis/modal_mnist_generator_cifar10_rgb_multiscale_gated_probe.json
+outputs/analysis/cifar10_rgb_multiscale_gated_probe/frontier_summary.md
+outputs/analysis/cifar10_rgb_multiscale_gated_probe/paired_deltas.md
+```
+
+Aggregate result across seeds 11 and 23:
+
+| Variant | Runs | Acc | Diversity | Nearest-real MSE | Feature diversity | Feature nearest-real | Attractor acc | Basin score | Samples/sec |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `no_vertical_auxlow8` | 2 | 0.4482 | 0.8990 | 0.0232 | 0.8048 | 0.3135 | 0.4750 | 1.4757 | 502.4 |
+| `vgate_conditioning_auxlow8` | 2 | 0.4453 | 0.8360 | 0.0212 | 0.8168 | 0.3782 | 0.4625 | 1.3959 | 165.6 |
+| `vgate_non_conditioning_auxlow8` | 2 | 0.3408 | 0.9498 | 0.0260 | 0.8473 | 0.3611 | 0.3375 | 1.2414 | 213.1 |
+| `local050_fb005_auxlow8` | 2 | 0.3467 | 0.9625 | 0.0275 | 0.8194 | 0.3529 | 0.3125 | 1.2096 | 220.9 |
+
+Paired read against `no_vertical_auxlow8`:
+
+- Full weak vertical coupling remains harmful for semantic/attractor metrics:
+  generated-label accuracy drops by `-0.1016`, attractor accuracy by
+  `-0.1625`, and basin score by `-0.2661`, while diversity rises.
+- `vgate_conditioning_auxlow8` largely recovers semantic quality: generated
+  accuracy is almost tied (`-0.0029`) and attractor accuracy is only slightly
+  lower (`-0.0125`). It also improves nearest-real MSE by `-0.0020`, but
+  reduces pixel diversity and does not improve basin score.
+- `vgate_non_conditioning_auxlow8` behaves more like a diversity injector:
+  diversity and feature diversity rise, but generated accuracy, attractor
+  accuracy, and basin score fall.
+
+Updated selective-gate read:
+
+- Selective routing is a real improvement over blunt all-target vertical
+  coupling. The `conditioning` gate shows that vertical drive is not useless;
+  it becomes much less destructive when routed through the class-conditioned
+  fine columns.
+- It is still not a hierarchy breakthrough. The no-vertical auxiliary model is
+  faster and remains the best overall semantic/attractor row in this probe.
+- The next hierarchy mechanism should be more structured than a masked spring:
+  signed excitatory/inhibitory vertical coupling, phase-lagged vertical drive,
+  learned sparse gates, or an explicit coarse objective that couples through a
+  negotiated fine-to-coarse feedback loop.
+
+### Gain-Modulated Vertical Probe
+
+The next probe changed the meaning of vertical coupling. Instead of adding a
+coarse/source displacement directly into the fine-layer acceleration, the
+vertical projection can now act as a bounded gain on the fine layer's local
+recurrent dynamics and class-conditioning drive:
+
+```text
+additive:        fine acceleration += vertical source-minus-target drive
+gain_modulation: fine local/class drive *= clip(1 + vertical signal, 0, 2)
+```
+
+This is closer to the slow-rhythm / fast-local gating hypothesis than a weak
+top-down spring. The implementation is exposed as
+`multiscale_vertical_mode="gain_modulation"` in
+`MultiscaleHORNImageGenerator`, while `additive` remains the backward-compatible
+default.
+
+Probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=8 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_multiscale_gain_probe
+```
+
+Artifacts:
+
+```text
+outputs/analysis/modal_mnist_generator_cifar10_rgb_multiscale_gain_probe.csv
+outputs/analysis/modal_mnist_generator_cifar10_rgb_multiscale_gain_probe.json
+outputs/analysis/cifar10_rgb_multiscale_gain_probe/frontier_summary.md
+outputs/analysis/cifar10_rgb_multiscale_gain_probe/paired_deltas.md
+```
+
+Aggregate result across seeds 11 and 23:
+
+| Variant | Runs | Acc | Diversity | Nearest-real MSE | Feature diversity | Feature nearest-real | Attractor acc | Basin score | Samples/sec |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `gain_all_auxlow8` | 2 | 0.4746 | 0.9698 | 0.0280 | 0.8899 | 0.3433 | 0.5063 | 1.9968 | 189.6 |
+| `gain_conditioning_auxlow8` | 2 | 0.3740 | 0.9091 | 0.0241 | 0.8634 | 0.2913 | 0.3625 | 1.2848 | 225.7 |
+| `no_vertical_auxlow8` | 2 | 0.3271 | 0.9176 | 0.0237 | 0.8262 | 0.3880 | 0.3188 | 1.0682 | 340.3 |
+| `vgate_conditioning_auxlow8` | 2 | 0.3740 | 0.8945 | 0.0232 | 0.8009 | 0.3118 | 0.3812 | 1.2651 | 222.4 |
+
+Paired read against `no_vertical_auxlow8`:
+
+- `gain_all_auxlow8` is the first active vertical hierarchy row in this branch
+  to clearly beat the no-vertical auxiliary baseline on generated-label
+  accuracy (`+0.1475`), diversity (`+0.0521`), feature diversity (`+0.0638`),
+  attractor accuracy (`+0.1875`), and basin score (`+0.9286`) on both matched
+  seeds.
+- The gain is not free: nearest-real MSE worsens by `+0.0044`, output-settling
+  MSE worsens, and sampling is slower than the no-vertical row.
+- `gain_conditioning_auxlow8` improves feature nearest-real distance and some
+  semantic metrics, but it is less stable across seeds and does not match the
+  broad-gain row.
+- The earlier additive `vgate_conditioning_auxlow8` remains a proximity-biased
+  variant: it improves nearest-real MSE and attractor metrics over
+  no-vertical, but not nearly as strongly as broad gain modulation.
+
+Updated gain-modulation read:
+
+- This is the best evidence so far that active vertical hierarchy can help the
+  HORN generator, provided the vertical signal gates local/class dynamics
+  instead of acting as a direct spring.
+- It supports the slow/coarse rhythm as modulation hypothesis: hierarchy looks
+  more useful when it changes how fine oscillators respond, not when it forces
+  their state toward the coarse state.
+- It does not solve visible sample quality. The best gain row is more semantic
+  and more attractor-robust, but also farther from nearest real pixels. The next
+  useful step is to see whether this stronger basin/frontier can be converted
+  into sharper images through a better readout/objective, or whether a signed
+  excitatory/inhibitory gain is needed to avoid just injecting more foreground
+  variation.
+
+### Weak-Conditioning Hierarchy Probe
+
+The follow-up probe tested whether hierarchy becomes more important when the
+direct class-drive shortcut is weakened. It lowered the fine class-drive
+strength from `8.0` to `2.0` and the auxiliary-layer conditioning strength from
+`1.0` to `0.25`, while keeping the same 25% class-targeted fine oscillator
+subset.
+
+Probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=8 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_multiscale_weak_drive_probe
+```
+
+Artifacts:
+
+```text
+outputs/analysis/modal_mnist_generator_cifar10_rgb_multiscale_weak_drive_probe.csv
+outputs/analysis/modal_mnist_generator_cifar10_rgb_multiscale_weak_drive_probe.json
+outputs/analysis/cifar10_rgb_multiscale_weak_drive_probe/frontier_summary.md
+outputs/analysis/cifar10_rgb_multiscale_weak_drive_probe/paired_deltas.md
+```
+
+Aggregate result across seeds 11 and 23:
+
+| Variant | Runs | Acc | Diversity | Nearest-real MSE | Feature diversity | Feature nearest-real | Attractor acc | Basin score | Samples/sec |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `gain_all_auxlow8_drive2` | 2 | 0.3457 | 0.9568 | 0.0250 | 0.8655 | 0.3422 | 0.3438 | 1.1481 | 231.7 |
+| `no_vertical_auxlow8_drive2` | 2 | 0.3340 | 0.8810 | 0.0224 | 0.8346 | 0.3305 | 0.3625 | 1.0912 | 335.7 |
+| `vgate_conditioning_auxlow8_drive2` | 2 | 0.3740 | 0.9670 | 0.0260 | 0.8133 | 0.3060 | 0.3750 | 1.3384 | 195.4 |
+
+Paired read against `no_vertical_auxlow8_drive2`:
+
+- `vgate_conditioning_auxlow8_drive2` improves generated-label accuracy
+  (`+0.0400`), diversity (`+0.0860`), attractor accuracy (`+0.0125`), and
+  basin score (`+0.2472`) on both matched seeds. It worsens nearest-real MSE
+  by `+0.0036` and loses feature diversity.
+- `gain_all_auxlow8_drive2` improves diversity (`+0.0758`), feature diversity
+  (`+0.0308`), basin score (`+0.0569`), and output settling (`-0.0088`), but
+  the accuracy and attractor gains are weaker and seed-dependent.
+- The no-vertical weak-drive row keeps the best nearest-real MSE, so hierarchy
+  is again buying semantic/diversity basin behavior rather than pixel
+  proximity.
+
+Updated weak-conditioning read:
+
+- Weakening the class drive did not make broad gain modulation dominate. The
+  better weak-drive hierarchy mechanism is selective routing into the
+  class-conditioned fine columns.
+- This supports the stronger architectural lesson: hierarchy should be
+  selective and gated, not merely broad. Broad gain appears useful when the
+  class scaffold is already strong; under weak conditioning, it can preserve
+  diversity but does not reliably anchor class identity.
+- The next hierarchy probe should combine the two useful ideas more carefully:
+  gain modulation restricted to selected columns, signed excitatory/inhibitory
+  modulation, or a learned gate that can decide which fine columns receive
+  coarse influence.
+
+### Signed / Selective Gain Probe
+
+The next probe tested the architecture implied by the weak-conditioning result
+and the neuroscience/physics analogy: top-down hierarchy should not only
+amplify; it should also be able to suppress. `MultiscaleHORNImageGenerator`
+therefore gained `multiscale_vertical_mode="signed_gain"`, where vertical
+modulation can make the target-layer drive inhibitory:
+
+```text
+gain_modulation: gain = clip(1 + modulation,  0, 2)
+signed_gain:     gain = clip(1 + modulation, -1, 2)
+```
+
+The probe compares selective unsigned gain, broad signed gain, and selective
+signed gain, under both normal class drive and weakened class drive.
+
+Probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=8 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_multiscale_signed_gain_probe
+```
+
+Artifacts:
+
+```text
+outputs/analysis/modal_mnist_generator_cifar10_rgb_multiscale_signed_gain_probe.csv
+outputs/analysis/modal_mnist_generator_cifar10_rgb_multiscale_signed_gain_probe.json
+outputs/analysis/cifar10_rgb_multiscale_signed_gain_probe/frontier_summary.md
+outputs/analysis/cifar10_rgb_multiscale_signed_gain_probe/paired_deltas.md
+```
+
+Aggregate result across seeds 11 and 23:
+
+| Variant | Runs | Acc | Diversity | Nearest-real MSE | Feature diversity | Feature nearest-real | Attractor acc | Basin score | Samples/sec |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `gain_conditioning_auxlow8` | 2 | 0.3604 | 0.9311 | 0.0254 | 0.8452 | 0.3586 | 0.3688 | 1.3218 | 413.6 |
+| `gain_conditioning_auxlow8_drive2` | 2 | 0.4023 | 1.0380 | 0.0310 | 0.8744 | 0.3614 | 0.3688 | 1.5154 | 228.2 |
+| `signed_gain_all_auxlow8` | 2 | 0.4072 | 0.9651 | 0.0265 | 0.8810 | 0.3714 | 0.4438 | 1.6124 | 200.2 |
+| `signed_gain_all_auxlow8_drive2` | 2 | 0.3936 | 0.9597 | 0.0262 | 0.8426 | 0.3021 | 0.3875 | 1.3970 | 230.4 |
+| `signed_gain_conditioning_auxlow8` | 2 | 0.4287 | 0.8507 | 0.0217 | 0.8277 | 0.3156 | 0.4438 | 1.3464 | 225.4 |
+| `signed_gain_conditioning_auxlow8_drive2` | 2 | 0.4238 | 1.0093 | 0.0294 | 0.8823 | 0.3622 | 0.3813 | 1.4601 | 328.3 |
+
+Paired read against `gain_conditioning_auxlow8`:
+
+- `signed_gain_conditioning_auxlow8` improves generated-label accuracy
+  (`+0.0684`), nearest-real MSE (`-0.0037`), attractor accuracy (`+0.0750`),
+  and output settling (`-0.0203`) on both matched seeds, but reduces diversity.
+- `signed_gain_all_auxlow8` improves feature diversity (`+0.0357`), attractor
+  accuracy (`+0.0750`), and basin score (`+0.2907`) on both matched seeds, but
+  is worse on nearest-real MSE.
+- Under weak drive, `signed_gain_conditioning_auxlow8_drive2` improves
+  generated-label accuracy (`+0.0635`), diversity (`+0.0782`), feature
+  diversity (`+0.0371`), and basin score (`+0.1383`) over the normal-drive
+  selective unsigned gain baseline, though it worsens nearest-real MSE.
+
+Cross-probe read:
+
+- The earlier `gain_all_auxlow8` row remains the strongest raw
+  semantic/attractor result in this family (`Acc=0.4746`,
+  `Attractor acc=0.5063`, `Basin=1.9968`), but it is also farther from real
+  images (`Nearest-real MSE=0.0280`).
+- `signed_gain_conditioning_auxlow8` is the best quality/proximity compromise
+  so far among active vertical hierarchy variants: it has high accuracy
+  (`0.4287`), tied attractor accuracy (`0.4438` in this probe), and the best
+  nearest-real MSE (`0.0217`) of the signed/selective gain rows.
+- `signed_gain_conditioning_auxlow8_drive2` is the best weak-drive result so
+  far, beating the earlier `vgate_conditioning_auxlow8_drive2` on generated
+  accuracy, feature diversity, and basin score while keeping diversity above
+  1.0.
+
+Updated signed-gain read:
+
+- Signed modulation is useful. It does not simply add instability; it gives a
+  real quality/accuracy knob that additive springs and unsigned gain did not
+  provide.
+- The best hierarchy story is now more specific: broad gain is good for large
+  basin/diversity, while selective signed gain is better when we want
+  class-consistent samples that stay closer to real images.
+- This supports the neuroscience-inspired design bias in a restrained way:
+  top-down oscillator hierarchy should act like selective gain control with
+  excitation and inhibition, not like a dense all-positive synchronizing force.
+  The analogy is useful as architecture guidance, not as proof that the model
+  is biologically faithful.
+
+## Soft Selective Gain Probe
+
+Follow-up question: can we keep the proximity benefits of selective signed gain
+while recovering some broad-gain attractor strength? The probe adds
+`multiscale_vertical_soft_gate_floor=0.25`, so the class-targeted fine columns
+receive full vertical modulation while non-target columns receive a weak
+quarter-strength contextual dose.
+
+Probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=8 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_multiscale_soft_gate_probe
+```
+
+Artifacts:
+
+```text
+outputs/analysis/modal_mnist_generator_cifar10_rgb_multiscale_soft_gate_probe.csv
+outputs/analysis/cifar10_rgb_multiscale_soft_gate_probe/frontier_summary.md
+```
+
+Aggregate result across seeds 11 and 23:
+
+| Variant | Runs | Acc | Diversity | Nearest-real MSE | Feature diversity | Feature nearest-real | Attractor acc | Basin score | Samples/sec |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `gain_conditioning_auxlow8` | 2 | 0.4688 | 0.8991 | 0.0240 | 0.8907 | 0.3445 | 0.5063 | 1.7575 | 414.7 |
+| `gain_conditioning_soft025_auxlow8` | 2 | 0.4814 | 0.9169 | 0.0246 | 0.8289 | 0.3163 | 0.5125 | 1.8056 | 171.8 |
+| `gain_conditioning_soft025_auxlow8_drive2` | 2 | 0.4736 | 0.9192 | 0.0246 | 0.8655 | 0.3233 | 0.4813 | 1.5289 | 205.1 |
+| `signed_gain_conditioning_auxlow8` | 2 | 0.4287 | 0.9425 | 0.0256 | 0.8155 | 0.3476 | 0.4563 | 1.6763 | 416.1 |
+| `signed_gain_conditioning_soft025_auxlow8` | 2 | 0.3828 | 0.9145 | 0.0249 | 0.8396 | 0.3249 | 0.3875 | 1.3608 | 200.5 |
+| `signed_gain_conditioning_soft025_auxlow8_drive2` | 2 | 0.3418 | 0.9055 | 0.0233 | 0.8541 | 0.3629 | 0.3250 | 0.9971 | 326.7 |
+
+Paired read:
+
+- Soft context helps unsigned selective gain slightly: `soft025` improves
+  generated-label accuracy (`+0.0127`), diversity (`+0.0178`), feature
+  nearest-real MSE (`-0.0282`), attractor accuracy (`+0.0062`), and basin score
+  (`+0.0482`), but reduces feature diversity and is slower.
+- Soft context does **not** rescue selective signed gain. It improves
+  nearest-real MSE and feature diversity, but reduces generated accuracy
+  (`-0.0459`), diversity (`-0.0280`), attractor accuracy (`-0.0688`), and basin
+  score (`-0.3155`).
+
+Updated hierarchy read:
+
+- The useful middle ground exists for **unsigned** gain, but not for the
+  signed/inhibitory selective variant.
+- Signed gain appears to need cleaner column selection; smearing inhibitory
+  modulation into non-target columns weakens the attractor.
+- Next design direction should be structured selective signed gain, not broader
+  signed gain: e.g. learned or class-specific target masks, phase-lagged
+  inhibitory/excitatory routing, or a coarse objective that gives the modulator
+  a clearer job.
+
+## Vertical Causality Audit
+
+Before adding a dual-route hierarchy, the next disciplined question was whether
+the existing vertical route is actually causal at sample time. The audit keeps
+the trained model fixed and resamples the same initial states under vertical
+interventions:
+
+```text
+normal, zero, shuffle, flip, scale025, scale050
+```
+
+Probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=8 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_vertical_causality_audit
+```
+
+Artifacts:
+
+```text
+outputs/analysis/modal_mnist_generator_cifar10_rgb_vertical_causality_audit.csv
+outputs/analysis/modal_mnist_generator_cifar10_rgb_vertical_causality_audit.json
+outputs/analysis/cifar10_rgb_vertical_causality_audit/frontier_summary.md
+```
+
+Aggregate result across seeds 11, 23, and 37:
+
+| Variant | Runs | Acc | Diversity | Nearest-real MSE | Feature diversity | Feature nearest-real | Attractor acc | Basin score |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `gain_all_auxlow8` | 3 | 0.3685 | 0.8741 | 0.0258 | 0.8137 | 0.3035 | 0.3917 | 1.4743 |
+| `gain_conditioning_soft025_auxlow8` | 3 | 0.3301 | 0.8066 | 0.0226 | 0.8015 | 0.2728 | 0.3667 | 1.1600 |
+| `no_vertical_auxlow8` | 3 | 0.3242 | 0.8179 | 0.0225 | 0.7714 | 0.2792 | 0.3167 | 1.1018 |
+| `signed_gain_conditioning_auxlow8` | 3 | 0.3717 | 0.8981 | 0.0265 | 0.7636 | 0.2433 | 0.3583 | 1.3909 |
+
+Intervention read:
+
+- For the active vertical variants, zeroing, shuffling, flipping, or scaling
+  the vertical path changed outputs by only about `1e-9` MSE versus normal.
+- Generated-label and attractor-label deltas were effectively zero.
+- The traced vertical gain standard deviation was only about `1e-4`; the mean
+  stayed almost exactly `1.0`.
+- The no-vertical row correctly showed exactly zero intervention effect, so
+  the audit itself is wired in the expected direction.
+
+Updated hierarchy read:
+
+- The previous aggregate gains from vertical variants are real as trained-model
+  outcomes, but this audit does **not** support strong sample-time vertical
+  causality in the current implementation.
+- The current top-down gain path is almost silent at the point where it enters
+  fine-layer dynamics. That makes dual-route broad-plus-selective gain
+  premature.
+- The next hierarchy sprint should first make the vertical route measurably
+  causal: stronger calibrated modulation, an explicit coarse objective that
+  forces useful top-down state, or a vertical normalization/scale choice that
+  produces visible intervention effects without collapse. Only then should
+  class-specific masks, phase lags, or deeper stacks be interpreted as serious
+  hierarchy wins.
+
+## Vertical Calibration Probe
+
+The causality audit showed that the vertical route was wired but almost silent.
+The next probe therefore added `multiscale_vertical_signal_scale` and tested
+whether a stronger top-down signal creates measurable sample-time intervention
+effects without immediately collapsing generation.
+
+Probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=8 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_vertical_calibration_probe
+```
+
+Artifacts:
+
+```text
+outputs/analysis/modal_mnist_generator_cifar10_rgb_vertical_calibration_probe.csv
+outputs/analysis/modal_mnist_generator_cifar10_rgb_vertical_calibration_probe.json
+outputs/analysis/cifar10_rgb_vertical_calibration_probe/frontier_summary.md
+```
+
+Aggregate result across seeds 11 and 23:
+
+| Variant | Runs | Acc | Diversity | Nearest-real MSE | Feature diversity | Feature nearest-real | Attractor acc | Basin score | Gain std | Gain target delta |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `gain_all_auxlow8` | 2 | 0.3926 | 0.8354 | 0.0229 | 0.7977 | 0.3296 | 0.3750 | 1.2694 | 0.00013 | -0.000002 |
+| `gain_all_vscale10` | 2 | 0.4102 | 0.8786 | 0.0258 | 0.8536 | 0.2743 | 0.3813 | 1.3937 | 0.00261 | 0.00078 |
+| `gain_all_vscale30` | 2 | 0.4004 | 0.8617 | 0.0245 | 0.7880 | 0.2523 | 0.4063 | 1.5619 | 0.01799 | 0.00850 |
+| `no_vertical_auxlow8` | 2 | 0.3701 | 0.8661 | 0.0254 | 0.8101 | 0.3007 | 0.3688 | 1.4907 | 0.00000 | 0.00000 |
+| `signed_gain_conditioning_vscale10` | 2 | 0.4141 | 0.9012 | 0.0275 | 0.8149 | 0.2994 | 0.3938 | 1.5613 | 0.00223 | 0.00041 |
+| `signed_gain_conditioning_vscale30` | 2 | 0.3848 | 0.8911 | 0.0265 | 0.8098 | 0.2950 | 0.3750 | 1.4780 | 0.02105 | 0.01399 |
+
+Intervention read:
+
+- Scaling to `10x` and `30x` makes the vertical route measurably causal. The
+  intervention output MSE rises from effectively `1e-9` in the audit to about
+  `1e-6` to `1e-4`, depending on variant and intervention.
+- `vscale30` produces meaningful gain modulation: gain standard deviation is
+  about `0.018` for broad gain and `0.021` for selective signed gain.
+- This is still not a clean quality win. Some zero/flip interventions improve
+  basin metrics, which means the vertical signal is now causal but not always
+  beneficial.
+
+Updated calibration read:
+
+- The silent-route diagnosis was correct, and the signal-scale intervention
+  fixed it as a diagnostic.
+- The right next step is not "make the vertical scale even larger." It is to
+  split top-down modulation into a broad contextual route and a selective
+  signed route, so the coarse field can provide both global gain and local
+  excitation/inhibition.
+
+## Dual-Gain Probe
+
+`MultiscaleHORNImageGenerator` now supports
+`multiscale_vertical_mode="dual_gain"`. This combines two calibrated vertical
+routes:
+
+```text
+broad route:     all fine columns receive bounded positive contextual gain
+selective route: class-conditioned fine columns receive signed modulation
+```
+
+The route is architecturally specified, but the coupling matrices and oscillator
+states are learned end-to-end and the gain is recomputed at every settling step.
+
+Probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=8 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_dual_gain_probe
+```
+
+Artifacts:
+
+```text
+outputs/analysis/modal_mnist_generator_cifar10_rgb_dual_gain_probe.csv
+outputs/analysis/modal_mnist_generator_cifar10_rgb_dual_gain_probe.json
+outputs/analysis/cifar10_rgb_dual_gain_probe/frontier_summary.md
+```
+
+Aggregate result across seeds 11 and 23:
+
+| Variant | Runs | Acc | Diversity | Nearest-real MSE | Feature diversity | Feature nearest-real | Attractor acc | Basin score | Gain std | Gain target delta |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `dual_gain_conditioning_vscale10` | 2 | 0.4004 | 0.9050 | 0.0270 | 0.8013 | 0.2399 | 0.3938 | 1.5837 | 0.00696 | 0.00275 |
+| `dual_gain_conditioning_vscale30` | 2 | 0.3369 | 0.8595 | 0.0258 | 0.7791 | 0.2992 | 0.3188 | 1.1745 | 0.04550 | 0.02950 |
+| `gain_all_vscale30` | 2 | 0.4326 | 0.8732 | 0.0257 | 0.7996 | 0.2805 | 0.4500 | 1.7351 | 0.01319 | 0.00547 |
+| `no_vertical_auxlow8` | 2 | 0.4287 | 0.8823 | 0.0263 | 0.8277 | 0.2692 | 0.4750 | 1.8407 | 0.00000 | 0.00000 |
+| `signed_gain_conditioning_vscale30` | 2 | 0.3457 | 0.8217 | 0.0231 | 0.7304 | 0.2777 | 0.3500 | 1.2236 | 0.01687 | 0.01019 |
+
+Intervention read:
+
+- `dual_gain_conditioning_vscale10` is causal but gentle: zeroing the vertical
+  route changes outputs by about `6.5e-6` MSE, and flipping it by about
+  `2.5e-5`.
+- `dual_gain_conditioning_vscale30` is strongly causal: zeroing changes outputs
+  by about `1.4e-4` MSE, shuffling by `2.1e-4`, and flipping by `3.9e-4`.
+- Stronger causal leverage did not translate into better generation. The
+  `vscale30` dual route hurts generated-label accuracy, attractor accuracy,
+  and basin score.
+
+Updated dual-gain read:
+
+- Dual gain succeeded as a causality mechanism: the top-down path is no longer
+  a silent diagnostic trace.
+- Dual gain did **not** beat the current quality frontier. In this probe,
+  `gain_all_vscale30` and `no_vertical_auxlow8` remain stronger on the main
+  semantic/attractor metrics.
+- The likely failure mode is over-control: combining broad gain and selective
+  signed gain at the current scale constrains the fine field too much. The next
+  hierarchy step should be smaller and more targeted: tune the broad/selective
+  ratio, learn or regularize class-specific target masks, or give the coarse
+  layer a clearer objective before adding more layers.
+
+## Vertical Homeostasis Probe
+
+The council read after the dual-gain probe was consistent: hierarchy is now
+causal enough, but stronger causality can become uncontrolled energy injection.
+The next implementation therefore added homeostatic vertical gain normalization:
+
+```text
+none:       raw vertical modulation
+center:     subtract per-sample mean modulation across fine columns
+center_rms: center, then rescale per-sample RMS to a target value
+```
+
+`center_rms` is exposed through
+`multiscale_vertical_gain_normalization="center_rms"` and
+`multiscale_vertical_gain_target_std`. The first probe uses target std `0.015`,
+close to the useful broad-gain standard deviation rather than the destructive
+over-strong dual-gain regime.
+
+Probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=8 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_vertical_homeostasis_probe
+```
+
+Artifacts:
+
+```text
+outputs/analysis/modal_mnist_generator_cifar10_rgb_vertical_homeostasis_probe.csv
+outputs/analysis/modal_mnist_generator_cifar10_rgb_vertical_homeostasis_probe.json
+outputs/analysis/cifar10_rgb_vertical_homeostasis_probe/frontier_summary.md
+outputs/analysis/cifar10_rgb_vertical_homeostasis_probe/paired_deltas.md
+```
+
+Aggregate result across seeds 11 and 23:
+
+| Variant | Runs | Acc | Diversity | Nearest-real MSE | Feature diversity | Feature nearest-real | Attractor acc | Basin score |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `dual_gain_conditioning_vscale30` | 2 | 0.4561 | 0.9442 | 0.0292 | 0.8227 | 0.2647 | 0.4625 | 1.9223 |
+| `dual_gain_conditioning_vscale30_normstd015` | 2 | 0.3906 | 0.8727 | 0.0251 | 0.8045 | 0.3165 | 0.3188 | 1.2356 |
+| `gain_all_vscale30` | 2 | 0.4336 | 0.9003 | 0.0263 | 0.8192 | 0.3096 | 0.4438 | 1.7931 |
+| `gain_all_vscale30_normstd015` | 2 | 0.4189 | 0.9314 | 0.0285 | 0.8150 | 0.2772 | 0.4625 | 1.9053 |
+| `no_vertical_auxlow8` | 2 | 0.3477 | 0.9152 | 0.0271 | 0.7588 | 0.2433 | 0.3688 | 1.4869 |
+| `signed_gain_conditioning_vscale30` | 2 | 0.3496 | 0.9110 | 0.0271 | 0.7848 | 0.2532 | 0.3438 | 1.3982 |
+| `signed_gain_conditioning_vscale30_normstd015` | 2 | 0.4492 | 0.8946 | 0.0266 | 0.8014 | 0.2475 | 0.4500 | 1.7242 |
+
+Updated homeostasis read:
+
+- Homeostatic normalization worked mechanically: normalized traces show
+  per-sample centered modulation, target gain RMS near `0.015`, and mean gain
+  near `1.0`.
+- It is not a universal improvement. Normalizing the dual-gain route harms the
+  semantic/attractor frontier, which supports the over-control diagnosis.
+- The clean positive is selective signed gain plus homeostasis:
+  `signed_gain_conditioning_vscale30_normstd015` improves generated-label
+  accuracy, feature diversity, attractor accuracy, basin score, output settling,
+  and nearest-real MSE versus both `no_vertical_auxlow8` and raw
+  `signed_gain_conditioning_vscale30`, with only a mild diversity tradeoff.
+- Broad normalized gain is also useful, but mixed by seed. It looks more like a
+  diversity/basin tradeoff than a precise hierarchy mechanism.
+
+Important caveat: this artifact was collected before the scale-intervention
+audit order was fixed for normalized gain. The normal/zero/shuffle/flip audit
+rows are usable; ignore `scale025` and `scale050` for normalized variants in
+this CSV. The code now normalizes before applying sample-time scale
+interventions, and the focused test covers the fixed behavior.
+
+Council read:
+
+- Do not add more layers yet.
+- Treat the useful vertical path as a small homeostatic selective gain signal:
+  a top-down bias on the fine field's attractor landscape, not a second image
+  renderer.
+- The next compact test should calibrate the selective signed homeostasis
+  target: `center`, `center_rms=0.010`, `0.015`, and `0.020`, with the same
+  zero/shuffle/flip audit. If the sweet spot repeats, the next architecture
+  move is delayed or parameter-level top-down modulation.
+
+Next probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=8 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_signed_gain_homeostasis_calibration
+```
+
+## Signed-Gain Homeostasis Calibration
+
+The calibration probe compared four ways of normalizing the calibrated
+selective signed vertical route:
+
+```text
+center only
+center_rms target std 0.010
+center_rms target std 0.015
+center_rms target std 0.020
+```
+
+Probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=8 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_signed_gain_homeostasis_calibration
+```
+
+Artifacts:
+
+```text
+outputs/analysis/modal_mnist_generator_cifar10_rgb_signed_gain_homeostasis_calibration.csv
+outputs/analysis/modal_mnist_generator_cifar10_rgb_signed_gain_homeostasis_calibration.json
+outputs/analysis/cifar10_rgb_signed_gain_homeostasis_calibration/frontier_summary.md
+outputs/analysis/cifar10_rgb_signed_gain_homeostasis_calibration/paired_deltas.md
+```
+
+Aggregate result across seeds 11 and 23:
+
+| Variant | Runs | Acc | Diversity | Nearest-real MSE | Feature diversity | Feature nearest-real | Attractor acc | Basin score | Gain std |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `signed_gain_conditioning_vscale30_center` | 2 | 0.4150 | 0.9392 | 0.0294 | 0.8359 | 0.2687 | 0.3813 | 1.6271 | 0.0088 |
+| `signed_gain_conditioning_vscale30_normstd010` | 2 | 0.4043 | 0.8260 | 0.0229 | 0.7999 | 0.2629 | 0.3813 | 1.3255 | 0.0100 |
+| `signed_gain_conditioning_vscale30_normstd015` | 2 | 0.3809 | 0.8045 | 0.0223 | 0.7883 | 0.1858 | 0.3563 | 1.2748 | 0.0150 |
+| `signed_gain_conditioning_vscale30_normstd020` | 2 | 0.3555 | 0.9308 | 0.0282 | 0.8287 | 0.2980 | 0.3313 | 1.3723 | 0.0200 |
+
+Updated calibration read:
+
+- The best semantic/diversity/basin variant is not fixed-RMS normalization. It
+  is `center`: remove the mean vertical bias and leave the learned modulation
+  amplitude alone.
+- Fixed-RMS normalization works as a proximity/regularization knob:
+  `normstd010` and `normstd015` substantially improve nearest-real MSE, and
+  `normstd015` gives the best feature nearest-real score, but both collapse
+  diversity and weaken basin strength versus `center`.
+- `normstd020` restores some diversity but continues to weaken accuracy,
+  attractor accuracy, and basin score. More gain is not the answer.
+- The fixed scale audit now behaves as intended: `scale025` and `scale050`
+  reduce the traced gain standard deviation for normalized variants, confirming
+  the post-fix intervention order.
+- The vertical path is causal but gentle. Zero/shuffle/flip output MSE rises
+  with target std, but semantic deltas are small. This supports the view that
+  the current top-down route is a weak attractor-bias channel, not a strong
+  content transport channel.
+
+Implication:
+
+- Keep `center` as the current selective signed-gain hierarchy candidate.
+- Do not continue sweeping target RMS as the main axis. It mostly trades
+  diversity/basin behavior for pixel and feature proximity.
+- The next architecture step should test *when* and *where* vertical gain is
+  applied: delayed/ramped top-down gain, or parameter-level modulation of fine
+  HORN damping/coupling/forcing instead of direct gain on activations.
+
+## Centered Signed-Gain Timing Probe
+
+`MultiscaleHORNImageGenerator` now supports step-wise vertical schedules:
+
+```text
+constant:    original behavior, vertical route acts from step 0
+delayed:     vertical route is off until a configured onset step
+linear_ramp: vertical route ramps from zero after onset over N steps
+```
+
+The timing probe tested whether the centered selective signed top-down route is
+better as an immediate condition, a mid-settling correction, a late correction,
+or a slow ramp.
+
+Probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=8 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_centered_signed_gain_timing_probe
+```
+
+Artifacts:
+
+```text
+outputs/analysis/modal_mnist_generator_cifar10_rgb_centered_signed_gain_timing_probe.csv
+outputs/analysis/modal_mnist_generator_cifar10_rgb_centered_signed_gain_timing_probe.json
+outputs/analysis/cifar10_rgb_centered_signed_gain_timing_probe/frontier_summary.md
+outputs/analysis/cifar10_rgb_centered_signed_gain_timing_probe/paired_deltas.md
+```
+
+Aggregate result across seeds 11 and 23:
+
+| Variant | Runs | Acc | Diversity | Nearest-real MSE | Feature diversity | Feature nearest-real | Attractor acc | Basin score |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `center_constant` | 2 | 0.4346 | 0.8546 | 0.0241 | 0.8145 | 0.2812 | 0.4313 | 1.5464 |
+| `center_delayed8` | 2 | 0.3799 | 0.9300 | 0.0278 | 0.8074 | 0.3336 | 0.3875 | 1.5609 |
+| `center_delayed16` | 2 | 0.3926 | 0.8315 | 0.0247 | 0.7929 | 0.2845 | 0.3750 | 1.3815 |
+| `center_ramp8_16` | 2 | 0.3711 | 0.8060 | 0.0216 | 0.7609 | 0.2021 | 0.3688 | 1.2834 |
+
+Updated timing read:
+
+- Immediate centered selective signed gain remains the best semantic/attractor
+  candidate: highest generated-label accuracy, feature diversity, and
+  attractor accuracy.
+- `delayed8` is the only delayed variant with a small basin/diversity edge, but
+  it loses substantial class accuracy and proximity. It is a diversity/basin
+  tradeoff, not a quality breakthrough.
+- `delayed16` is worse on almost every primary metric.
+- `ramp8_16` gives the best nearest-real and feature-nearest scores plus
+  slightly better output-settle, but it weakens semantic and basin metrics. It
+  behaves like a proximity/regularization knob, similar to fixed RMS gain.
+- The schedule mechanism is useful instrumentation, but the result does not
+  support delayed/ramped vertical activation as the next main axis.
+
+Implication:
+
+- Keep `center_constant` as the current selective signed-gain hierarchy
+  candidate.
+- Do not spend more time on timing sweeps unless a future mechanism makes
+  vertical modulation much stronger or more content-specific.
+- The next meaningful hierarchy test should change *what* the coarse route
+  modulates: fine-layer damping, local coupling strength, conditioning strength,
+  or another HORN parameter. In other words, test whether top-down hierarchy
+  reshapes the fine field's dynamics rather than merely scaling its activation
+  drive.
+
+## Centered Signed-Gain Target Probe
+
+The council recommendation after the timing probe was to stop asking "when does
+vertical gain arrive?" and ask "what does vertical gain control?" This added
+`multiscale_vertical_gain_target` with four targets:
+
+```text
+drive:        original behavior; scales local coupling plus class conditioning
+coupling:     scales only local recurrent HORN interaction
+conditioning: scales only class-conditioning drive
+damping:      scales only fine-layer damping with nonnegative gain
+```
+
+Probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=8 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_centered_signed_gain_target_probe
+```
+
+Artifacts:
+
+```text
+outputs/analysis/modal_mnist_generator_cifar10_rgb_centered_signed_gain_target_probe.csv
+outputs/analysis/cifar10_rgb_centered_signed_gain_target_probe/frontier_summary.md
+outputs/analysis/cifar10_rgb_centered_signed_gain_target_probe/paired_deltas.md
+```
+
+Aggregate result across seeds 11 and 23:
+
+| Variant | Runs | Acc | Diversity | Nearest-real MSE | Feature diversity | Feature nearest-real | Attractor acc | Basin score |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `center_drive` | 2 | 0.4043 | 0.8918 | 0.0270 | 0.7632 | 0.2846 | 0.4125 | 1.5678 |
+| `center_coupling` | 2 | 0.3428 | 0.8991 | 0.0264 | 0.8180 | 0.3141 | 0.3875 | 1.5205 |
+| `center_conditioning` | 2 | 0.3799 | 0.7905 | 0.0212 | 0.7574 | 0.2714 | 0.3813 | 1.2789 |
+| `center_damping` | 2 | 0.3193 | 0.7964 | 0.0222 | 0.7901 | 0.3613 | 0.3000 | 0.9436 |
+
+Intervention read:
+
+| Variant | Zero output MSE | Shuffle output MSE | Flip output MSE | Zero acc delta | Shuffle acc delta | Flip acc delta |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `center_drive` | 0.00001212 | 0.00002313 | 0.00004680 | 0.0039 | 0.0039 | 0.0000 |
+| `center_coupling` | 0.00000003 | 0.00000005 | 0.00000011 | 0.0000 | 0.0000 | 0.0000 |
+| `center_conditioning` | 0.00000713 | 0.00001376 | 0.00002806 | -0.0039 | -0.0039 | -0.0039 |
+| `center_damping` | 0.00000012 | 0.00000022 | 0.00000046 | 0.0000 | 0.0000 | 0.0000 |
+
+Updated target read:
+
+- `center_drive` remains the best semantic/attractor target. It has the highest
+  generated-label accuracy, attractor accuracy, and basin score, and it is the
+  only target with a clearly measurable output intervention effect.
+- `center_coupling` is the interesting near miss: it improves feature diversity
+  and slightly improves pixel diversity/proximity, but loses accuracy and has
+  almost no intervention sensitivity. Coupling-only top-down modulation is too
+  weak in the current implementation.
+- `center_conditioning` is a proximity knob, not a hierarchy breakthrough. It
+  improves nearest-real MSE and feature-nearest distance, but reduces diversity
+  and basin strength.
+- `center_damping` improves output settling and nearest-real MSE, but sharply
+  hurts class and basin metrics. It is stability/proximity pressure, not useful
+  shape-forming hierarchy by itself.
+
+Implication:
+
+- Keep `center_drive` as the active centered signed-gain hierarchy baseline.
+- Do not continue with target-only sweeps as the main hierarchy axis. The
+  coarse route still seems useful as a broad drive/gain channel, but simple
+  coupling-only or damping-only targets do not make it a shape-forming engine.
+- The next hierarchy move should either give the coarse layer a clearer
+  objective/representation, add bidirectional fine-to-coarse feedback, or test
+  a mixed route that preserves drive-level causality while adding a small
+  coupling/damping modulation branch. Do not jump to deeper stacks until the
+  coarse layer has a job.
+
 ## Maintenance Notes
 
 - Put numerical benchmark summaries in this file and/or `outputs/analysis`.

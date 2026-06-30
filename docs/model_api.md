@@ -340,7 +340,61 @@ and internally convert them to patch sequences.
   `sparse_horn_cifar10_rgb_multiscale16_64_no_vertical`. Summaries count
   auxiliary recurrent params, vertical recurrent params, multiscale
   conditioning params, vertical profile density/row gain, and per-layer
-  energy/update/coupling proxies.
+  energy/update/coupling proxies. Optional coarse supervision is available
+  through `coarse_auxiliary_weight`, `coarse_auxiliary_target_size`, and
+  `multiscale_auxiliary_readout_layer`; this attaches a low-resolution readout
+  to an auxiliary layer and trains it against a downsampled image target. Use
+  the `*_auxlow8` CIFAR RGB presets to test whether a meaningful coarse
+  objective helps vertical hierarchy. `multiscale_vertical_target_gate` can
+  route vertical drive into all decoded fine oscillators, only the
+  class-conditioning target subset, or only the complementary subset; this is
+  useful for testing whether hierarchy should act through selected oscillator
+  columns rather than as a broad top-down spring.
+  `multiscale_vertical_soft_gate_floor` relaxes a selective gate by giving
+  non-target fine columns a fixed fraction of the vertical profile. It is useful
+  as a diagnostic for "mostly selective, weakly contextual" top-down
+  modulation; the current CIFAR RGB probe found that `0.25` helps unsigned
+  selective gain slightly but hurts selective signed gain.
+  `multiscale_vertical_signal_scale` globally scales the vertical signal before
+  it enters the target layer. Keep it at `1.0` for compatibility; use larger
+  values only as calibrated hierarchy probes. `multiscale_vertical_mode`
+  controls how that vertical signal enters the fine layer. `additive` uses the
+  vertical projection as a direct source-minus-target acceleration term.
+  `gain_modulation` turns the projection into a bounded nonnegative gain on the
+  target layer's local recurrent and conditioning drives. `signed_gain` lets
+  that gain become inhibitory, so a coarse layer can suppress selected
+  fine-layer responses rather than only amplify or damp them. `dual_gain`
+  combines a broad all-column positive gain route with a selective signed route
+  into the configured target columns; `multiscale_vertical_broad_gain_scale`
+  and `multiscale_vertical_selective_gain_scale` set those two route strengths.
+  `multiscale_vertical_gain_target` selects which fine-layer HORN term a
+  non-additive vertical gain modulates. `drive` is the backward-compatible
+  default and scales local recurrent coupling plus class conditioning together.
+  `coupling` scales only local recurrent interaction, `conditioning` scales
+  only class drive, and `damping` uses the vertical signal as a nonnegative
+  damping gain. This is a diagnostic for whether top-down hierarchy should
+  shape the medium, the label drive, or settling stability instead of acting as
+  generic gain.
+  `multiscale_vertical_gain_normalization` can keep non-additive gain
+  homeostatic: `center` removes per-sample mean modulation across target
+  columns, and `center_rms` also rescales the centered signal to
+  `multiscale_vertical_gain_target_std`. Use this when testing whether
+  hierarchy can redistribute influence without increasing the fine field's
+  total drive energy. `multiscale_vertical_schedule` can keep the route
+  `constant`, switch it on after `multiscale_vertical_onset_step` with
+  `delayed`, or ramp it in with `linear_ramp` over
+  `multiscale_vertical_ramp_steps`. This is useful for testing whether
+  top-down gain acts best as an immediate condition or a late settling bias.
+  These modes test a slower/coarser rhythm as a modulator of fine dynamics,
+  rather than as another spring attached to the fine state. The CIFAR RGB
+  `*_gain_*`, `*_signed_gain_*`, `*_dual_gain_*`, and `*_normstd*` presets are
+  the current probes for this mechanism. For sample-time causality audits,
+  `multiscale_vertical_intervention` can be set to `normal`, `zero`,
+  `shuffle_batch`, or `flip`, and `multiscale_vertical_intervention_scale` can
+  attenuate the route without retraining. The first CIFAR RGB audit found that
+  the unscaled vertical-gain path was nearly silent at sample time; calibrated
+  `vscale10/vscale30` and `dual_gain` variants make it causal, but have not yet
+  beaten the no-vertical or broad-gain-only quality frontier.
 
 `StateMLPImageGenerator`
 : A non-oscillatory latent-state control for the HORN generator. It keeps the

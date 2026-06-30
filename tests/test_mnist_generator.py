@@ -24,6 +24,8 @@ from oscnet.experiments.mnist_generator import (
     compute_generator_settling_metrics,
     compute_generator_success_diagnostics,
     compute_generator_trace_dynamics,
+    compute_generator_vertical_intervention_audit,
+    downsample_image_batch,
     generator_distribution_loss,
     generator_loss,
     make_projection_matrix,
@@ -211,8 +213,42 @@ def test_generator_cli_accepts_multiscale_horn_options():
                 "0.3",
                 "--multiscale-feedback-phase-lag",
                 "-0.2",
+                "--multiscale-vertical-signal-scale",
+                "10.0",
+                "--multiscale-vertical-target-gate",
+                "conditioning",
+                "--multiscale-vertical-soft-gate-floor",
+                "0.25",
+                "--multiscale-vertical-mode",
+                "dual_gain",
+                "--multiscale-vertical-gain-target",
+                "coupling",
+                "--multiscale-vertical-gain-normalization",
+                "center_rms",
+                "--multiscale-vertical-gain-target-std",
+                "0.015",
+                "--multiscale-vertical-broad-gain-scale",
+                "0.75",
+                "--multiscale-vertical-selective-gain-scale",
+                "1.25",
+                "--multiscale-vertical-schedule",
+                "linear_ramp",
+                "--multiscale-vertical-onset-step",
+                "3",
+                "--multiscale-vertical-ramp-steps",
+                "5",
                 "--multiscale-conditioning-strength",
                 "0.75",
+                "--multiscale-auxiliary-readout-layer",
+                "1",
+                "--coarse-auxiliary-weight",
+                "0.05",
+                "--coarse-auxiliary-target-size",
+                "8",
+                "--vertical-audit-modes",
+                "normal,zero,shuffle,flip,scale025",
+                "--vertical-audit-sample-count",
+                "32",
             ]
         )
     )
@@ -232,7 +268,30 @@ def test_generator_cli_accepts_multiscale_horn_options():
     assert parsed.multiscale_vertical_floor == 0.02
     assert parsed.multiscale_vertical_phase_lag == 0.3
     assert parsed.multiscale_feedback_phase_lag == -0.2
+    assert parsed.multiscale_vertical_signal_scale == 10.0
+    assert parsed.multiscale_vertical_target_gate == "conditioning"
+    assert parsed.multiscale_vertical_soft_gate_floor == 0.25
+    assert parsed.multiscale_vertical_mode == "dual_gain"
+    assert parsed.multiscale_vertical_gain_target == "coupling"
+    assert parsed.multiscale_vertical_gain_normalization == "center_rms"
+    assert parsed.multiscale_vertical_gain_target_std == 0.015
+    assert parsed.multiscale_vertical_broad_gain_scale == 0.75
+    assert parsed.multiscale_vertical_selective_gain_scale == 1.25
+    assert parsed.multiscale_vertical_schedule == "linear_ramp"
+    assert parsed.multiscale_vertical_onset_step == 3
+    assert parsed.multiscale_vertical_ramp_steps == 5
     assert parsed.multiscale_conditioning_strength == 0.75
+    assert parsed.multiscale_auxiliary_readout_layer == 1
+    assert parsed.coarse_auxiliary_weight == 0.05
+    assert parsed.coarse_auxiliary_target_size == 8
+    assert parsed.vertical_audit_modes == (
+        "normal",
+        "zero",
+        "shuffle",
+        "flip",
+        "scale025",
+    )
+    assert parsed.vertical_audit_sample_count == 32
 
 
 def test_config_from_args_rejects_unapplied_preset_defaults():
@@ -318,6 +377,117 @@ def test_sparse_horn_mnist_control_presets_share_recipe():
         "sparse_horn_cifar10_rgb_multiscale16_64_no_vertical": (
             "multiscale_horn"
         ),
+        "sparse_horn_cifar10_rgb_multiscale16_64_local050_fb005_auxlow8": (
+            "multiscale_horn"
+        ),
+        "sparse_horn_cifar10_rgb_multiscale16_64_no_vertical_auxlow8": (
+            "multiscale_horn"
+        ),
+        (
+            "sparse_horn_cifar10_rgb_multiscale16_64_"
+            "local050_fb005_auxlow8_vgate_conditioning"
+        ): "multiscale_horn",
+        (
+            "sparse_horn_cifar10_rgb_multiscale16_64_"
+            "local050_fb005_auxlow8_vgate_non_conditioning"
+        ): "multiscale_horn",
+        (
+            "sparse_horn_cifar10_rgb_multiscale16_64_"
+            "local050_fb005_auxlow8_gain_all"
+        ): "multiscale_horn",
+        (
+            "sparse_horn_cifar10_rgb_multiscale16_64_"
+            "local050_fb005_auxlow8_gain_conditioning"
+        ): "multiscale_horn",
+        (
+            "sparse_horn_cifar10_rgb_multiscale16_64_"
+            "local050_fb005_auxlow8_signed_gain_all"
+        ): "multiscale_horn",
+        (
+            "sparse_horn_cifar10_rgb_multiscale16_64_"
+            "local050_fb005_auxlow8_signed_gain_conditioning"
+        ): "multiscale_horn",
+        (
+            "sparse_horn_cifar10_rgb_multiscale16_64_"
+            "no_vertical_auxlow8_drive2"
+        ): "multiscale_horn",
+        (
+            "sparse_horn_cifar10_rgb_multiscale16_64_"
+            "local050_fb005_auxlow8_vgate_conditioning_drive2"
+        ): "multiscale_horn",
+        (
+            "sparse_horn_cifar10_rgb_multiscale16_64_"
+            "local050_fb005_auxlow8_gain_all_drive2"
+        ): "multiscale_horn",
+        (
+            "sparse_horn_cifar10_rgb_multiscale16_64_"
+            "local050_fb005_auxlow8_gain_conditioning_drive2"
+        ): "multiscale_horn",
+        (
+            "sparse_horn_cifar10_rgb_multiscale16_64_"
+            "local050_fb005_auxlow8_signed_gain_all_drive2"
+        ): "multiscale_horn",
+        (
+            "sparse_horn_cifar10_rgb_multiscale16_64_"
+            "local050_fb005_auxlow8_signed_gain_conditioning_drive2"
+        ): "multiscale_horn",
+        (
+            "sparse_horn_cifar10_rgb_multiscale16_64_"
+            "local050_fb005_auxlow8_gain_conditioning_soft025"
+        ): "multiscale_horn",
+        (
+            "sparse_horn_cifar10_rgb_multiscale16_64_"
+            "local050_fb005_auxlow8_signed_gain_conditioning_soft025"
+        ): "multiscale_horn",
+        (
+            "sparse_horn_cifar10_rgb_multiscale16_64_"
+            "local050_fb005_auxlow8_gain_conditioning_soft025_drive2"
+        ): "multiscale_horn",
+        (
+            "sparse_horn_cifar10_rgb_multiscale16_64_"
+            "local050_fb005_auxlow8_signed_gain_conditioning_soft025_drive2"
+        ): "multiscale_horn",
+        (
+            "sparse_horn_cifar10_rgb_multiscale16_64_"
+            "local050_fb005_auxlow8_gain_all_vscale10"
+        ): "multiscale_horn",
+        (
+            "sparse_horn_cifar10_rgb_multiscale16_64_"
+            "local050_fb005_auxlow8_gain_all_vscale30"
+        ): "multiscale_horn",
+        (
+            "sparse_horn_cifar10_rgb_multiscale16_64_"
+            "local050_fb005_auxlow8_signed_gain_conditioning_vscale10"
+        ): "multiscale_horn",
+        (
+            "sparse_horn_cifar10_rgb_multiscale16_64_"
+            "local050_fb005_auxlow8_signed_gain_conditioning_vscale30"
+        ): "multiscale_horn",
+        (
+            "sparse_horn_cifar10_rgb_multiscale16_64_"
+            "local050_fb005_auxlow8_signed_gain_conditioning_vscale30_center"
+        ): "multiscale_horn",
+        (
+            "sparse_horn_cifar10_rgb_multiscale16_64_"
+            "local050_fb005_auxlow8_dual_gain_conditioning_vscale10"
+        ): "multiscale_horn",
+        (
+            "sparse_horn_cifar10_rgb_multiscale16_64_"
+            "local050_fb005_auxlow8_dual_gain_conditioning_vscale30"
+        ): "multiscale_horn",
+        (
+            "sparse_horn_cifar10_rgb_multiscale16_64_"
+            "local050_fb005_auxlow8_gain_all_vscale30_normstd015"
+        ): "multiscale_horn",
+        (
+            "sparse_horn_cifar10_rgb_multiscale16_64_"
+            "local050_fb005_auxlow8_signed_gain_conditioning_"
+            "vscale30_normstd015"
+        ): "multiscale_horn",
+        (
+            "sparse_horn_cifar10_rgb_multiscale16_64_"
+            "local050_fb005_auxlow8_dual_gain_conditioning_vscale30_normstd015"
+        ): "multiscale_horn",
         "sparse_horn_cifar10_rgb_recommended_drive025_spatial_grid": "horn",
         "sparse_horn_cifar10_rgb_recommended_drive025_center_block": "horn",
         "sparse_horn_cifar10_rgb_recommended_drive010": "horn",
@@ -383,6 +553,54 @@ def test_sparse_horn_mnist_control_presets_share_recipe():
             assert parsed.multiscale_coupling_normalization == "row_sum"
             assert parsed.multiscale_vertical_profile == "local_radius"
             assert parsed.multiscale_vertical_length_scale == 0.5
+            if "_auxlow8" in preset:
+                assert parsed.coarse_auxiliary_weight == 0.05
+                assert parsed.coarse_auxiliary_target_size == 8
+                assert parsed.multiscale_auxiliary_readout_layer == 0
+            else:
+                assert parsed.coarse_auxiliary_weight == 0.0
+            if preset.endswith("_vgate_conditioning") or preset.endswith(
+                "_vgate_conditioning_drive2"
+            ):
+                assert parsed.multiscale_vertical_target_gate == "conditioning"
+            elif preset.endswith("_vgate_non_conditioning"):
+                assert parsed.multiscale_vertical_target_gate == "non_conditioning"
+            elif "_gain_conditioning" in preset:
+                assert parsed.multiscale_vertical_target_gate == "conditioning"
+            else:
+                assert parsed.multiscale_vertical_target_gate == "all"
+            if "_dual_gain_" in preset:
+                assert parsed.multiscale_vertical_mode == "dual_gain"
+            elif "_signed_gain_" in preset:
+                assert parsed.multiscale_vertical_mode == "signed_gain"
+            elif "_gain_" in preset:
+                assert parsed.multiscale_vertical_mode == "gain_modulation"
+            else:
+                assert parsed.multiscale_vertical_mode == "additive"
+            if preset.endswith("_drive2"):
+                assert parsed.conditioning_strength == 2.0
+                assert parsed.multiscale_conditioning_strength == 0.25
+            else:
+                assert parsed.conditioning_strength == 8.0
+            if "_soft025" in preset:
+                assert parsed.multiscale_vertical_soft_gate_floor == 0.25
+            else:
+                assert parsed.multiscale_vertical_soft_gate_floor == 0.0
+            if "_vscale10" in preset:
+                assert parsed.multiscale_vertical_signal_scale == 10.0
+            elif "_vscale30" in preset:
+                assert parsed.multiscale_vertical_signal_scale == 30.0
+            else:
+                assert parsed.multiscale_vertical_signal_scale == 1.0
+            if "_normstd015" in preset:
+                assert parsed.multiscale_vertical_gain_normalization == "center_rms"
+                assert parsed.multiscale_vertical_gain_target_std == 0.015
+            elif preset.endswith("_center"):
+                assert parsed.multiscale_vertical_gain_normalization == "center"
+                assert parsed.multiscale_vertical_gain_target_std == 0.0
+            else:
+                assert parsed.multiscale_vertical_gain_normalization == "none"
+                assert parsed.multiscale_vertical_gain_target_std == 0.0
         else:
             assert parsed.loss_mode == "pixel_drift"
         if parsed.dataset_name in ("cifar10_gray", "cifar10_rgb"):
@@ -653,6 +871,17 @@ def test_sparse_horn_mnist_control_presets_share_recipe():
     assert cifar_rgb_multiscale_no_vertical.model_family == "multiscale_horn"
     assert cifar_rgb_multiscale_no_vertical.multiscale_vertical_strength == 0.0
     assert cifar_rgb_multiscale_no_vertical.multiscale_feedback_strength == 0.0
+
+    cifar_rgb_multiscale_aux = config_from_args(
+        parse_args(
+            [
+                "--preset",
+                "sparse_horn_cifar10_rgb_multiscale16_64_local050_fb005_auxlow8",
+            ]
+        )
+    )
+    assert cifar_rgb_multiscale_aux.coarse_auxiliary_weight == 0.05
+    assert cifar_rgb_multiscale_aux.coarse_auxiliary_target_size == 8
 
     cifar_rgb_drive025 = config_from_args(
         parse_args(["--preset", "sparse_horn_cifar10_rgb_recommended_drive025"])
@@ -1245,6 +1474,25 @@ def test_generator_loss_combines_pixel_and_feature_drift():
     assert parts["feature_drift_loss"] > 0.0
 
 
+def test_downsample_image_batch_block_averages_flat_images():
+    images = jnp.arange(2 * 4 * 4, dtype=jnp.float32).reshape(2, 16)
+    lowres = downsample_image_batch(
+        images,
+        image_shape=(4, 4),
+        target_size=2,
+    )
+
+    expected = jnp.asarray(
+        [
+            [2.5, 4.5, 10.5, 12.5],
+            [18.5, 20.5, 26.5, 28.5],
+        ],
+        dtype=jnp.float32,
+    )
+    assert lowres.shape == (2, 4)
+    assert bool(jnp.allclose(lowres, expected))
+
+
 def test_generator_quality_metrics_can_use_classifier_labels():
     real = jnp.linspace(0.0, 1.0, 6 * 28 * 28).reshape(6, 28 * 28)
     generated = jnp.flip(real, axis=0)
@@ -1790,10 +2038,13 @@ def test_multiscale_horn_generator_samples_and_counts_layered_params():
         multiscale_feedback_strength=0.1,
         multiscale_vertical_profile="local_radius",
         multiscale_vertical_length_scale=1.0,
+        multiscale_auxiliary_readout_size=4,
+        multiscale_auxiliary_readout_layer=0,
         key=jax.random.PRNGKey(940),
     )
     labels = jnp.asarray([0, 1, 2], dtype=jnp.int32)
     generated = model(jax.random.PRNGKey(941), 3, labels)
+    auxiliary = model.sample_auxiliary_image(jax.random.PRNGKey(943), 3, labels)
     trace = model.collect_trace(jax.random.PRNGKey(942), 3, labels)
     diagnostics = compute_generator_success_diagnostics(
         model,
@@ -1803,12 +2054,18 @@ def test_multiscale_horn_generator_samples_and_counts_layered_params():
     )
 
     assert generated.shape == (3, 64)
+    assert auxiliary.shape == (3, 16)
     assert model.num_auxiliary_layers == 2
     assert model.num_vertical_couplings == 4
+    assert model.multiscale_auxiliary_readout_layer == 0
     assert trace["aux_0_theta_trajectory"].shape == (2, 3, 2)
     assert trace["aux_1_theta_trajectory"].shape == (2, 3, 4)
+    assert trace["auxiliary_lowres_generated"].shape == (3, 16)
+    assert trace["auxiliary_readout_weight"].shape == (4, 16)
     assert trace["vertical_0_coupling"].shape == (4, 2)
     assert trace["vertical_1_coupling"].shape == (2, 4)
+    assert int(trace["vertical_mode"]) == 0
+    assert trace["vertical_gain_final"].shape == (3, 8)
     assert diagnostics["dynamics_family"] == "multiscale_horn"
     assert diagnostics["multiscale_layer_sizes"] == [2, 4]
     assert diagnostics["num_auxiliary_layers"] == 2
@@ -1816,12 +2073,397 @@ def test_multiscale_horn_generator_samples_and_counts_layered_params():
     assert diagnostics["auxiliary_recurrent_params"] == 2 + 4 + 4 + 16
     assert diagnostics["vertical_recurrent_params"] == 2 * 4 + 4 * 2 + 4 * 8 + 8 * 4
     assert diagnostics["multiscale_conditioning_params"] == (3 * 2 * 3 + 3 * 4 * 3)
+    assert diagnostics["auxiliary_readout_params"] == 4 * 16 + 16
+    assert diagnostics["multiscale_auxiliary_readout_layer"] == 0
+    assert diagnostics["multiscale_auxiliary_readout_size"] == 4
+    assert diagnostics["multiscale_vertical_mode"] == "additive"
     assert diagnostics["vertical_profile_density"] <= 1.0
     assert diagnostics["estimated_recurrent_ops_per_sample"] > 2 * 8 * 8
     assert diagnostics["aux_0_state_energy_final"] >= 0.0
     assert diagnostics["aux_1_state_update_rms_mean"] >= 0.0
     assert diagnostics["vertical_0_potential_proxy_final"] >= 0.0
     assert "vertical_potential_proxy_delta_mean" in diagnostics
+
+
+def test_multiscale_vertical_target_gate_routes_fine_drive():
+    from oscnet.models import MultiscaleHORNImageGenerator
+
+    base_kwargs = dict(
+        num_oscillators=8,
+        image_shape=(8, 8),
+        decoder_hidden_dim=12,
+        decoder_depth=1,
+        steps=2,
+        num_classes=3,
+        num_condition_oscillators=3,
+        conditioning_mode="class_coupling",
+        conditioning_target_fraction=0.25,
+        label_phase_scale=0.0,
+        coupling_init_scale=0.2,
+        coupling_profile="local_radius",
+        coupling_normalization="row_sum",
+        coupling_length_scale=0.8,
+        multiscale_layer_sizes=(2, 4),
+        multiscale_vertical_strength=1.0,
+        multiscale_feedback_strength=0.1,
+        multiscale_vertical_profile="local_radius",
+        multiscale_vertical_length_scale=1.0,
+    )
+    conditioning_model = MultiscaleHORNImageGenerator(
+        **base_kwargs,
+        multiscale_vertical_target_gate="conditioning",
+        key=jax.random.PRNGKey(950),
+    )
+    non_conditioning_model = MultiscaleHORNImageGenerator(
+        **base_kwargs,
+        multiscale_vertical_target_gate="non_conditioning",
+        key=jax.random.PRNGKey(950),
+    )
+    soft_conditioning_model = MultiscaleHORNImageGenerator(
+        **base_kwargs,
+        multiscale_vertical_target_gate="conditioning",
+        multiscale_vertical_soft_gate_floor=0.25,
+        key=jax.random.PRNGKey(950),
+    )
+    fine_layer = len(conditioning_model.layer_specs) - 1
+    fine_spec_index = next(
+        index
+        for index, spec in enumerate(conditioning_model.vertical_specs)
+        if spec.target_layer == fine_layer
+    )
+
+    mask = conditioning_model._conditioning_target_mask_array()
+    conditioning_profile = conditioning_model.vertical_profile_matrix(fine_spec_index)
+    non_conditioning_profile = non_conditioning_model.vertical_profile_matrix(
+        fine_spec_index,
+    )
+    soft_conditioning_profile = soft_conditioning_model.vertical_profile_matrix(
+        fine_spec_index,
+    )
+    conditioning_rows = jnp.sum(jnp.abs(conditioning_profile), axis=-1)
+    non_conditioning_rows = jnp.sum(jnp.abs(non_conditioning_profile), axis=-1)
+    soft_conditioning_rows = jnp.sum(jnp.abs(soft_conditioning_profile), axis=-1)
+
+    assert int(jnp.sum(mask)) == 2
+    assert bool(jnp.all(conditioning_rows[mask == 1.0] > 0.0))
+    assert float(jnp.max(conditioning_rows[mask == 0.0])) == 0.0
+    assert bool(jnp.all(non_conditioning_rows[mask == 0.0] > 0.0))
+    assert float(jnp.max(non_conditioning_rows[mask == 1.0])) == 0.0
+    assert bool(jnp.all(soft_conditioning_rows[mask == 1.0] > 0.0))
+    assert bool(jnp.all(soft_conditioning_rows[mask == 0.0] > 0.0))
+    assert float(jnp.max(soft_conditioning_rows[mask == 0.0])) < float(
+        jnp.min(soft_conditioning_rows[mask == 1.0])
+    )
+
+    labels = jnp.asarray([0, 1], dtype=jnp.int32)
+    trace = conditioning_model.collect_trace(jax.random.PRNGKey(951), 2, labels)
+    diagnostics = compute_generator_success_diagnostics(
+        conditioning_model,
+        trace=trace,
+    )
+
+    assert int(trace["vertical_target_gate"]) == 1
+    assert diagnostics["multiscale_vertical_target_gate"] == "conditioning"
+    assert diagnostics["multiscale_vertical_soft_gate_floor"] == 0.0
+    assert diagnostics["vertical_profile_density"] < 1.0
+    assert diagnostics["vertical_profile_row_sum_min"] == 0.0
+
+    soft_trace = soft_conditioning_model.collect_trace(
+        jax.random.PRNGKey(951),
+        2,
+        labels,
+    )
+    soft_diagnostics = compute_generator_success_diagnostics(
+        soft_conditioning_model,
+        trace=soft_trace,
+    )
+    assert soft_diagnostics["multiscale_vertical_soft_gate_floor"] == 0.25
+    assert soft_diagnostics["vertical_profile_density"] > diagnostics[
+        "vertical_profile_density"
+    ]
+    assert float(jnp.min(soft_conditioning_rows)) > 0.0
+
+
+def test_multiscale_gain_modulation_changes_layered_dynamics():
+    from oscnet.models import MultiscaleHORNImageGenerator
+
+    base_kwargs = dict(
+        num_oscillators=8,
+        image_shape=(8, 8),
+        decoder_hidden_dim=12,
+        decoder_depth=1,
+        steps=2,
+        num_classes=3,
+        num_condition_oscillators=3,
+        conditioning_mode="class_coupling",
+        conditioning_target_fraction=0.25,
+        label_phase_scale=0.0,
+        coupling_init_scale=0.2,
+        coupling_profile="local_radius",
+        coupling_normalization="row_sum",
+        coupling_length_scale=0.8,
+        multiscale_layer_sizes=(2, 4),
+        multiscale_vertical_strength=1.0,
+        multiscale_feedback_strength=0.1,
+        multiscale_vertical_profile="local_radius",
+        multiscale_vertical_length_scale=1.0,
+        key=jax.random.PRNGKey(960),
+    )
+    additive_model = MultiscaleHORNImageGenerator(**base_kwargs)
+    gain_model = MultiscaleHORNImageGenerator(
+        **base_kwargs,
+        multiscale_vertical_mode="gain_modulation",
+    )
+    scaled_gain_model = MultiscaleHORNImageGenerator(
+        **base_kwargs,
+        multiscale_vertical_mode="gain_modulation",
+        multiscale_vertical_signal_scale=5.0,
+    )
+    zero_gain_model = MultiscaleHORNImageGenerator(
+        **base_kwargs,
+        multiscale_vertical_mode="gain_modulation",
+        multiscale_vertical_intervention="zero",
+    )
+    flipped_gain_model = MultiscaleHORNImageGenerator(
+        **base_kwargs,
+        multiscale_vertical_mode="gain_modulation",
+        multiscale_vertical_intervention="flip",
+    )
+    signed_model = MultiscaleHORNImageGenerator(
+        **base_kwargs,
+        multiscale_vertical_mode="signed_gain",
+    )
+    dual_model = MultiscaleHORNImageGenerator(
+        **base_kwargs,
+        multiscale_vertical_mode="dual_gain",
+        multiscale_vertical_target_gate="conditioning",
+        multiscale_vertical_signal_scale=5.0,
+    )
+    normalized_gain_model = MultiscaleHORNImageGenerator(
+        **base_kwargs,
+        multiscale_vertical_mode="gain_modulation",
+        multiscale_vertical_signal_scale=5.0,
+        multiscale_vertical_gain_normalization="center_rms",
+        multiscale_vertical_gain_target_std=0.02,
+    )
+    normalized_scaled_model = MultiscaleHORNImageGenerator(
+        **base_kwargs,
+        multiscale_vertical_mode="gain_modulation",
+        multiscale_vertical_signal_scale=5.0,
+        multiscale_vertical_gain_normalization="center_rms",
+        multiscale_vertical_gain_target_std=0.02,
+        multiscale_vertical_intervention_scale=0.5,
+    )
+    ramped_gain_model = MultiscaleHORNImageGenerator(
+        **base_kwargs,
+        multiscale_vertical_mode="gain_modulation",
+        multiscale_vertical_signal_scale=5.0,
+        multiscale_vertical_schedule="linear_ramp",
+        multiscale_vertical_onset_step=1,
+        multiscale_vertical_ramp_steps=1,
+    )
+    coupling_target_model = MultiscaleHORNImageGenerator(
+        **base_kwargs,
+        multiscale_vertical_mode="gain_modulation",
+        multiscale_vertical_signal_scale=5.0,
+        multiscale_vertical_gain_target="coupling",
+    )
+    conditioning_target_model = MultiscaleHORNImageGenerator(
+        **base_kwargs,
+        multiscale_vertical_mode="gain_modulation",
+        multiscale_vertical_signal_scale=5.0,
+        multiscale_vertical_gain_target="conditioning",
+    )
+    damping_target_model = MultiscaleHORNImageGenerator(
+        **base_kwargs,
+        multiscale_vertical_mode="gain_modulation",
+        multiscale_vertical_signal_scale=5.0,
+        multiscale_vertical_gain_target="damping",
+    )
+
+    labels = jnp.asarray([0, 1], dtype=jnp.int32)
+    sample_key = jax.random.PRNGKey(961)
+    additive_generated = additive_model(sample_key, 2, labels)
+    gain_generated = gain_model(sample_key, 2, labels)
+    scaled_gain_generated = scaled_gain_model(sample_key, 2, labels)
+    zero_generated = zero_gain_model(sample_key, 2, labels)
+    flipped_generated = flipped_gain_model(sample_key, 2, labels)
+    coupling_target_generated = coupling_target_model(sample_key, 2, labels)
+    conditioning_target_generated = conditioning_target_model(sample_key, 2, labels)
+    damping_target_generated = damping_target_model(sample_key, 2, labels)
+    trace = gain_model.collect_trace(jax.random.PRNGKey(962), 2, labels)
+    scaled_trace = scaled_gain_model.collect_trace(jax.random.PRNGKey(962), 2, labels)
+    zero_trace = zero_gain_model.collect_trace(jax.random.PRNGKey(962), 2, labels)
+    signed_trace = signed_model.collect_trace(jax.random.PRNGKey(962), 2, labels)
+    dual_trace = dual_model.collect_trace(jax.random.PRNGKey(962), 2, labels)
+    normalized_trace = normalized_gain_model.collect_trace(
+        jax.random.PRNGKey(962),
+        2,
+        labels,
+    )
+    normalized_scaled_trace = normalized_scaled_model.collect_trace(
+        jax.random.PRNGKey(962),
+        2,
+        labels,
+    )
+    ramped_trace = ramped_gain_model.collect_trace(jax.random.PRNGKey(962), 2, labels)
+    coupling_target_trace = coupling_target_model.collect_trace(
+        jax.random.PRNGKey(962),
+        2,
+        labels,
+    )
+    conditioning_target_trace = conditioning_target_model.collect_trace(
+        jax.random.PRNGKey(962),
+        2,
+        labels,
+    )
+    damping_target_trace = damping_target_model.collect_trace(
+        jax.random.PRNGKey(962),
+        2,
+        labels,
+    )
+    diagnostics = compute_generator_success_diagnostics(gain_model, trace=trace)
+    trace_diagnostics = compute_generator_trace_dynamics(gain_model, trace)
+    zero_diagnostics = compute_generator_success_diagnostics(
+        zero_gain_model,
+        trace=zero_trace,
+    )
+    signed_diagnostics = compute_generator_success_diagnostics(
+        signed_model,
+        trace=signed_trace,
+    )
+    dual_diagnostics = compute_generator_success_diagnostics(
+        dual_model,
+        trace=dual_trace,
+    )
+    normalized_diagnostics = compute_generator_success_diagnostics(
+        normalized_gain_model,
+        trace=normalized_trace,
+    )
+    ramped_diagnostics = compute_generator_success_diagnostics(
+        ramped_gain_model,
+        trace=ramped_trace,
+    )
+    coupling_target_diagnostics = compute_generator_success_diagnostics(
+        coupling_target_model,
+        trace=coupling_target_trace,
+    )
+    conditioning_target_diagnostics = compute_generator_success_diagnostics(
+        conditioning_target_model,
+        trace=conditioning_target_trace,
+    )
+    damping_target_diagnostics = compute_generator_success_diagnostics(
+        damping_target_model,
+        trace=damping_target_trace,
+    )
+
+    assert not bool(jnp.allclose(additive_generated, gain_generated))
+    assert not bool(jnp.allclose(gain_generated, zero_generated))
+    assert not bool(jnp.allclose(gain_generated, flipped_generated))
+    assert not bool(jnp.allclose(scaled_gain_generated, coupling_target_generated))
+    assert not bool(
+        jnp.allclose(scaled_gain_generated, conditioning_target_generated)
+    )
+    assert not bool(jnp.allclose(scaled_gain_generated, damping_target_generated))
+    assert int(trace["vertical_mode"]) == 1
+    assert int(trace["vertical_gain_target"]) == 0
+    assert trace["vertical_gain_final"].shape == (2, 8)
+    assert trace["vertical_gain_trajectory"].shape == (2, 2, 8)
+    assert trace["vertical_modulation_final"].shape == (2, 8)
+    assert bool(jnp.all(trace["vertical_gain_final"] >= 0.0))
+    assert bool(jnp.all(trace["vertical_gain_final"] <= 2.0))
+    assert not bool(jnp.allclose(trace["vertical_gain_final"], 1.0))
+    assert diagnostics["multiscale_vertical_mode"] == "gain_modulation"
+    assert diagnostics["multiscale_vertical_gain_target"] == "drive"
+    assert diagnostics["multiscale_vertical_signal_scale"] == 1.0
+    scaled_diagnostics = compute_generator_success_diagnostics(
+        scaled_gain_model,
+        trace=scaled_trace,
+    )
+    assert scaled_diagnostics["multiscale_vertical_signal_scale"] == 5.0
+    assert scaled_diagnostics["vertical_gain_std"] > diagnostics["vertical_gain_std"]
+    assert diagnostics["multiscale_vertical_intervention"] == "normal"
+    assert "vertical_gain_mean" in diagnostics
+    assert "vertical_gain_target_minus_non_target_mean" in diagnostics
+    assert "vertical_modulation_negative_fraction" in trace_diagnostics
+    assert int(zero_trace["vertical_intervention"]) == 1
+    assert bool(jnp.allclose(zero_trace["vertical_gain_final"], 1.0))
+    assert zero_diagnostics["multiscale_vertical_intervention"] == "zero"
+    assert int(signed_trace["vertical_mode"]) == 2
+    assert signed_trace["vertical_gain_final"].shape == (2, 8)
+    assert bool(jnp.all(signed_trace["vertical_gain_final"] >= -1.0))
+    assert bool(jnp.all(signed_trace["vertical_gain_final"] <= 2.0))
+    assert signed_diagnostics["multiscale_vertical_mode"] == "signed_gain"
+    assert int(dual_trace["vertical_mode"]) == 3
+    assert dual_trace["vertical_gain_final"].shape == (2, 8)
+    assert bool(jnp.all(dual_trace["vertical_gain_final"] >= -1.0))
+    assert bool(jnp.all(dual_trace["vertical_gain_final"] <= 2.0))
+    assert dual_diagnostics["multiscale_vertical_mode"] == "dual_gain"
+    assert dual_diagnostics["multiscale_vertical_signal_scale"] == 5.0
+    assert int(normalized_trace["vertical_gain_normalization"]) == 2
+    assert float(normalized_trace["vertical_gain_target_std"]) == pytest.approx(0.02)
+    normalized_modulation = normalized_trace["vertical_modulation_final"]
+    normalized_modulation_mean = jnp.mean(normalized_modulation, axis=-1)
+    normalized_modulation_rms = jnp.sqrt(
+        jnp.mean(normalized_modulation**2, axis=-1)
+    )
+    normalized_scaled_modulation_rms = jnp.sqrt(
+        jnp.mean(
+            normalized_scaled_trace["vertical_modulation_final"] ** 2,
+            axis=-1,
+        )
+    )
+    assert bool(jnp.allclose(normalized_modulation_mean, 0.0, atol=1e-5))
+    assert bool(jnp.allclose(normalized_modulation_rms, 0.02, atol=1e-3))
+    assert bool(
+        jnp.allclose(normalized_scaled_modulation_rms, 0.01, atol=1e-3)
+    )
+    assert (
+        normalized_diagnostics["multiscale_vertical_gain_normalization"]
+        == "center_rms"
+    )
+    assert normalized_diagnostics[
+        "multiscale_vertical_gain_target_std"
+    ] == pytest.approx(0.02)
+    assert int(ramped_trace["vertical_schedule"]) == 2
+    assert int(ramped_trace["vertical_onset_step"]) == 1
+    assert int(ramped_trace["vertical_ramp_steps"]) == 1
+    assert bool(jnp.allclose(ramped_trace["vertical_schedule_trajectory"], jnp.asarray([0.0, 1.0])))
+    assert bool(jnp.allclose(ramped_trace["vertical_gain_trajectory"][0], 1.0))
+    assert not bool(jnp.allclose(ramped_trace["vertical_gain_trajectory"][-1], 1.0))
+    assert ramped_diagnostics["multiscale_vertical_schedule"] == "linear_ramp"
+    assert ramped_diagnostics["multiscale_vertical_onset_step"] == 1
+    assert ramped_diagnostics["multiscale_vertical_ramp_steps"] == 1
+    assert int(coupling_target_trace["vertical_gain_target"]) == 1
+    assert int(conditioning_target_trace["vertical_gain_target"]) == 2
+    assert int(damping_target_trace["vertical_gain_target"]) == 3
+    assert (
+        coupling_target_diagnostics["multiscale_vertical_gain_target"]
+        == "coupling"
+    )
+    assert (
+        conditioning_target_diagnostics["multiscale_vertical_gain_target"]
+        == "conditioning"
+    )
+    assert damping_target_diagnostics["multiscale_vertical_gain_target"] == "damping"
+
+    real = jnp.linspace(0.0, 1.0, 4 * 64, dtype=jnp.float32).reshape(4, 64)
+    audit_labels = jnp.asarray([0, 1, 2, 0], dtype=jnp.int32)
+    audit = compute_generator_vertical_intervention_audit(
+        gain_model,
+        key=jax.random.PRNGKey(963),
+        real_images=real,
+        sample_count=4,
+        batch_size=2,
+        labels=audit_labels,
+        modes=("normal", "zero", "flip", "scale025"),
+        trace_batch_size=2,
+    )
+    assert set(audit) == {"normal", "zero", "flip", "scale025"}
+    assert audit["normal"]["output_mse_vs_normal"] == 0.0
+    assert audit["zero"]["output_mse_vs_normal"] >= 0.0
+    assert "delta_nearest_real_mse" in audit["zero"]
+    assert "trace_vertical_gain_mean" in audit["normal"]
 
 
 def test_generator_settling_metrics_score_multiple_step_depths():
@@ -2059,6 +2701,57 @@ def test_mnist_generator_horn_synthetic_training_smoke(tmp_path):
     assert "state_update_rms_settling_ratio" in diagnostics
     assert "output_step_mse_settling_ratio" in diagnostics
     assert summary["final_eval_loss"] >= 0.0
+
+
+def test_mnist_generator_multiscale_auxiliary_synthetic_training_smoke(tmp_path):
+    run = AutoencoderExperimentConfig(
+        name="mnist_generator_multiscale_aux_test",
+        output_dir=tmp_path / "mnist_generator_multiscale_aux",
+        seed=86,
+        epochs=1,
+        batch_size=2,
+        learning_rate=1e-3,
+        checkpoint_every=1,
+        artifact_every=1,
+    )
+    config = MNISTGeneratorExperimentConfig(
+        run=run,
+        model_family="multiscale_horn",
+        conditional=True,
+        num_classes=10,
+        conditioning_mode="class_coupling",
+        num_condition_oscillators=3,
+        label_phase_scale=0.0,
+        readout_mode="mean_relative",
+        decoder_mode="resize_conv",
+        resize_conv_min_channels=4,
+        num_oscillators=98,
+        multiscale_layer_sizes=(2,),
+        multiscale_frequency_scales=(0.5,),
+        multiscale_auxiliary_readout_layer=0,
+        coarse_auxiliary_weight=0.1,
+        coarse_auxiliary_target_size=7,
+        steps=1,
+        num_projections=8,
+        eval_sample_count=2,
+        attractor_variants_per_class=1,
+        train_settling_steps=(0, 1),
+        settling_steps=(0, 1),
+        data_source="synthetic",
+        train_limit=4,
+        eval_limit=2,
+    )
+
+    result = run_mnist_generator_experiment(config)
+
+    with open(result.paths.metrics / "summary.json") as f:
+        summary = json.load(f)
+    diagnostics = summary["generator"]["success_diagnostics"]
+    assert summary["generator"]["dynamics_family"] == "multiscale_horn"
+    assert summary["generator"]["coarse_auxiliary_weight"] == 0.1
+    assert summary["final_train_coarse_auxiliary_loss"] >= 0.0
+    assert summary["final_eval_coarse_auxiliary_loss"] >= 0.0
+    assert diagnostics["auxiliary_readout_params"] > 0
 
 
 def test_mnist_generator_state_mlp_synthetic_training_smoke(tmp_path):

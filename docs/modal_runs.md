@@ -2200,6 +2200,463 @@ accuracy over plain normalized-local HORN, but weak bidirectional vertical
 coupling mainly improved nearest-real proximity and settling while reducing
 class consistency and basin score.
 
+## CIFAR RGB Multiscale Auxiliary Objective Probe
+
+Test whether giving the coarsest auxiliary HORN layer its own low-resolution
+image target makes vertical hierarchy useful:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=8 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_multiscale_auxiliary_probe
+```
+
+This writes:
+
+```text
+outputs/analysis/modal_mnist_generator_cifar10_rgb_multiscale_auxiliary_probe.csv
+outputs/analysis/modal_mnist_generator_cifar10_rgb_multiscale_auxiliary_probe.json
+outputs/analysis/cifar10_rgb_multiscale_auxiliary_probe/frontier_summary.md
+outputs/analysis/cifar10_rgb_multiscale_auxiliary_probe/paired_deltas.md
+```
+
+Current read: the auxiliary low-res objective is learnable and improves some
+proximity metrics. The best generated-label row in the two-seed probe is
+`no_vertical_auxlow8`, which suggests the objective is mostly shaping shared
+conditioning/readout rather than proving active vertical coupling. Active
+vertical plus auxiliary gives the best nearest-real MSE but loses
+semantic/diversity and basin quality.
+
+## CIFAR RGB Multiscale Selective Vertical Gate Probe
+
+Test whether coarse-to-fine hierarchy improves when vertical drive is routed
+only into selected fine oscillators instead of all fine oscillators:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=8 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_multiscale_gated_probe
+```
+
+This writes:
+
+```text
+outputs/analysis/modal_mnist_generator_cifar10_rgb_multiscale_gated_probe.csv
+outputs/analysis/modal_mnist_generator_cifar10_rgb_multiscale_gated_probe.json
+outputs/analysis/cifar10_rgb_multiscale_gated_probe/frontier_summary.md
+outputs/analysis/cifar10_rgb_multiscale_gated_probe/paired_deltas.md
+```
+
+Current read: `multiscale_vertical_target_gate="conditioning"` is much less
+destructive than all-target vertical coupling and improves nearest-real MSE,
+but it does not beat the no-vertical auxiliary model on the main
+semantic/attractor frontier. `non_conditioning` preserves more diversity but
+loses class consistency. Treat this as evidence for selective routing, not as
+proof that this vertical mechanism is the missing hierarchy solution.
+
+## CIFAR RGB Multiscale Gain-Modulated Vertical Probe
+
+Test whether vertical hierarchy works better as modulation of fine-layer
+dynamics than as additive source-minus-target acceleration:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=8 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_multiscale_gain_probe
+```
+
+This writes:
+
+```text
+outputs/analysis/modal_mnist_generator_cifar10_rgb_multiscale_gain_probe.csv
+outputs/analysis/modal_mnist_generator_cifar10_rgb_multiscale_gain_probe.json
+outputs/analysis/cifar10_rgb_multiscale_gain_probe/frontier_summary.md
+outputs/analysis/cifar10_rgb_multiscale_gain_probe/paired_deltas.md
+```
+
+Analyze it with:
+
+```bash
+python scripts/analyze_mnist_generator_frontier.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_multiscale_gain_probe.csv \
+  --output-dir outputs/analysis/cifar10_rgb_multiscale_gain_probe \
+  --title "CIFAR-10 RGB multiscale gain-modulation frontier" \
+  --accuracy-floor 0 \
+  --no-plot
+
+python scripts/analyze_generator_paired_deltas.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_multiscale_gain_probe.csv \
+  --output-dir outputs/analysis/cifar10_rgb_multiscale_gain_probe \
+  --baseline-variant no_vertical_auxlow8 \
+  --target-variant vgate_conditioning_auxlow8 \
+  --target-variant gain_all_auxlow8 \
+  --target-variant gain_conditioning_auxlow8 \
+  --title "CIFAR-10 RGB multiscale gain-modulation paired deltas"
+```
+
+Current read: `multiscale_vertical_mode="gain_modulation"` is the best active
+vertical hierarchy signal so far. The broad `gain_all_auxlow8` row beats the
+no-vertical auxiliary baseline on generated-label accuracy, diversity, feature
+diversity, attractor accuracy, and basin score on matched seeds. The cost is
+worse nearest-real pixel MSE, worse output settling, and slower sampling.
+Treat this as evidence that coarse/slow hierarchy should gate fine dynamics
+rather than pull fine oscillator state directly.
+
+## CIFAR RGB Multiscale Weak-Conditioning Probe
+
+Test whether hierarchy becomes more valuable when direct class drive is
+weakened. This lowers fine `conditioning_strength` from `8.0` to `2.0` and
+auxiliary `multiscale_conditioning_strength` from `1.0` to `0.25`:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=8 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_multiscale_weak_drive_probe
+```
+
+This writes:
+
+```text
+outputs/analysis/modal_mnist_generator_cifar10_rgb_multiscale_weak_drive_probe.csv
+outputs/analysis/modal_mnist_generator_cifar10_rgb_multiscale_weak_drive_probe.json
+outputs/analysis/cifar10_rgb_multiscale_weak_drive_probe/frontier_summary.md
+outputs/analysis/cifar10_rgb_multiscale_weak_drive_probe/paired_deltas.md
+```
+
+Analyze it with:
+
+```bash
+python scripts/analyze_mnist_generator_frontier.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_multiscale_weak_drive_probe.csv \
+  --output-dir outputs/analysis/cifar10_rgb_multiscale_weak_drive_probe \
+  --title "CIFAR-10 RGB multiscale weak-drive hierarchy frontier" \
+  --accuracy-floor 0 \
+  --no-plot
+
+python scripts/analyze_generator_paired_deltas.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_multiscale_weak_drive_probe.csv \
+  --output-dir outputs/analysis/cifar10_rgb_multiscale_weak_drive_probe \
+  --baseline-variant no_vertical_auxlow8_drive2 \
+  --target-variant vgate_conditioning_auxlow8_drive2 \
+  --target-variant gain_all_auxlow8_drive2 \
+  --title "CIFAR-10 RGB multiscale weak-drive paired deltas"
+```
+
+Current read: weak conditioning changes the hierarchy story. The selective
+additive gate `vgate_conditioning_auxlow8_drive2` is the stronger semantic and
+basin row, while broad gain mainly improves diversity/feature diversity and
+output settling. This points toward selective or signed gain, not simply more
+broad gain.
+
+## CIFAR RGB Multiscale Signed / Selective Gain Probe
+
+Test signed excitatory/inhibitory vertical modulation and selective
+class-column gain:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=8 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_multiscale_signed_gain_probe
+```
+
+This writes:
+
+```text
+outputs/analysis/modal_mnist_generator_cifar10_rgb_multiscale_signed_gain_probe.csv
+outputs/analysis/modal_mnist_generator_cifar10_rgb_multiscale_signed_gain_probe.json
+outputs/analysis/cifar10_rgb_multiscale_signed_gain_probe/frontier_summary.md
+outputs/analysis/cifar10_rgb_multiscale_signed_gain_probe/paired_deltas.md
+```
+
+Analyze it with:
+
+```bash
+python scripts/analyze_mnist_generator_frontier.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_multiscale_signed_gain_probe.csv \
+  --output-dir outputs/analysis/cifar10_rgb_multiscale_signed_gain_probe \
+  --title "CIFAR-10 RGB multiscale signed/selective gain frontier" \
+  --accuracy-floor 0 \
+  --no-plot
+
+python scripts/analyze_generator_paired_deltas.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_multiscale_signed_gain_probe.csv \
+  --output-dir outputs/analysis/cifar10_rgb_multiscale_signed_gain_probe \
+  --baseline-variant gain_conditioning_auxlow8 \
+  --target-variant signed_gain_all_auxlow8 \
+  --target-variant signed_gain_conditioning_auxlow8 \
+  --target-variant gain_conditioning_auxlow8_drive2 \
+  --target-variant signed_gain_all_auxlow8_drive2 \
+  --target-variant signed_gain_conditioning_auxlow8_drive2 \
+  --title "CIFAR-10 RGB multiscale signed/selective gain paired deltas"
+```
+
+Current read: signed modulation is useful and stable. Broad signed gain
+improves attractor/basin metrics; selective signed gain is the better
+accuracy/proximity compromise and is the strongest weak-drive result so far.
+Use this family before adding more hierarchy depth.
+
+## CIFAR RGB Multiscale Soft Selective Gain Probe
+
+Test whether a weak non-target gain floor can combine selective-gain proximity
+with broad-gain attractor strength:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=8 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_multiscale_soft_gate_probe
+```
+
+This writes:
+
+```text
+outputs/analysis/modal_mnist_generator_cifar10_rgb_multiscale_soft_gate_probe.csv
+outputs/analysis/cifar10_rgb_multiscale_soft_gate_probe/frontier_summary.md
+```
+
+Analyze it with:
+
+```bash
+python scripts/analyze_mnist_generator_frontier.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_multiscale_soft_gate_probe.csv \
+  --output-dir outputs/analysis/cifar10_rgb_multiscale_soft_gate_probe \
+  --title "CIFAR-10 RGB multiscale soft-gate frontier" \
+  --accuracy-floor 0 \
+  --no-plot
+```
+
+Current read: a `0.25` soft floor helps unsigned selective gain slightly, but
+hurts selective signed gain's class consistency and attractor basin. Treat it
+as a useful diagnostic, not the new default.
+
+## CIFAR RGB Vertical Causality Audit
+
+Audit whether the trained vertical hierarchy path is causal at sample time by
+zeroing, shuffling, flipping, and scaling the vertical signal while keeping the
+same initial states:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=8 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_vertical_causality_audit
+```
+
+This writes:
+
+```text
+outputs/analysis/modal_mnist_generator_cifar10_rgb_vertical_causality_audit.csv
+outputs/analysis/modal_mnist_generator_cifar10_rgb_vertical_causality_audit.json
+outputs/analysis/cifar10_rgb_vertical_causality_audit/frontier_summary.md
+```
+
+Analyze it with:
+
+```bash
+python scripts/analyze_mnist_generator_frontier.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_vertical_causality_audit.csv \
+  --output-dir outputs/analysis/cifar10_rgb_vertical_causality_audit \
+  --title "CIFAR-10 RGB vertical causality audit frontier" \
+  --accuracy-floor 0 \
+  --no-plot
+```
+
+Current read: the current vertical-gain path is nearly silent at sample time.
+Interventions move outputs by roughly `1e-9` MSE and leave class/attractor
+metrics effectively unchanged, while traced vertical gain has only about
+`1e-4` standard deviation around `1.0`. Do not treat the current vertical
+variants as causal hierarchy wins until the route has a calibrated, measurable
+intervention effect.
+
+## CIFAR RGB Vertical Calibration Probe
+
+Test whether increasing vertical signal scale makes the top-down route
+measurably causal without immediately collapsing samples:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=8 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_vertical_calibration_probe
+```
+
+This writes:
+
+```text
+outputs/analysis/modal_mnist_generator_cifar10_rgb_vertical_calibration_probe.csv
+outputs/analysis/modal_mnist_generator_cifar10_rgb_vertical_calibration_probe.json
+outputs/analysis/cifar10_rgb_vertical_calibration_probe/frontier_summary.md
+```
+
+Analyze it with:
+
+```bash
+python scripts/analyze_mnist_generator_frontier.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_vertical_calibration_probe.csv \
+  --output-dir outputs/analysis/cifar10_rgb_vertical_calibration_probe \
+  --title "CIFAR-10 RGB vertical calibration frontier" \
+  --accuracy-floor 0 \
+  --no-plot
+```
+
+Current read: calibration works diagnostically. `vscale10` and `vscale30`
+increase traced gain variation and intervention output deltas from near-zero to
+measurable values. It does not prove better image generation; some
+interventions still improve basin metrics, so the route is causal but not
+always beneficial.
+
+## CIFAR RGB Dual-Gain Probe
+
+Test the dual-route hierarchy mechanism: broad positive gain into all fine
+columns plus selective signed gain into the class-conditioned columns.
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=8 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_dual_gain_probe
+```
+
+This writes:
+
+```text
+outputs/analysis/modal_mnist_generator_cifar10_rgb_dual_gain_probe.csv
+outputs/analysis/modal_mnist_generator_cifar10_rgb_dual_gain_probe.json
+outputs/analysis/cifar10_rgb_dual_gain_probe/frontier_summary.md
+```
+
+Analyze it with:
+
+```bash
+python scripts/analyze_mnist_generator_frontier.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_dual_gain_probe.csv \
+  --output-dir outputs/analysis/cifar10_rgb_dual_gain_probe \
+  --title "CIFAR-10 RGB dual-gain frontier" \
+  --accuracy-floor 0 \
+  --no-plot
+```
+
+Current read: dual gain makes the vertical path clearly causal, especially at
+`vscale30`, but it does not beat the current quality frontier. The no-vertical
+auxiliary row and broad-gain-only row remain better on the main semantic and
+attractor metrics. Treat dual gain as useful infrastructure and a causality
+diagnostic, not as the new default recipe.
+
+## CIFAR RGB Vertical Homeostasis Probe
+
+Test whether calibrated vertical gain helps when it is homeostatically centered
+and RMS-controlled instead of allowed to change the fine field's total drive
+energy:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=8 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_vertical_homeostasis_probe
+```
+
+This writes:
+
+```text
+outputs/analysis/modal_mnist_generator_cifar10_rgb_vertical_homeostasis_probe.csv
+outputs/analysis/modal_mnist_generator_cifar10_rgb_vertical_homeostasis_probe.json
+```
+
+Analyze it with:
+
+```bash
+python scripts/analyze_mnist_generator_frontier.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_vertical_homeostasis_probe.csv \
+  --output-dir outputs/analysis/cifar10_rgb_vertical_homeostasis_probe \
+  --title "CIFAR-10 RGB vertical homeostasis frontier" \
+  --accuracy-floor 0 \
+  --no-plot
+```
+
+Current read: homeostatic gain normalization is not universally useful, but it
+rescues the selective signed route. `signed_gain_conditioning_vscale30_normstd015`
+improves generated-label accuracy, feature diversity, attractor accuracy, basin
+score, output settling, and nearest-real MSE over both `no_vertical_auxlow8` and
+raw `signed_gain_conditioning_vscale30`, with a mild diversity tradeoff. The
+dual-gain normalized variant gets worse, so this is a selective E/I-style gain
+lead rather than a generic "normalize all hierarchy" result.
+
+Scale-audit caveat: this CSV was collected before normalized variants applied
+sample-time scale interventions after normalization. Use the normal/zero/shuffle
+and flip audit rows; ignore `scale025` and `scale050` for normalized variants in
+this artifact.
+
+Run the selective signed-gain homeostasis calibration:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=8 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_signed_gain_homeostasis_calibration
+```
+
+This writes:
+
+```text
+outputs/analysis/modal_mnist_generator_cifar10_rgb_signed_gain_homeostasis_calibration.csv
+outputs/analysis/modal_mnist_generator_cifar10_rgb_signed_gain_homeostasis_calibration.json
+```
+
+It compares `center`, `center_rms=0.010`, `center_rms=0.015`, and
+`center_rms=0.020` for the same calibrated selective signed-gain route. Use it
+to decide whether `0.015` was a lucky point or a real homeostatic gain sweet
+spot before adding delayed feedback or parameter-level vertical modulation.
+
+Current calibration read: `center` is the stronger semantic/diversity/basin
+candidate. Fixed-RMS variants improve nearest-real or feature-proximity metrics
+but weaken the generated-label/diversity/attractor frontier. The useful
+mechanism looks like zero-mean selective signed top-down bias, not hard
+amplitude clamping.
+
+Run the centered signed-gain timing probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=8 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_centered_signed_gain_timing_probe
+```
+
+This writes:
+
+```text
+outputs/analysis/modal_mnist_generator_cifar10_rgb_centered_signed_gain_timing_probe.csv
+outputs/analysis/modal_mnist_generator_cifar10_rgb_centered_signed_gain_timing_probe.json
+```
+
+It compares immediate centered selective gain against `delayed8`,
+`delayed16`, and a `linear_ramp` from step 8 over 16 steps. Current read:
+constant centered gain remains the best semantic/attractor candidate; delayed8
+trades accuracy/proximity for diversity and a tiny basin edge; ramping improves
+nearest-real and feature-proximity but weakens semantic/basin metrics. Treat
+timing as useful instrumentation, not the main next axis.
+
+Run the centered signed-gain target probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=8 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_centered_signed_gain_target_probe
+```
+
+This writes:
+
+```text
+outputs/analysis/modal_mnist_generator_cifar10_rgb_centered_signed_gain_target_probe.csv
+outputs/analysis/modal_mnist_generator_cifar10_rgb_centered_signed_gain_target_probe.json
+```
+
+Analyze it with:
+
+```bash
+python scripts/analyze_mnist_generator_frontier.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_centered_signed_gain_target_probe.csv \
+  --output-dir outputs/analysis/cifar10_rgb_centered_signed_gain_target_probe \
+  --title "CIFAR-10 RGB centered signed gain target probe" \
+  --accuracy-floor 0 \
+  --no-plot
+
+python scripts/analyze_generator_paired_deltas.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_centered_signed_gain_target_probe.csv \
+  --output-dir outputs/analysis/cifar10_rgb_centered_signed_gain_target_probe \
+  --baseline-variant center_drive \
+  --target-variant center_coupling \
+  --target-variant center_conditioning \
+  --target-variant center_damping \
+  --title "CIFAR-10 RGB centered signed gain target paired deltas"
+```
+
+Current read: `center_drive` remains the best semantic/attractor target.
+`center_coupling` improves feature diversity but is weakly causal;
+`center_conditioning` and `center_damping` improve proximity-style metrics while
+reducing diversity/basin strength. Treat target-specific modulation as useful
+instrumentation, not the next quality frontier by itself.
+
 ## Configuration
 
 Set environment variables before `modal run` to change the remote worker:

@@ -181,6 +181,40 @@ def _model_with_steps(model: eqx.Module, steps: int) -> eqx.Module:
     return stepped_model
 
 
+def _model_with_vertical_intervention(
+    model: eqx.Module,
+    mode: str,
+) -> eqx.Module:
+    """Return a view of ``model`` with sample-time vertical intervention."""
+
+    intervention_specs = {
+        "normal": ("normal", 1.0),
+        "zero": ("zero", 1.0),
+        "shuffle": ("shuffle_batch", 1.0),
+        "shuffle_batch": ("shuffle_batch", 1.0),
+        "flip": ("flip", 1.0),
+        "scale025": ("normal", 0.25),
+        "scale050": ("normal", 0.5),
+        "scale100": ("normal", 1.0),
+    }
+    if mode not in intervention_specs:
+        raise ValueError(f"unknown vertical intervention mode {mode!r}")
+    intervention, scale = intervention_specs[mode]
+    intervened_model = copy.copy(model)
+    if hasattr(intervened_model, "multiscale_vertical_intervention"):
+        object.__setattr__(
+            intervened_model,
+            "multiscale_vertical_intervention",
+            intervention,
+        )
+        object.__setattr__(
+            intervened_model,
+            "multiscale_vertical_intervention_scale",
+            float(scale),
+        )
+    return intervened_model
+
+
 def _safe_ratio(numerator: float, denominator: float) -> float:
     """Return a finite ratio when possible, otherwise NaN."""
 
@@ -239,6 +273,104 @@ def _transition_summary(prefix: str, values: np.ndarray) -> Dict[str, float]:
         ),
     }
     return summary
+
+
+def _array_summary(prefix: str, values: np.ndarray) -> Dict[str, float]:
+    """Summarize an arbitrary array with finite-value safeguards."""
+
+    array = np.asarray(values, dtype=np.float32)
+    if array.size == 0:
+        return {}
+    finite = array[np.isfinite(array)]
+    if finite.size == 0:
+        return {}
+    return {
+        f"{prefix}_mean": float(np.mean(finite)),
+        f"{prefix}_std": float(np.std(finite)),
+        f"{prefix}_min": float(np.min(finite)),
+        f"{prefix}_max": float(np.max(finite)),
+    }
+
+
+def _fraction(values: np.ndarray, mask: np.ndarray) -> float:
+    """Return the finite fraction of entries satisfying ``mask``."""
+
+    if values.size == 0:
+        return float("nan")
+    finite_mask = np.isfinite(values)
+    if not np.any(finite_mask):
+        return float("nan")
+    return float(np.mean(mask[finite_mask]))
+
+
+def _vertical_gain_diagnostics(trace: Dict[str, Array]) -> Dict[str, float]:
+    """Summarize vertical gain/modulation behavior from a generator trace."""
+
+    diagnostics: Dict[str, float] = {}
+    if "vertical_gain_final" not in trace:
+        return diagnostics
+
+    gain = np.asarray(trace["vertical_gain_final"], dtype=np.float32)
+    diagnostics.update(_array_summary("vertical_gain", gain))
+    diagnostics["vertical_gain_negative_fraction"] = _fraction(gain, gain < 0.0)
+    diagnostics["vertical_gain_near_zero_fraction"] = _fraction(
+        gain,
+        np.abs(gain) <= 0.05,
+    )
+    diagnostics["vertical_gain_below_half_fraction"] = _fraction(gain, gain < 0.5)
+    diagnostics["vertical_gain_below_one_fraction"] = _fraction(gain, gain < 1.0)
+    diagnostics["vertical_gain_above_one_fraction"] = _fraction(gain, gain > 1.0)
+    diagnostics["vertical_gain_clip_low_fraction"] = _fraction(gain, gain <= -0.999)
+    diagnostics["vertical_gain_clip_high_fraction"] = _fraction(gain, gain >= 1.999)
+
+    if "vertical_modulation_final" in trace:
+        modulation = np.asarray(trace["vertical_modulation_final"], dtype=np.float32)
+        diagnostics.update(_array_summary("vertical_modulation", modulation))
+        diagnostics["vertical_modulation_positive_fraction"] = _fraction(
+            modulation,
+            modulation > 0.0,
+        )
+        diagnostics["vertical_modulation_negative_fraction"] = _fraction(
+            modulation,
+            modulation < 0.0,
+        )
+
+    if "vertical_gain_trajectory" in trace:
+        trajectory = np.asarray(trace["vertical_gain_trajectory"], dtype=np.float32)
+        if trajectory.size and trajectory.shape[0] > 0:
+            initial = trajectory[0]
+            final = trajectory[-1]
+            diagnostics["vertical_gain_initial_mean"] = float(np.mean(initial))
+            diagnostics["vertical_gain_final_mean"] = float(np.mean(final))
+            diagnostics["vertical_gain_mean_delta"] = float(
+                np.mean(final) - np.mean(initial)
+            )
+            step_delta = np.diff(trajectory, axis=0)
+            if step_delta.size:
+                diagnostics["vertical_gain_step_delta_rms_mean"] = float(
+                    np.mean(np.sqrt(np.mean(step_delta * step_delta, axis=(1, 2))))
+                )
+
+    if "conditioning_target_mask" in trace:
+        target_mask = np.asarray(trace["conditioning_target_mask"], dtype=np.float32)
+        if target_mask.ndim == 1 and target_mask.shape[0] == gain.shape[-1]:
+            target = target_mask > 0.5
+            non_target = ~target
+            if np.any(target):
+                diagnostics["vertical_gain_target_mean"] = float(
+                    np.mean(gain[:, target])
+                )
+            if np.any(non_target):
+                diagnostics["vertical_gain_non_target_mean"] = float(
+                    np.mean(gain[:, non_target])
+                )
+            if np.any(target) and np.any(non_target):
+                diagnostics["vertical_gain_target_minus_non_target_mean"] = (
+                    diagnostics["vertical_gain_target_mean"]
+                    - diagnostics["vertical_gain_non_target_mean"]
+                )
+
+    return diagnostics
 
 
 def _coupling_potential_proxy(position_series: np.ndarray, weight: np.ndarray) -> np.ndarray:
@@ -400,6 +532,7 @@ def compute_generator_trace_dynamics(
     trajectory = np.asarray(trace["theta_trajectory"], dtype=np.float32)
     position_series = np.concatenate([initial[None, ...], trajectory], axis=0)
     diagnostics: Dict[str, float] = {}
+    diagnostics.update(_vertical_gain_diagnostics(trace))
 
     if "initial_velocity" in trace and "velocity_trajectory" in trace:
         initial_velocity = np.asarray(trace["initial_velocity"], dtype=np.float32)
@@ -890,6 +1023,110 @@ def compute_generator_attractor_robustness(
     return metrics
 
 
+def compute_generator_vertical_intervention_audit(
+    model: eqx.Module,
+    *,
+    key: jax.random.PRNGKey,
+    real_images: Array,
+    sample_count: int,
+    batch_size: int,
+    labels: Optional[Array] = None,
+    prototypes: Optional[Array] = None,
+    classifier: Optional[FeatureClassifier] = None,
+    modes: Sequence[str] = ("normal", "zero", "shuffle", "flip"),
+    attractor_variants_per_class: int = 0,
+    num_classes: Optional[int] = None,
+    trace_batch_size: Optional[int] = None,
+) -> Dict[str, Dict[str, float]]:
+    """Evaluate sample-time vertical interventions on the same initial states."""
+
+    if not modes:
+        return {}
+    count = min(int(sample_count), int(real_images.shape[0]))
+    if count <= 0:
+        return {}
+    label_slice = None if labels is None else labels[:count]
+    sample_key = jax.random.fold_in(key, 10_001)
+    attractor_key = jax.random.fold_in(key, 10_002)
+    trace_key = jax.random.fold_in(key, 10_003)
+    normal_generated: Optional[Array] = None
+    normal_metrics: Optional[Dict[str, float]] = None
+    audit: Dict[str, Dict[str, float]] = {}
+
+    for mode in modes:
+        mode_name = str(mode)
+        audit_model = _model_with_vertical_intervention(model, mode_name)
+        generated = sample_generator_images(
+            audit_model,
+            key=sample_key,
+            sample_count=count,
+            batch_size=batch_size,
+            labels=label_slice,
+        )
+        metrics = compute_generator_quality_metrics(
+            real_images[:count],
+            generated,
+            labels=label_slice,
+            prototypes=prototypes,
+            classifier=classifier,
+        )
+        if normal_generated is None:
+            normal_generated = generated
+        metrics["output_mse_vs_normal"] = float(
+            jnp.mean((generated - normal_generated) ** 2)
+        )
+
+        if attractor_variants_per_class > 0:
+            attractor = compute_generator_attractor_robustness(
+                audit_model,
+                key=attractor_key,
+                batch_size=batch_size,
+                variants_per_class=attractor_variants_per_class,
+                num_classes=num_classes,
+                classifier=classifier,
+            )
+            metrics.update(
+                {
+                    f"attractor_{name}": value
+                    for name, value in attractor.items()
+                }
+            )
+
+        trace_count = min(
+            count,
+            int(trace_batch_size or batch_size),
+        )
+        trace_labels = None if label_slice is None else label_slice[:trace_count]
+        if hasattr(audit_model, "collect_trace") and trace_count > 0:
+            trace = audit_model.collect_trace(trace_key, trace_count, trace_labels)
+            trace_metrics = compute_generator_trace_dynamics(audit_model, trace)
+            for name, value in trace_metrics.items():
+                if name.startswith("vertical_gain") or name.startswith(
+                    "vertical_modulation"
+                ):
+                    metrics[f"trace_{name}"] = value
+
+        if mode_name == "normal" or normal_metrics is None:
+            normal_metrics = dict(metrics)
+        else:
+            for key_name in (
+                "classifier_label_accuracy",
+                "diversity_ratio",
+                "nearest_real_mse",
+                "classifier_feature_diversity_ratio",
+                "classifier_feature_nearest_real_mse",
+                "attractor_label_accuracy",
+                "attractor_pixel_attractor_diversity_score",
+            ):
+                if key_name in metrics and key_name in normal_metrics:
+                    metrics[f"delta_{key_name}"] = (
+                        float(metrics[key_name]) - float(normal_metrics[key_name])
+                    )
+        audit[mode_name] = metrics
+
+    return audit
+
+
 def _array_size(value: Optional[Array]) -> int:
     if value is None:
         return 0
@@ -925,6 +1162,10 @@ def compute_generator_success_diagnostics(
     if model.resize_conv_output is not None:
         decoder_params += _array_size(model.resize_conv_output.weight)
         decoder_params += _array_size(model.resize_conv_output.bias)
+    auxiliary_readout_params = _array_size(
+        getattr(model, "auxiliary_readout_weight", None)
+    ) + _array_size(getattr(model, "auxiliary_readout_bias", None))
+    decoder_params += auxiliary_readout_params
     transition_layers = tuple(getattr(model, "transition_layers", ()))
     transition_params = sum(
         _array_size(layer.weight) + _array_size(layer.bias)
@@ -1109,6 +1350,10 @@ def compute_generator_success_diagnostics(
                 * kernel_h
                     * kernel_w
                 )
+    if auxiliary_readout_params > 0:
+        estimated_decoder_ops_per_sample += _array_size(
+            getattr(model, "auxiliary_readout_weight", None)
+        )
     output_feedback_mode = str(getattr(model, "output_feedback_mode", "none"))
     output_feedback_strength = float(getattr(model, "output_feedback_strength", 0.0))
     if output_feedback_strength <= 0.0:
@@ -1142,6 +1387,7 @@ def compute_generator_success_diagnostics(
         "total_params": total_params,
         "trainable_total_params": trainable_total_params,
         "decoder_params": int(decoder_params),
+        "auxiliary_readout_params": int(auxiliary_readout_params),
         "recurrent_params": int(recurrent_params),
         "coarse_recurrent_params": int(coarse_recurrent_params),
         "auxiliary_recurrent_params": int(auxiliary_recurrent_params),
@@ -1288,8 +1534,68 @@ def compute_generator_success_diagnostics(
         "multiscale_feedback_phase_lag": float(
             getattr(model, "multiscale_feedback_phase_lag", 0.0)
         ),
+        "multiscale_vertical_signal_scale": float(
+            getattr(model, "multiscale_vertical_signal_scale", 1.0)
+        ),
+        "multiscale_vertical_target_gate": getattr(
+            model,
+            "multiscale_vertical_target_gate",
+            "all",
+        ),
+        "multiscale_vertical_soft_gate_floor": float(
+            getattr(model, "multiscale_vertical_soft_gate_floor", 0.0)
+        ),
+        "multiscale_vertical_mode": getattr(
+            model,
+            "multiscale_vertical_mode",
+            "additive",
+        ),
+        "multiscale_vertical_gain_target": getattr(
+            model,
+            "multiscale_vertical_gain_target",
+            "drive",
+        ),
+        "multiscale_vertical_gain_normalization": getattr(
+            model,
+            "multiscale_vertical_gain_normalization",
+            "none",
+        ),
+        "multiscale_vertical_gain_target_std": float(
+            getattr(model, "multiscale_vertical_gain_target_std", 0.0)
+        ),
+        "multiscale_vertical_broad_gain_scale": float(
+            getattr(model, "multiscale_vertical_broad_gain_scale", 1.0)
+        ),
+        "multiscale_vertical_selective_gain_scale": float(
+            getattr(model, "multiscale_vertical_selective_gain_scale", 1.0)
+        ),
+        "multiscale_vertical_schedule": getattr(
+            model,
+            "multiscale_vertical_schedule",
+            "constant",
+        ),
+        "multiscale_vertical_onset_step": int(
+            getattr(model, "multiscale_vertical_onset_step", 0)
+        ),
+        "multiscale_vertical_ramp_steps": int(
+            getattr(model, "multiscale_vertical_ramp_steps", 0)
+        ),
+        "multiscale_vertical_intervention": getattr(
+            model,
+            "multiscale_vertical_intervention",
+            "normal",
+        ),
+        "multiscale_vertical_intervention_scale": float(
+            getattr(model, "multiscale_vertical_intervention_scale", 1.0)
+        ),
         "multiscale_conditioning_strength": float(
             getattr(model, "multiscale_conditioning_strength", 0.0)
+        ),
+        "multiscale_auxiliary_readout_layer": int(
+            getattr(model, "multiscale_auxiliary_readout_layer", 0)
+        ),
+        "multiscale_auxiliary_readout_size": int(
+            getattr(model, "multiscale_auxiliary_readout_size", 0)
         ),
         "num_auxiliary_layers": int(getattr(model, "num_auxiliary_layers", 0)),
         "num_vertical_couplings": int(getattr(model, "num_vertical_couplings", 0)),

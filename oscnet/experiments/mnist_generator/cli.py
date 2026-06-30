@@ -39,6 +39,16 @@ def _parse_int_tuple(value: str | Sequence[int]) -> Tuple[int, ...]:
     return values
 
 
+def _parse_str_tuple(value: str | Sequence[str]) -> Tuple[str, ...]:
+    if isinstance(value, str):
+        if value.strip().lower() in ("", "none"):
+            return ()
+        values = tuple(part.strip() for part in value.split(",") if part.strip())
+    else:
+        values = tuple(str(part).strip() for part in value if str(part).strip())
+    return values
+
+
 def _parse_image_shape(value: str | Sequence[int] | None) -> Tuple[int, ...] | None:
     if value is None:
         return None
@@ -256,7 +266,151 @@ def build_arg_parser(preset: str = "none") -> argparse.ArgumentParser:
     parser.add_argument("--multiscale-vertical-floor", type=float, default=0.0)
     parser.add_argument("--multiscale-vertical-phase-lag", type=float, default=0.0)
     parser.add_argument("--multiscale-feedback-phase-lag", type=float, default=0.0)
+    parser.add_argument(
+        "--multiscale-vertical-signal-scale",
+        type=float,
+        default=1.0,
+        help=(
+            "Post-profile scale for vertical drive/modulation. Use this to "
+            "calibrate whether the vertical route is causal before adding "
+            "deeper hierarchy."
+        ),
+    )
+    parser.add_argument(
+        "--multiscale-vertical-target-gate",
+        choices=["all", "conditioning", "non_conditioning"],
+        default="all",
+        help=(
+            "Optional target-side gate for vertical projections into the fine "
+            "layer. 'conditioning' drives only the class-drive target mask; "
+            "'non_conditioning' drives the complement."
+        ),
+    )
+    parser.add_argument(
+        "--multiscale-vertical-soft-gate-floor",
+        type=float,
+        default=0.0,
+        help=(
+            "Floor for selective vertical target gates. A value of 0 keeps "
+            "binary routing; 0.25 gives non-target fine columns one quarter "
+            "of the "
+            "vertical profile."
+        ),
+    )
+    parser.add_argument(
+        "--multiscale-vertical-mode",
+        choices=["additive", "gain_modulation", "signed_gain", "dual_gain"],
+        default="additive",
+        help=(
+            "How vertical projections affect target HORN layers. 'additive' "
+            "adds a source-minus-target acceleration term; 'gain_modulation' "
+            "uses the source projection as a bounded gain on local recurrent "
+            "and class-conditioning dynamics; 'signed_gain' allows the "
+            "bounded gain to become inhibitory; 'dual_gain' combines broad "
+            "nonnegative gain with selective signed modulation."
+        ),
+    )
+    parser.add_argument(
+        "--multiscale-vertical-gain-target",
+        choices=["drive", "coupling", "conditioning", "damping"],
+        default="drive",
+        help=(
+            "Fine-layer HORN term targeted by non-additive vertical gain. "
+            "'drive' matches the original behavior and scales local coupling "
+            "plus class conditioning; 'coupling' scales only local recurrent "
+            "interaction; 'conditioning' scales only class drive; 'damping' "
+            "uses the vertical signal as a nonnegative damping gain."
+        ),
+    )
+    parser.add_argument(
+        "--multiscale-vertical-gain-normalization",
+        choices=["none", "center", "center_rms"],
+        default="none",
+        help=(
+            "Optional homeostatic normalization for non-additive vertical "
+            "gain signals. 'center' keeps mean gain near one; 'center_rms' "
+            "also rescales centered modulation to "
+            "--multiscale-vertical-gain-target-std."
+        ),
+    )
+    parser.add_argument(
+        "--multiscale-vertical-gain-target-std",
+        type=float,
+        default=0.0,
+        help=(
+            "Target per-sample modulation RMS for "
+            "--multiscale-vertical-gain-normalization=center_rms. A value "
+            "of 0 keeps the centered signal's original RMS."
+        ),
+    )
+    parser.add_argument(
+        "--multiscale-vertical-broad-gain-scale",
+        type=float,
+        default=1.0,
+        help="Broad-route scale used only by multiscale-vertical-mode=dual_gain.",
+    )
+    parser.add_argument(
+        "--multiscale-vertical-selective-gain-scale",
+        type=float,
+        default=1.0,
+        help=(
+            "Selective signed-route scale used only by "
+            "multiscale-vertical-mode=dual_gain."
+        ),
+    )
+    parser.add_argument(
+        "--multiscale-vertical-schedule",
+        choices=["constant", "delayed", "linear_ramp"],
+        default="constant",
+        help=(
+            "Step schedule for vertical drive/gain during HORN settling. "
+            "'constant' matches the original behavior; 'delayed' turns the "
+            "vertical route on at --multiscale-vertical-onset-step; "
+            "'linear_ramp' ramps from zero after onset over "
+            "--multiscale-vertical-ramp-steps."
+        ),
+    )
+    parser.add_argument(
+        "--multiscale-vertical-onset-step",
+        type=int,
+        default=0,
+        help="First settling step where delayed/ramped vertical gain can act.",
+    )
+    parser.add_argument(
+        "--multiscale-vertical-ramp-steps",
+        type=int,
+        default=0,
+        help=(
+            "Number of settling steps for linear_ramp vertical gain. Values "
+            "below 1 are treated as an immediate one-step ramp."
+        ),
+    )
     parser.add_argument("--multiscale-conditioning-strength", type=float, default=1.0)
+    parser.add_argument(
+        "--multiscale-auxiliary-readout-layer",
+        type=int,
+        default=0,
+        help=(
+            "Auxiliary multiscale layer decoded for the optional coarse "
+            "low-resolution image loss. Negative indices count from the last "
+            "auxiliary layer."
+        ),
+    )
+    parser.add_argument(
+        "--coarse-auxiliary-weight",
+        type=float,
+        default=0.0,
+        help=(
+            "Optional low-resolution auxiliary image loss weight for "
+            "multiscale HORN. Defaults to 0."
+        ),
+    )
+    parser.add_argument(
+        "--coarse-auxiliary-target-size",
+        type=int,
+        default=8,
+        help="Square target size for the optional coarse auxiliary image loss.",
+    )
     parser.add_argument("--state-mlp-hidden-dim", type=int, default=48)
     parser.add_argument("--state-mlp-depth", type=int, default=1)
     parser.add_argument("--state-mlp-residual-scale", type=float, default=0.1)
@@ -383,6 +537,24 @@ def build_arg_parser(preset: str = "none") -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--vertical-audit-modes",
+        type=_parse_str_tuple,
+        default=(),
+        help=(
+            "Comma-separated sample-time vertical intervention modes to audit "
+            "after training, e.g. 'normal,zero,shuffle,flip,scale025'."
+        ),
+    )
+    parser.add_argument(
+        "--vertical-audit-sample-count",
+        type=int,
+        default=0,
+        help=(
+            "Samples used for vertical intervention quality metrics. "
+            "Set to 0 to reuse --eval-sample-count."
+        ),
+    )
+    parser.add_argument(
         "--train-settling-steps",
         type=_parse_int_tuple,
         default=(),
@@ -505,7 +677,34 @@ def config_from_args(args: argparse.Namespace) -> MNISTGeneratorExperimentConfig
         multiscale_vertical_floor=args.multiscale_vertical_floor,
         multiscale_vertical_phase_lag=args.multiscale_vertical_phase_lag,
         multiscale_feedback_phase_lag=args.multiscale_feedback_phase_lag,
+        multiscale_vertical_signal_scale=args.multiscale_vertical_signal_scale,
+        multiscale_vertical_target_gate=args.multiscale_vertical_target_gate,
+        multiscale_vertical_soft_gate_floor=(
+            args.multiscale_vertical_soft_gate_floor
+        ),
+        multiscale_vertical_mode=args.multiscale_vertical_mode,
+        multiscale_vertical_gain_target=args.multiscale_vertical_gain_target,
+        multiscale_vertical_gain_normalization=(
+            args.multiscale_vertical_gain_normalization
+        ),
+        multiscale_vertical_gain_target_std=(
+            args.multiscale_vertical_gain_target_std
+        ),
+        multiscale_vertical_broad_gain_scale=(
+            args.multiscale_vertical_broad_gain_scale
+        ),
+        multiscale_vertical_selective_gain_scale=(
+            args.multiscale_vertical_selective_gain_scale
+        ),
+        multiscale_vertical_schedule=args.multiscale_vertical_schedule,
+        multiscale_vertical_onset_step=args.multiscale_vertical_onset_step,
+        multiscale_vertical_ramp_steps=args.multiscale_vertical_ramp_steps,
         multiscale_conditioning_strength=args.multiscale_conditioning_strength,
+        multiscale_auxiliary_readout_layer=(
+            args.multiscale_auxiliary_readout_layer
+        ),
+        coarse_auxiliary_weight=args.coarse_auxiliary_weight,
+        coarse_auxiliary_target_size=args.coarse_auxiliary_target_size,
         state_mlp_hidden_dim=args.state_mlp_hidden_dim,
         state_mlp_depth=args.state_mlp_depth,
         state_mlp_residual_scale=args.state_mlp_residual_scale,
@@ -556,6 +755,8 @@ def config_from_args(args: argparse.Namespace) -> MNISTGeneratorExperimentConfig
         drift_temperatures=args.drift_temperatures,
         eval_sample_count=args.eval_sample_count,
         attractor_variants_per_class=args.attractor_variants_per_class,
+        vertical_audit_modes=args.vertical_audit_modes,
+        vertical_audit_sample_count=args.vertical_audit_sample_count,
         train_settling_steps=args.train_settling_steps,
         settling_steps=args.settling_steps,
         dataset_name=args.dataset_name,

@@ -197,8 +197,46 @@ def build_mnist_generator_model(
                 "multiscale_feedback_phase_lag": (
                     config.multiscale_feedback_phase_lag
                 ),
+                "multiscale_vertical_signal_scale": (
+                    config.multiscale_vertical_signal_scale
+                ),
+                "multiscale_vertical_target_gate": (
+                    config.multiscale_vertical_target_gate
+                ),
+                "multiscale_vertical_soft_gate_floor": (
+                    config.multiscale_vertical_soft_gate_floor
+                ),
+                "multiscale_vertical_mode": config.multiscale_vertical_mode,
+                "multiscale_vertical_gain_target": (
+                    config.multiscale_vertical_gain_target
+                ),
+                "multiscale_vertical_gain_normalization": (
+                    config.multiscale_vertical_gain_normalization
+                ),
+                "multiscale_vertical_gain_target_std": (
+                    config.multiscale_vertical_gain_target_std
+                ),
+                "multiscale_vertical_broad_gain_scale": (
+                    config.multiscale_vertical_broad_gain_scale
+                ),
+                "multiscale_vertical_selective_gain_scale": (
+                    config.multiscale_vertical_selective_gain_scale
+                ),
+                "multiscale_vertical_schedule": config.multiscale_vertical_schedule,
+                "multiscale_vertical_onset_step": (
+                    config.multiscale_vertical_onset_step
+                ),
+                "multiscale_vertical_ramp_steps": (
+                    config.multiscale_vertical_ramp_steps
+                ),
                 "multiscale_conditioning_strength": (
                     config.multiscale_conditioning_strength
+                ),
+                "multiscale_auxiliary_readout_size": (
+                    config.coarse_auxiliary_target_size
+                ),
+                "multiscale_auxiliary_readout_layer": (
+                    config.multiscale_auxiliary_readout_layer
                 ),
             }
         )

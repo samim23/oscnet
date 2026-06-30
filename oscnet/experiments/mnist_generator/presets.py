@@ -1800,6 +1800,435 @@ GENERATOR_PRESETS: Dict[str, Dict[str, Any]] = {
 }
 
 
+GENERATOR_PRESETS[
+    "sparse_horn_cifar10_rgb_multiscale16_64_local050_fb005_auxlow8"
+] = {
+    **GENERATOR_PRESETS["sparse_horn_cifar10_rgb_multiscale16_64_local050_fb005"],
+    "coarse_auxiliary_weight": 0.05,
+    "coarse_auxiliary_target_size": 8,
+    "multiscale_auxiliary_readout_layer": 0,
+    "output_dir": (
+        "outputs/reference/"
+        "mnist_generator_sparse_horn_cifar10_rgb_multiscale16_64_"
+        "local050_fb005_auxlow8"
+    ),
+}
+
+GENERATOR_PRESETS[
+    "sparse_horn_cifar10_rgb_multiscale16_64_no_vertical_auxlow8"
+] = {
+    **GENERATOR_PRESETS["sparse_horn_cifar10_rgb_multiscale16_64_no_vertical"],
+    "coarse_auxiliary_weight": 0.05,
+    "coarse_auxiliary_target_size": 8,
+    "multiscale_auxiliary_readout_layer": 0,
+    "output_dir": (
+        "outputs/reference/"
+        "mnist_generator_sparse_horn_cifar10_rgb_multiscale16_64_"
+        "no_vertical_auxlow8"
+    ),
+}
+
+GENERATOR_PRESETS[
+    "sparse_horn_cifar10_rgb_multiscale16_64_local050_fb005_auxlow8_vgate_conditioning"
+] = {
+    **GENERATOR_PRESETS[
+        "sparse_horn_cifar10_rgb_multiscale16_64_local050_fb005_auxlow8"
+    ],
+    "multiscale_vertical_target_gate": "conditioning",
+    "output_dir": (
+        "outputs/reference/"
+        "mnist_generator_sparse_horn_cifar10_rgb_multiscale16_64_"
+        "local050_fb005_auxlow8_vgate_conditioning"
+    ),
+}
+
+GENERATOR_PRESETS[
+    "sparse_horn_cifar10_rgb_multiscale16_64_local050_fb005_auxlow8_vgate_non_conditioning"
+] = {
+    **GENERATOR_PRESETS[
+        "sparse_horn_cifar10_rgb_multiscale16_64_local050_fb005_auxlow8"
+    ],
+    "multiscale_vertical_target_gate": "non_conditioning",
+    "output_dir": (
+        "outputs/reference/"
+        "mnist_generator_sparse_horn_cifar10_rgb_multiscale16_64_"
+        "local050_fb005_auxlow8_vgate_non_conditioning"
+    ),
+}
+
+GENERATOR_PRESETS[
+    "sparse_horn_cifar10_rgb_multiscale16_64_local050_fb005_auxlow8_gain_all"
+] = {
+    **GENERATOR_PRESETS[
+        "sparse_horn_cifar10_rgb_multiscale16_64_local050_fb005_auxlow8"
+    ],
+    "multiscale_vertical_mode": "gain_modulation",
+    "output_dir": (
+        "outputs/reference/"
+        "mnist_generator_sparse_horn_cifar10_rgb_multiscale16_64_"
+        "local050_fb005_auxlow8_gain_all"
+    ),
+}
+
+GENERATOR_PRESETS[
+    "sparse_horn_cifar10_rgb_multiscale16_64_local050_fb005_auxlow8_gain_conditioning"
+] = {
+    **GENERATOR_PRESETS[
+        "sparse_horn_cifar10_rgb_multiscale16_64_local050_fb005_auxlow8"
+    ],
+    "multiscale_vertical_mode": "gain_modulation",
+    "multiscale_vertical_target_gate": "conditioning",
+    "output_dir": (
+        "outputs/reference/"
+        "mnist_generator_sparse_horn_cifar10_rgb_multiscale16_64_"
+        "local050_fb005_auxlow8_gain_conditioning"
+    ),
+}
+
+GENERATOR_PRESETS[
+    "sparse_horn_cifar10_rgb_multiscale16_64_local050_fb005_auxlow8_signed_gain_all"
+] = {
+    **GENERATOR_PRESETS[
+        "sparse_horn_cifar10_rgb_multiscale16_64_local050_fb005_auxlow8"
+    ],
+    "multiscale_vertical_mode": "signed_gain",
+    "output_dir": (
+        "outputs/reference/"
+        "mnist_generator_sparse_horn_cifar10_rgb_multiscale16_64_"
+        "local050_fb005_auxlow8_signed_gain_all"
+    ),
+}
+
+GENERATOR_PRESETS[
+    "sparse_horn_cifar10_rgb_multiscale16_64_local050_fb005_auxlow8_signed_gain_conditioning"
+] = {
+    **GENERATOR_PRESETS[
+        "sparse_horn_cifar10_rgb_multiscale16_64_local050_fb005_auxlow8"
+    ],
+    "multiscale_vertical_mode": "signed_gain",
+    "multiscale_vertical_target_gate": "conditioning",
+    "output_dir": (
+        "outputs/reference/"
+        "mnist_generator_sparse_horn_cifar10_rgb_multiscale16_64_"
+        "local050_fb005_auxlow8_signed_gain_conditioning"
+    ),
+}
+
+GENERATOR_PRESETS[
+    "sparse_horn_cifar10_rgb_multiscale16_64_no_vertical_auxlow8_drive2"
+] = {
+    **GENERATOR_PRESETS[
+        "sparse_horn_cifar10_rgb_multiscale16_64_no_vertical_auxlow8"
+    ],
+    "conditioning_strength": 2.0,
+    "multiscale_conditioning_strength": 0.25,
+    "output_dir": (
+        "outputs/reference/"
+        "mnist_generator_sparse_horn_cifar10_rgb_multiscale16_64_"
+        "no_vertical_auxlow8_drive2"
+    ),
+}
+
+GENERATOR_PRESETS[
+    "sparse_horn_cifar10_rgb_multiscale16_64_local050_fb005_auxlow8_vgate_conditioning_drive2"
+] = {
+    **GENERATOR_PRESETS[
+        "sparse_horn_cifar10_rgb_multiscale16_64_"
+        "local050_fb005_auxlow8_vgate_conditioning"
+    ],
+    "conditioning_strength": 2.0,
+    "multiscale_conditioning_strength": 0.25,
+    "output_dir": (
+        "outputs/reference/"
+        "mnist_generator_sparse_horn_cifar10_rgb_multiscale16_64_"
+        "local050_fb005_auxlow8_vgate_conditioning_drive2"
+    ),
+}
+
+GENERATOR_PRESETS[
+    "sparse_horn_cifar10_rgb_multiscale16_64_local050_fb005_auxlow8_gain_all_drive2"
+] = {
+    **GENERATOR_PRESETS[
+        "sparse_horn_cifar10_rgb_multiscale16_64_"
+        "local050_fb005_auxlow8_gain_all"
+    ],
+    "conditioning_strength": 2.0,
+    "multiscale_conditioning_strength": 0.25,
+    "output_dir": (
+        "outputs/reference/"
+        "mnist_generator_sparse_horn_cifar10_rgb_multiscale16_64_"
+        "local050_fb005_auxlow8_gain_all_drive2"
+    ),
+}
+
+GENERATOR_PRESETS[
+    "sparse_horn_cifar10_rgb_multiscale16_64_local050_fb005_auxlow8_gain_conditioning_drive2"
+] = {
+    **GENERATOR_PRESETS[
+        "sparse_horn_cifar10_rgb_multiscale16_64_"
+        "local050_fb005_auxlow8_gain_conditioning"
+    ],
+    "conditioning_strength": 2.0,
+    "multiscale_conditioning_strength": 0.25,
+    "output_dir": (
+        "outputs/reference/"
+        "mnist_generator_sparse_horn_cifar10_rgb_multiscale16_64_"
+        "local050_fb005_auxlow8_gain_conditioning_drive2"
+    ),
+}
+
+GENERATOR_PRESETS[
+    "sparse_horn_cifar10_rgb_multiscale16_64_local050_fb005_auxlow8_signed_gain_all_drive2"
+] = {
+    **GENERATOR_PRESETS[
+        "sparse_horn_cifar10_rgb_multiscale16_64_"
+        "local050_fb005_auxlow8_signed_gain_all"
+    ],
+    "conditioning_strength": 2.0,
+    "multiscale_conditioning_strength": 0.25,
+    "output_dir": (
+        "outputs/reference/"
+        "mnist_generator_sparse_horn_cifar10_rgb_multiscale16_64_"
+        "local050_fb005_auxlow8_signed_gain_all_drive2"
+    ),
+}
+
+GENERATOR_PRESETS[
+    "sparse_horn_cifar10_rgb_multiscale16_64_local050_fb005_auxlow8_signed_gain_conditioning_drive2"
+] = {
+    **GENERATOR_PRESETS[
+        "sparse_horn_cifar10_rgb_multiscale16_64_"
+        "local050_fb005_auxlow8_signed_gain_conditioning"
+    ],
+    "conditioning_strength": 2.0,
+    "multiscale_conditioning_strength": 0.25,
+    "output_dir": (
+        "outputs/reference/"
+        "mnist_generator_sparse_horn_cifar10_rgb_multiscale16_64_"
+        "local050_fb005_auxlow8_signed_gain_conditioning_drive2"
+    ),
+}
+
+GENERATOR_PRESETS[
+    "sparse_horn_cifar10_rgb_multiscale16_64_local050_fb005_auxlow8_gain_conditioning_soft025"
+] = {
+    **GENERATOR_PRESETS[
+        "sparse_horn_cifar10_rgb_multiscale16_64_"
+        "local050_fb005_auxlow8_gain_conditioning"
+    ],
+    "multiscale_vertical_soft_gate_floor": 0.25,
+    "output_dir": (
+        "outputs/reference/"
+        "mnist_generator_sparse_horn_cifar10_rgb_multiscale16_64_"
+        "local050_fb005_auxlow8_gain_conditioning_soft025"
+    ),
+}
+
+GENERATOR_PRESETS[
+    "sparse_horn_cifar10_rgb_multiscale16_64_local050_fb005_auxlow8_signed_gain_conditioning_soft025"
+] = {
+    **GENERATOR_PRESETS[
+        "sparse_horn_cifar10_rgb_multiscale16_64_"
+        "local050_fb005_auxlow8_signed_gain_conditioning"
+    ],
+    "multiscale_vertical_soft_gate_floor": 0.25,
+    "output_dir": (
+        "outputs/reference/"
+        "mnist_generator_sparse_horn_cifar10_rgb_multiscale16_64_"
+        "local050_fb005_auxlow8_signed_gain_conditioning_soft025"
+    ),
+}
+
+GENERATOR_PRESETS[
+    "sparse_horn_cifar10_rgb_multiscale16_64_local050_fb005_auxlow8_gain_conditioning_soft025_drive2"
+] = {
+    **GENERATOR_PRESETS[
+        "sparse_horn_cifar10_rgb_multiscale16_64_"
+        "local050_fb005_auxlow8_gain_conditioning_soft025"
+    ],
+    "conditioning_strength": 2.0,
+    "multiscale_conditioning_strength": 0.25,
+    "output_dir": (
+        "outputs/reference/"
+        "mnist_generator_sparse_horn_cifar10_rgb_multiscale16_64_"
+        "local050_fb005_auxlow8_gain_conditioning_soft025_drive2"
+    ),
+}
+
+GENERATOR_PRESETS[
+    "sparse_horn_cifar10_rgb_multiscale16_64_local050_fb005_auxlow8_signed_gain_conditioning_soft025_drive2"
+] = {
+    **GENERATOR_PRESETS[
+        "sparse_horn_cifar10_rgb_multiscale16_64_"
+        "local050_fb005_auxlow8_signed_gain_conditioning_soft025"
+    ],
+    "conditioning_strength": 2.0,
+    "multiscale_conditioning_strength": 0.25,
+    "output_dir": (
+        "outputs/reference/"
+        "mnist_generator_sparse_horn_cifar10_rgb_multiscale16_64_"
+        "local050_fb005_auxlow8_signed_gain_conditioning_soft025_drive2"
+    ),
+}
+
+GENERATOR_PRESETS[
+    "sparse_horn_cifar10_rgb_multiscale16_64_local050_fb005_auxlow8_gain_all_vscale10"
+] = {
+    **GENERATOR_PRESETS[
+        "sparse_horn_cifar10_rgb_multiscale16_64_local050_fb005_auxlow8_gain_all"
+    ],
+    "multiscale_vertical_signal_scale": 10.0,
+    "output_dir": (
+        "outputs/reference/"
+        "mnist_generator_sparse_horn_cifar10_rgb_multiscale16_64_"
+        "local050_fb005_auxlow8_gain_all_vscale10"
+    ),
+}
+
+GENERATOR_PRESETS[
+    "sparse_horn_cifar10_rgb_multiscale16_64_local050_fb005_auxlow8_gain_all_vscale30"
+] = {
+    **GENERATOR_PRESETS[
+        "sparse_horn_cifar10_rgb_multiscale16_64_local050_fb005_auxlow8_gain_all"
+    ],
+    "multiscale_vertical_signal_scale": 30.0,
+    "output_dir": (
+        "outputs/reference/"
+        "mnist_generator_sparse_horn_cifar10_rgb_multiscale16_64_"
+        "local050_fb005_auxlow8_gain_all_vscale30"
+    ),
+}
+
+GENERATOR_PRESETS[
+    "sparse_horn_cifar10_rgb_multiscale16_64_local050_fb005_auxlow8_signed_gain_conditioning_vscale10"
+] = {
+    **GENERATOR_PRESETS[
+        "sparse_horn_cifar10_rgb_multiscale16_64_"
+        "local050_fb005_auxlow8_signed_gain_conditioning"
+    ],
+    "multiscale_vertical_signal_scale": 10.0,
+    "output_dir": (
+        "outputs/reference/"
+        "mnist_generator_sparse_horn_cifar10_rgb_multiscale16_64_"
+        "local050_fb005_auxlow8_signed_gain_conditioning_vscale10"
+    ),
+}
+
+GENERATOR_PRESETS[
+    "sparse_horn_cifar10_rgb_multiscale16_64_local050_fb005_auxlow8_signed_gain_conditioning_vscale30"
+] = {
+    **GENERATOR_PRESETS[
+        "sparse_horn_cifar10_rgb_multiscale16_64_"
+        "local050_fb005_auxlow8_signed_gain_conditioning"
+    ],
+    "multiscale_vertical_signal_scale": 30.0,
+    "output_dir": (
+        "outputs/reference/"
+        "mnist_generator_sparse_horn_cifar10_rgb_multiscale16_64_"
+        "local050_fb005_auxlow8_signed_gain_conditioning_vscale30"
+    ),
+}
+
+GENERATOR_PRESETS[
+    "sparse_horn_cifar10_rgb_multiscale16_64_local050_fb005_auxlow8_signed_gain_conditioning_vscale30_center"
+] = {
+    **GENERATOR_PRESETS[
+        "sparse_horn_cifar10_rgb_multiscale16_64_"
+        "local050_fb005_auxlow8_signed_gain_conditioning_vscale30"
+    ],
+    "multiscale_vertical_gain_normalization": "center",
+    "output_dir": (
+        "outputs/reference/"
+        "mnist_generator_sparse_horn_cifar10_rgb_multiscale16_64_"
+        "local050_fb005_auxlow8_signed_gain_conditioning_vscale30_center"
+    ),
+}
+
+GENERATOR_PRESETS[
+    "sparse_horn_cifar10_rgb_multiscale16_64_local050_fb005_auxlow8_dual_gain_conditioning_vscale10"
+] = {
+    **GENERATOR_PRESETS[
+        "sparse_horn_cifar10_rgb_multiscale16_64_local050_fb005_auxlow8"
+    ],
+    "multiscale_vertical_mode": "dual_gain",
+    "multiscale_vertical_target_gate": "conditioning",
+    "multiscale_vertical_signal_scale": 10.0,
+    "multiscale_vertical_broad_gain_scale": 1.0,
+    "multiscale_vertical_selective_gain_scale": 1.0,
+    "output_dir": (
+        "outputs/reference/"
+        "mnist_generator_sparse_horn_cifar10_rgb_multiscale16_64_"
+        "local050_fb005_auxlow8_dual_gain_conditioning_vscale10"
+    ),
+}
+
+GENERATOR_PRESETS[
+    "sparse_horn_cifar10_rgb_multiscale16_64_local050_fb005_auxlow8_dual_gain_conditioning_vscale30"
+] = {
+    **GENERATOR_PRESETS[
+        "sparse_horn_cifar10_rgb_multiscale16_64_local050_fb005_auxlow8"
+    ],
+    "multiscale_vertical_mode": "dual_gain",
+    "multiscale_vertical_target_gate": "conditioning",
+    "multiscale_vertical_signal_scale": 30.0,
+    "multiscale_vertical_broad_gain_scale": 1.0,
+    "multiscale_vertical_selective_gain_scale": 1.0,
+    "output_dir": (
+        "outputs/reference/"
+        "mnist_generator_sparse_horn_cifar10_rgb_multiscale16_64_"
+        "local050_fb005_auxlow8_dual_gain_conditioning_vscale30"
+    ),
+}
+
+GENERATOR_PRESETS[
+    "sparse_horn_cifar10_rgb_multiscale16_64_local050_fb005_auxlow8_gain_all_vscale30_normstd015"
+] = {
+    **GENERATOR_PRESETS[
+        "sparse_horn_cifar10_rgb_multiscale16_64_"
+        "local050_fb005_auxlow8_gain_all_vscale30"
+    ],
+    "multiscale_vertical_gain_normalization": "center_rms",
+    "multiscale_vertical_gain_target_std": 0.015,
+    "output_dir": (
+        "outputs/reference/"
+        "mnist_generator_sparse_horn_cifar10_rgb_multiscale16_64_"
+        "local050_fb005_auxlow8_gain_all_vscale30_normstd015"
+    ),
+}
+
+GENERATOR_PRESETS[
+    "sparse_horn_cifar10_rgb_multiscale16_64_local050_fb005_auxlow8_signed_gain_conditioning_vscale30_normstd015"
+] = {
+    **GENERATOR_PRESETS[
+        "sparse_horn_cifar10_rgb_multiscale16_64_"
+        "local050_fb005_auxlow8_signed_gain_conditioning_vscale30"
+    ],
+    "multiscale_vertical_gain_normalization": "center_rms",
+    "multiscale_vertical_gain_target_std": 0.015,
+    "output_dir": (
+        "outputs/reference/"
+        "mnist_generator_sparse_horn_cifar10_rgb_multiscale16_64_"
+        "local050_fb005_auxlow8_signed_gain_conditioning_vscale30_normstd015"
+    ),
+}
+
+GENERATOR_PRESETS[
+    "sparse_horn_cifar10_rgb_multiscale16_64_local050_fb005_auxlow8_dual_gain_conditioning_vscale30_normstd015"
+] = {
+    **GENERATOR_PRESETS[
+        "sparse_horn_cifar10_rgb_multiscale16_64_"
+        "local050_fb005_auxlow8_dual_gain_conditioning_vscale30"
+    ],
+    "multiscale_vertical_gain_normalization": "center_rms",
+    "multiscale_vertical_gain_target_std": 0.015,
+    "output_dir": (
+        "outputs/reference/"
+        "mnist_generator_sparse_horn_cifar10_rgb_multiscale16_64_"
+        "local050_fb005_auxlow8_dual_gain_conditioning_vscale30_normstd015"
+    ),
+}
+
+
 def preset_defaults(name: str | None) -> Dict[str, Any]:
     if name in (None, "none"):
         return {}

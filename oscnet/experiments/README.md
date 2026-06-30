@@ -229,6 +229,55 @@ What to keep honest:
   improves nearest-real proximity but hurts class consistency and basin score.
   Treat it as infrastructure for better selective/gated vertical mechanisms,
   not a new default recipe.
+  The `*_auxlow8` multiscale variants add a low-resolution target to the
+  coarsest auxiliary layer. They test whether coarse layers become useful when
+  given their own objective. Current read: the auxiliary target helps proximity
+  and the no-vertical accuracy row, but it has not yet made active vertical
+  coupling the semantic/diversity winner.
+  The `*_vgate_conditioning` and `*_vgate_non_conditioning` variants add
+  selective vertical routing into the decoded fine field. Current read:
+  gating to the class-conditioned fine subset is much better than broad
+  vertical drive, but `no_vertical_auxlow8` is still the cleaner
+  semantic/attractor baseline.
+  The `*_gain_all` and `*_gain_conditioning` variants switch vertical coupling
+  from additive drive to bounded gain modulation of the fine layer's local and
+  class-conditioning dynamics. Current read: `gain_all_auxlow8` is the best
+  active vertical hierarchy result so far on semantic/diversity and attractor
+  metrics, but it trades away nearest-pixel MSE and sampling speed.
+  The vertical intervention audit tempers that result: sample-time zero,
+  shuffle, flip, and scale interventions barely move outputs, so the current
+  vertical route is not yet causal enough to justify deeper hierarchy claims.
+  The `*_vscale10` and `*_vscale30` calibration variants make the vertical
+  route measurably causal. The `*_dual_gain_*` variants split that route into
+  broad positive gain plus selective signed gain; current CIFAR RGB results say
+  this is useful infrastructure and a causality probe, but not a new default
+  because no-vertical auxiliary banks and broad-gain-only variants still own
+  the main semantic/attractor frontier.
+  The `*_normstd015` variants add homeostatic gain normalization: vertical
+  modulation is centered and RMS-controlled to test whether hierarchy helps
+  when it redistributes fine-column gain without increasing average drive.
+  Current read: normalized selective signed gain is the cleanest hierarchy lead
+  so far, improving class consistency, attractor accuracy, basin score, feature
+  diversity, output settling, and nearest-real MSE against both no-vertical and
+  raw selective signed gain in the two-seed CIFAR RGB probe. Normalized
+  dual-gain gets worse, so this is a selective/homeostatic gain clue, not a
+  general hierarchy default. A follow-up calibration found that `center`
+  normalization alone is the stronger semantic/diversity/basin candidate, while
+  fixed-RMS `center_rms` variants mostly trade that frontier for pixel/feature
+  proximity. A timing probe found that immediate centered gain remains the
+  stronger semantic/attractor route; delayed gain mostly trades class accuracy
+  for diversity, and ramped gain behaves like a proximity regularizer.
+  The `*_drive2` variants weaken class drive in both the fine and auxiliary
+  fields. Current read: under weak conditioning, selective routing into the
+  class-conditioned columns beats broad gain on semantic/basin metrics, which
+  points toward selective or signed gain as the next hierarchy mechanism.
+  The `*_signed_gain_*` variants allow inhibitory as well as excitatory
+  modulation. Current read: broad signed gain is good for attractor/basin
+  metrics, while selective signed gain is the better quality/proximity
+  compromise and the strongest weak-drive hierarchy variant so far.
+  The `*_soft025` variants add a weak non-target gain floor to selective
+  routing. Current read: this helps unsigned selective gain slightly, but it
+  hurts selective signed gain, so it is a diagnostic rather than a default.
 - Detailed results and caveats live in `docs/experiment_report.md`.
 
 ## Harness Menu
