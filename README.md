@@ -104,7 +104,7 @@ oscillator field trained as an implicit image generator, not as an autoencoder.
 | CIFAR-10 RGB hierarchy | `python examples/image_mnist_generator.py --preset sparse_horn_cifar10_rgb_hierarchy_lead` | Active multiscale mechanism lead for hierarchy probes. |
 
 For explicit presets, matched controls, and attribution notes, see
-`examples/README.md` and `docs/experiment_report.md`.
+`examples/README.md`.
 
 Tiny smoke run:
 
