@@ -200,6 +200,15 @@ def build_mnist_generator_model(
                 "multiscale_vertical_signal_scale": (
                     config.multiscale_vertical_signal_scale
                 ),
+                "multiscale_feedback_signal_mode": (
+                    config.multiscale_feedback_signal_mode
+                ),
+                "multiscale_feedback_source_gate": (
+                    config.multiscale_feedback_source_gate
+                ),
+                "multiscale_feedback_source_mix": (
+                    config.multiscale_feedback_source_mix
+                ),
                 "multiscale_vertical_target_gate": (
                     config.multiscale_vertical_target_gate
                 ),
@@ -237,6 +246,9 @@ def build_mnist_generator_model(
                 ),
                 "multiscale_auxiliary_readout_layer": (
                     config.multiscale_auxiliary_readout_layer
+                ),
+                "multiscale_readout_fusion_strength": (
+                    config.multiscale_readout_fusion_strength
                 ),
             }
         )

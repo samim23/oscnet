@@ -94,13 +94,14 @@ see `oscnet/experiments/README.md` for the harness map and current experiment
 presets.
 
 For an end-to-end image-generation workflow, start with the sparse local HORN
-MNIST generator. It is the most complete generator example in the repo: a
-coupled oscillator field trained as an implicit image generator, not as an
-autoencoder. The example defaults to the recommended HORN preset.
+generator. It is the most complete generator example in the repo: a coupled
+oscillator field trained as an implicit image generator, not as an autoencoder.
 
-```bash
-python examples/image_mnist_generator.py
-```
+| Workflow | Command | Use |
+| --- | --- | --- |
+| MNIST HORN | `python examples/image_mnist_generator.py` | Fastest friendly entrypoint; defaults to `sparse_horn_mnist_recommended`. |
+| CIFAR-10 RGB HORN | `python examples/image_mnist_generator.py --preset sparse_horn_cifar10_rgb_current` | Current color-image frontier recipe. Slower, more interesting, and less polished than MNIST. |
+| CIFAR-10 RGB hierarchy | `python examples/image_mnist_generator.py --preset sparse_horn_cifar10_rgb_hierarchy_lead` | Active multiscale mechanism lead for hierarchy probes. |
 
 For explicit presets, matched controls, and attribution notes, see
 `examples/README.md` and `docs/experiment_report.md`.

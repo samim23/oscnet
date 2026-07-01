@@ -1537,6 +1537,24 @@ def compute_generator_success_diagnostics(
         "multiscale_vertical_signal_scale": float(
             getattr(model, "multiscale_vertical_signal_scale", 1.0)
         ),
+        "multiscale_feedback_signal_mode": getattr(
+            model,
+            "multiscale_feedback_signal_mode",
+            "position",
+        ),
+        "multiscale_feedback_source_gate": getattr(
+            model,
+            "multiscale_feedback_source_gate",
+            "all",
+        ),
+        "multiscale_feedback_source_mix": [
+            float(weight)
+            for weight in getattr(
+                model,
+                "multiscale_feedback_source_mix",
+                (),
+            )
+        ],
         "multiscale_vertical_target_gate": getattr(
             model,
             "multiscale_vertical_target_gate",
@@ -1596,6 +1614,9 @@ def compute_generator_success_diagnostics(
         ),
         "multiscale_auxiliary_readout_size": int(
             getattr(model, "multiscale_auxiliary_readout_size", 0)
+        ),
+        "multiscale_readout_fusion_strength": float(
+            getattr(model, "multiscale_readout_fusion_strength", 0.0)
         ),
         "num_auxiliary_layers": int(getattr(model, "num_auxiliary_layers", 0)),
         "num_vertical_couplings": int(getattr(model, "num_vertical_couplings", 0)),

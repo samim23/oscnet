@@ -281,7 +281,9 @@ and internally convert them to patch sequences.
   `coupling_profile="local_radius"` with a small radius, and slightly higher
   HORN damping. The example entrypoint is
   `python examples/image_mnist_generator.py`, which defaults to
-  `sparse_horn_mnist_recommended`.
+  `sparse_horn_mnist_recommended`. The stable CIFAR-10 RGB generator alias is
+  `sparse_horn_cifar10_rgb_current`; it currently points to the normalized
+  local sparse HORN recipe rather than any of the multiscale hierarchy probes.
   Optional HORN self-feedback can be enabled with
   `output_feedback_strength > 0`. `output_feedback_mode="state_proxy"` feeds a
   cheap centered local proxy, `tanh(position) + 0.5 * tanh(velocity)`, back
@@ -343,9 +345,26 @@ and internally convert them to patch sequences.
   energy/update/coupling proxies. Optional coarse supervision is available
   through `coarse_auxiliary_weight`, `coarse_auxiliary_target_size`, and
   `multiscale_auxiliary_readout_layer`; this attaches a low-resolution readout
-  to an auxiliary layer and trains it against a downsampled image target. Use
-  the `*_auxlow8` CIFAR RGB presets to test whether a meaningful coarse
-  objective helps vertical hierarchy. `multiscale_vertical_target_gate` can
+  to an auxiliary layer. `coarse_auxiliary_loss_mode="mse"` trains that readout
+  against a paired downsampled image target.
+  `coarse_auxiliary_loss_mode="distributional"` instead matches
+  low-resolution batch/class statistics, which is less likely to force the
+  coarse layer into one paired-image answer during unpaired class-conditional
+  generation. Use the `*_auxlow8` CIFAR RGB presets for the historical MSE
+  objective and the `*_auxdist8` presets for the distributional objective.
+  `multiscale_readout_fusion_strength` can blend a channel-first upsample of
+  that auxiliary readout back into the final image. Keep it at `0.0` by
+  default; small values such as `0.10` or `0.25` are conservative probes for
+  whether the coarse layer contains a useful rendering scaffold. This is
+  intentionally lower capacity than adding a second full decoder, so positive
+  results still point back to the layered oscillator state.
+  Prefer `coarse_readout_consistency_weight` when you want the coarse scaffold
+  to shape training without pasting coarse pixels into samples. It downsamples
+  the final image and matches it to the same-trajectory auxiliary readout with
+  a stop-gradient auxiliary target. `coarse_readout_consistency_onset_epoch`
+  can delay that loss so the auxiliary scaffold has a short warmup before it
+  guides the fine readout.
+  `multiscale_vertical_target_gate` can
   route vertical drive into all decoded fine oscillators, only the
   class-conditioning target subset, or only the complementary subset; this is
   useful for testing whether hierarchy should act through selected oscillator
@@ -385,10 +404,29 @@ and internally convert them to patch sequences.
   `delayed`, or ramp it in with `linear_ramp` over
   `multiscale_vertical_ramp_steps`. This is useful for testing whether
   top-down gain acts best as an immediate condition or a late settling bias.
+  `multiscale_feedback_signal_mode` controls bottom-up feedback projections:
+  `position` preserves the historical phase/position-only feedback signal,
+  while `state` feeds back bounded position-plus-velocity evidence from finer
+  layers into coarser layers. Use this to test whether the coarse layer benefits
+  from actual fine dynamical state rather than just another phase spring.
+  `multiscale_feedback_source_gate` controls which fine columns a bottom-up
+  feedback projection listens to: `all`, `conditioning`, `non_conditioning`,
+  or `weighted`. This is the source-side counterpart to
+  `multiscale_vertical_target_gate`, useful for testing whether coarse layers
+  should read from class-driven fine columns, their complement, or the whole
+  fine field. `weighted` uses `multiscale_feedback_source_mix =
+  (conditioning_weight, non_conditioning_weight)` and mean-normalizes the
+  resulting source mask, so fixed-ratio probes change the routing balance
+  without changing average feedback strength.
   These modes test a slower/coarser rhythm as a modulator of fine dynamics,
   rather than as another spring attached to the fine state. The CIFAR RGB
   `*_gain_*`, `*_signed_gain_*`, `*_dual_gain_*`, and `*_normstd*` presets are
-  the current probes for this mechanism. For sample-time causality audits,
+  the current probes for this mechanism. The short alias
+  `sparse_horn_cifar10_rgb_hierarchy_lead` points at the current active
+  hierarchy mechanism lead. It is deliberately separate from
+  `sparse_horn_cifar10_rgb_current`, because hierarchy currently improves
+  basin/diversity diagnostics more reliably than final CIFAR rendering quality.
+  For sample-time causality audits,
   `multiscale_vertical_intervention` can be set to `normal`, `zero`,
   `shuffle_batch`, or `flip`, and `multiscale_vertical_intervention_scale` can
   attenuate the route without retraining. The first CIFAR RGB audit found that

@@ -26,7 +26,7 @@ python examples/image_mnist_phase_flow.py --help
 
 Runs write checkpoints, plots, metrics, traces, and samples under `outputs/`.
 
-## Recommended Generator
+## Generator Quickstarts
 
 The default image-generation example is the sparse local HORN MNIST generator.
 It starts from random oscillator state, settles a coupled position/velocity
@@ -43,6 +43,22 @@ This is equivalent to:
 ```bash
 python examples/image_mnist_generator.py --preset sparse_horn_mnist_recommended
 ```
+
+Run the current CIFAR-10 RGB frontier recipe:
+
+```bash
+python examples/image_mnist_generator.py --preset sparse_horn_cifar10_rgb_current
+```
+
+Run the active multiscale hierarchy lead:
+
+```bash
+python examples/image_mnist_generator.py --preset sparse_horn_cifar10_rgb_hierarchy_lead
+```
+
+MNIST is the friendlier default. CIFAR RGB is the more interesting natural-image
+gate and should be the first stop when testing whether a generator change
+survives beyond handwritten digits.
 
 For a short local probe, keep the recommended preset and lower the budget:
 
@@ -204,6 +220,8 @@ frontier recipe, but uses full channel-first RGB images and a slightly wider
 resize-conv readout:
 
 ```bash
+python examples/image_mnist_generator.py --preset sparse_horn_cifar10_rgb_current
+python examples/image_mnist_generator.py --preset sparse_horn_cifar10_rgb_hierarchy_lead
 python examples/image_mnist_generator.py --preset sparse_horn_cifar10_rgb_recommended_normlocal
 python examples/image_mnist_generator.py --preset sparse_horn_cifar10_rgb_coarse16_normlocal_gentle_local050
 python examples/image_mnist_generator.py --preset sparse_horn_cifar10_rgb_recommended
@@ -213,11 +231,19 @@ python examples/image_mnist_generator.py --preset sparse_horn_cifar10_rgb_state_
 
 These presets use `--dataset-name cifar10_rgb`, infer `--image-shape 32,32,3`,
 and default generated-label diagnostics to the convolutional judge. The
-`normlocal` preset is the current stronger CIFAR RGB HORN recipe: sparse
+`sparse_horn_cifar10_rgb_current` alias is the stable RGB default: sparse
 local-radius recurrent coupling with row-sum gain normalization, 25% sparse
 class drive, learned residual feature drift, and a stricter residual-conv
-judge. Current read: HORN keeps the semantic/diversity and attractor advantage
-in RGB, while StateMLP remains closer by nearest-real pixel MSE and faster.
+judge. It currently points to `sparse_horn_cifar10_rgb_recommended_normlocal`.
+Current read: HORN keeps the semantic/diversity and attractor advantage in RGB,
+while StateMLP remains closer by nearest-real pixel MSE and faster.
+`sparse_horn_cifar10_rgb_hierarchy_lead` is the short alias for the active
+multiscale mechanism lead. It is useful for hierarchy work, but it is not the
+stable rendering default yet.
+That separation is about rendering quality, not lack of signal: hierarchy
+probes have improved generated-label accuracy, diversity, feature diversity,
+attractor accuracy, and basin score in several paired comparisons. The remaining
+problem is converting those stronger dynamical basins into sharper RGB samples.
 The `coarse16_normlocal_gentle_local050` preset is the multiscale HORN probe:
 a small coarse oscillator bank sends weak local-radius drive into the fine
 field. It is useful for testing coarse-to-fine coordination, but it is not the
@@ -283,6 +309,13 @@ The `*_soft025` variants give non-target fine columns a weak 25% vertical
 gain floor. They are useful diagnostics, but not current defaults: the soft
 floor helps unsigned selective gain a little and hurts selective signed gain's
 class consistency/basin strength.
+The latest feedback-signal probe switches fine-to-coarse feedback from
+phase/position-only to bounded position-plus-velocity state. Current read:
+`dist_state` is the strongest active-hierarchy basin/diversity lead, but it
+still loses nearest-pixel proximity and speed, so use it as a mechanism probe
+rather than the default CIFAR rendering recipe. A source-gate follow-up found
+that hard-gating feedback to class-conditioned or non-conditioned fine columns
+does not beat listening to the full fine field.
 
 ## Example Menu
 

@@ -321,6 +321,34 @@ SWEEP_CSVS = {
         "outputs/analysis/"
         "modal_mnist_generator_cifar10_rgb_centered_signed_gain_target_probe.csv"
     ),
+    "mnist_generator_cifar10_rgb_coarse_objective_probe": Path(
+        "outputs/analysis/"
+        "modal_mnist_generator_cifar10_rgb_coarse_objective_probe.csv"
+    ),
+    "mnist_generator_cifar10_rgb_feedback_signal_probe": Path(
+        "outputs/analysis/"
+        "modal_mnist_generator_cifar10_rgb_feedback_signal_probe.csv"
+    ),
+    "mnist_generator_cifar10_rgb_feedback_source_gate_probe": Path(
+        "outputs/analysis/"
+        "modal_mnist_generator_cifar10_rgb_feedback_source_gate_probe.csv"
+    ),
+    "mnist_generator_cifar10_rgb_feedback_source_mix_probe": Path(
+        "outputs/analysis/"
+        "modal_mnist_generator_cifar10_rgb_feedback_source_mix_probe.csv"
+    ),
+    "mnist_generator_cifar10_rgb_feedback_source_mix_auxfix_probe": Path(
+        "outputs/analysis/"
+        "modal_mnist_generator_cifar10_rgb_feedback_source_mix_auxfix_probe.csv"
+    ),
+    "mnist_generator_cifar10_rgb_readout_fusion_probe": Path(
+        "outputs/analysis/"
+        "modal_mnist_generator_cifar10_rgb_readout_fusion_probe.csv"
+    ),
+    "mnist_generator_cifar10_rgb_coarse_readout_consistency_probe": Path(
+        "outputs/analysis/"
+        "modal_mnist_generator_cifar10_rgb_coarse_readout_consistency_probe.csv"
+    ),
     "mnist_generator_cifar10_rgb_attribution_probe": Path(
         "outputs/analysis/"
         "modal_mnist_generator_cifar10_rgb_attribution_probe.csv"
@@ -4364,6 +4392,51 @@ def _mnist_generator_cifar10_rgb_centered_signed_gain_target_probe() -> list[
     return entries
 
 
+def _mnist_generator_cifar10_rgb_coarse_objective_probe() -> list[
+    tuple[list[str], str]
+]:
+    """Compare paired and distributional coarse supervision for hierarchy."""
+
+    entries = []
+    audit_args = (
+        "--batch-size 64 "
+        "--vertical-audit-modes normal,zero,shuffle,flip,scale025,scale050 "
+        "--vertical-audit-sample-count 128 "
+        "--attractor-variants-per-class 8"
+    )
+    variants = (
+        (
+            "center_mse",
+            "sparse_horn_cifar10_rgb_multiscale16_64_"
+            "local050_fb005_auxlow8_signed_gain_conditioning_vscale30_center",
+        ),
+        (
+            "center_dist",
+            "sparse_horn_cifar10_rgb_multiscale16_64_"
+            "local050_fb005_auxdist8_signed_gain_conditioning_vscale30_center",
+        ),
+        (
+            "no_vertical_mse",
+            "sparse_horn_cifar10_rgb_multiscale16_64_no_vertical_auxlow8",
+        ),
+        (
+            "no_vertical_dist",
+            "sparse_horn_cifar10_rgb_multiscale16_64_no_vertical_auxdist8",
+        ),
+    )
+    for seed in (11, 23):
+        for variant_name, local_preset in variants:
+            run_name = (
+                "mnist_generator_cifar10_rgb_coarse_objective_"
+                f"{variant_name}_n256_resizeconv_train2000_seed{seed}_20e"
+            )
+            args = shlex.split(f"--seed {seed} --preset {local_preset} {audit_args}")
+            output_dir = VOLUME_MOUNT / "mnist_generator" / run_name
+            args = _with_default_arg(args, "--output-dir", output_dir)
+            entries.append((args, run_name))
+    return entries
+
+
 def _mnist_generator_cifar10_rgb_attribution_probe_sweep() -> list[
     tuple[list[str], str]
 ]:
@@ -4580,6 +4653,274 @@ def _mnist_generator_cifar10_rgb_coherent_drive_probe_sweep() -> list[
     return entries
 
 
+def _mnist_generator_cifar10_rgb_feedback_signal_probe() -> list[
+    tuple[list[str], str]
+]:
+    """Compare position-only and state feedback in active hierarchy."""
+
+    entries = []
+    audit_args = (
+        "--batch-size 64 "
+        "--vertical-audit-modes normal,zero,shuffle,flip,scale025,scale050 "
+        "--vertical-audit-sample-count 128 "
+        "--attractor-variants-per-class 8"
+    )
+    variants = (
+        (
+            "mse_position",
+            "sparse_horn_cifar10_rgb_multiscale16_64_"
+            "local050_fb005_auxlow8_signed_gain_conditioning_vscale30_center",
+        ),
+        (
+            "mse_state",
+            "sparse_horn_cifar10_rgb_multiscale16_64_"
+            "local050_fb005_auxlow8_signed_gain_conditioning_vscale30_"
+            "center_feedback_state",
+        ),
+        (
+            "dist_position",
+            "sparse_horn_cifar10_rgb_multiscale16_64_"
+            "local050_fb005_auxdist8_signed_gain_conditioning_vscale30_center",
+        ),
+        (
+            "dist_state",
+            "sparse_horn_cifar10_rgb_multiscale16_64_"
+            "local050_fb005_auxdist8_signed_gain_conditioning_vscale30_"
+            "center_feedback_state",
+        ),
+    )
+    for seed in (11, 23):
+        for variant_name, local_preset in variants:
+            run_name = (
+                "mnist_generator_cifar10_rgb_feedback_signal_"
+                f"{variant_name}_n256_resizeconv_train2000_seed{seed}_20e"
+            )
+            args = shlex.split(f"--seed {seed} --preset {local_preset} {audit_args}")
+            output_dir = VOLUME_MOUNT / "mnist_generator" / run_name
+            args = _with_default_arg(args, "--output-dir", output_dir)
+            entries.append((args, run_name))
+    return entries
+
+
+def _mnist_generator_cifar10_rgb_feedback_source_gate_probe() -> list[
+    tuple[list[str], str]
+]:
+    """Compare which fine columns bottom-up state feedback should listen to."""
+
+    entries = []
+    audit_args = (
+        "--batch-size 64 "
+        "--vertical-audit-modes normal,zero,shuffle,flip,scale025,scale050 "
+        "--vertical-audit-sample-count 128 "
+        "--attractor-variants-per-class 8"
+    )
+    variants = (
+        (
+            "source_all",
+            "sparse_horn_cifar10_rgb_multiscale16_64_"
+            "local050_fb005_auxdist8_signed_gain_conditioning_vscale30_"
+            "center_feedback_state",
+        ),
+        (
+            "source_conditioning",
+            "sparse_horn_cifar10_rgb_multiscale16_64_"
+            "local050_fb005_auxdist8_signed_gain_conditioning_vscale30_"
+            "center_feedback_state_source_conditioning",
+        ),
+        (
+            "source_non_conditioning",
+            "sparse_horn_cifar10_rgb_multiscale16_64_"
+            "local050_fb005_auxdist8_signed_gain_conditioning_vscale30_"
+            "center_feedback_state_source_non_conditioning",
+        ),
+    )
+    for seed in (11, 23):
+        for variant_name, local_preset in variants:
+            run_name = (
+                "mnist_generator_cifar10_rgb_feedback_source_gate_"
+                f"{variant_name}_n256_resizeconv_train2000_seed{seed}_20e"
+            )
+            args = shlex.split(f"--seed {seed} --preset {local_preset} {audit_args}")
+            output_dir = VOLUME_MOUNT / "mnist_generator" / run_name
+            args = _with_default_arg(args, "--output-dir", output_dir)
+            entries.append((args, run_name))
+    return entries
+
+
+def _mnist_generator_cifar10_rgb_feedback_source_mix_entries(
+    *,
+    run_prefix: str,
+) -> list[tuple[list[str], str]]:
+    """Return source-mix entries for a named run prefix."""
+
+    entries = []
+    audit_args = (
+        "--batch-size 64 "
+        "--vertical-audit-modes normal,zero,shuffle,flip,scale025,scale050 "
+        "--vertical-audit-sample-count 128 "
+        "--attractor-variants-per-class 8"
+    )
+    variants = (
+        (
+            "source_all",
+            "sparse_horn_cifar10_rgb_multiscale16_64_"
+            "local050_fb005_auxdist8_signed_gain_conditioning_vscale30_"
+            "center_feedback_state",
+        ),
+        (
+            "mix75_25",
+            "sparse_horn_cifar10_rgb_multiscale16_64_"
+            "local050_fb005_auxdist8_signed_gain_conditioning_vscale30_"
+            "center_feedback_state_mix75_25",
+        ),
+        (
+            "mix50_50",
+            "sparse_horn_cifar10_rgb_multiscale16_64_"
+            "local050_fb005_auxdist8_signed_gain_conditioning_vscale30_"
+            "center_feedback_state_mix50_50",
+        ),
+        (
+            "mix25_75",
+            "sparse_horn_cifar10_rgb_multiscale16_64_"
+            "local050_fb005_auxdist8_signed_gain_conditioning_vscale30_"
+            "center_feedback_state_mix25_75",
+        ),
+    )
+    for seed in (11, 23):
+        for variant_name, local_preset in variants:
+            run_name = (
+                f"mnist_generator_cifar10_rgb_{run_prefix}_"
+                f"{variant_name}_n256_resizeconv_train2000_seed{seed}_20e"
+            )
+            args = shlex.split(f"--seed {seed} --preset {local_preset} {audit_args}")
+            output_dir = VOLUME_MOUNT / "mnist_generator" / run_name
+            args = _with_default_arg(args, "--output-dir", output_dir)
+            entries.append((args, run_name))
+    return entries
+
+
+def _mnist_generator_cifar10_rgb_feedback_source_mix_probe() -> list[
+    tuple[list[str], str]
+]:
+    """Compare mean-normalized soft source mixes for state feedback."""
+
+    return _mnist_generator_cifar10_rgb_feedback_source_mix_entries(
+        run_prefix="feedback_source_mix",
+    )
+
+
+def _mnist_generator_cifar10_rgb_feedback_source_mix_auxfix_probe() -> list[
+    tuple[list[str], str]
+]:
+    """Rerun source-mix after fixing RGB coarse-auxiliary target layout."""
+
+    return _mnist_generator_cifar10_rgb_feedback_source_mix_entries(
+        run_prefix="feedback_source_mix_auxfix",
+    )
+
+
+def _mnist_generator_cifar10_rgb_readout_fusion_probe() -> list[
+    tuple[list[str], str]
+]:
+    """Test whether a low-capacity coarse readout scaffold improves rendering."""
+
+    entries = []
+    audit_args = (
+        "--batch-size 64 "
+        "--vertical-audit-modes normal,zero,shuffle,flip,scale025,scale050 "
+        "--vertical-audit-sample-count 128 "
+        "--attractor-variants-per-class 8"
+    )
+    variants = (
+        (
+            "mix50_50",
+            "sparse_horn_cifar10_rgb_multiscale16_64_"
+            "local050_fb005_auxdist8_signed_gain_conditioning_vscale30_"
+            "center_feedback_state_mix50_50",
+        ),
+        (
+            "mix50_50_fusion010",
+            "sparse_horn_cifar10_rgb_multiscale16_64_"
+            "local050_fb005_auxdist8_signed_gain_conditioning_vscale30_"
+            "center_feedback_state_mix50_50_fusion010",
+        ),
+        (
+            "mix50_50_fusion025",
+            "sparse_horn_cifar10_rgb_multiscale16_64_"
+            "local050_fb005_auxdist8_signed_gain_conditioning_vscale30_"
+            "center_feedback_state_mix50_50_fusion025",
+        ),
+        (
+            "mix75_25_fusion010",
+            "sparse_horn_cifar10_rgb_multiscale16_64_"
+            "local050_fb005_auxdist8_signed_gain_conditioning_vscale30_"
+            "center_feedback_state_mix75_25_fusion010",
+        ),
+    )
+    for seed in (11, 23):
+        for variant_name, local_preset in variants:
+            run_name = (
+                "mnist_generator_cifar10_rgb_readout_fusion_"
+                f"{variant_name}_n256_resizeconv_train2000_seed{seed}_20e"
+            )
+            args = shlex.split(f"--seed {seed} --preset {local_preset} {audit_args}")
+            output_dir = VOLUME_MOUNT / "mnist_generator" / run_name
+            args = _with_default_arg(args, "--output-dir", output_dir)
+            entries.append((args, run_name))
+    return entries
+
+
+def _mnist_generator_cifar10_rgb_coarse_readout_consistency_probe() -> list[
+    tuple[list[str], str]
+]:
+    """Train the fine readout to agree with the same-trajectory coarse scaffold."""
+
+    entries = []
+    audit_args = (
+        "--batch-size 64 "
+        "--vertical-audit-modes normal,zero,shuffle,flip,scale025,scale050 "
+        "--vertical-audit-sample-count 128 "
+        "--attractor-variants-per-class 8"
+    )
+    variants = (
+        (
+            "mix50_50",
+            "sparse_horn_cifar10_rgb_multiscale16_64_"
+            "local050_fb005_auxdist8_signed_gain_conditioning_vscale30_"
+            "center_feedback_state_mix50_50",
+        ),
+        (
+            "mix50_50_consistency005",
+            "sparse_horn_cifar10_rgb_multiscale16_64_"
+            "local050_fb005_auxdist8_signed_gain_conditioning_vscale30_"
+            "center_feedback_state_mix50_50_consistency005",
+        ),
+        (
+            "mix50_50_consistency010",
+            "sparse_horn_cifar10_rgb_multiscale16_64_"
+            "local050_fb005_auxdist8_signed_gain_conditioning_vscale30_"
+            "center_feedback_state_mix50_50_consistency010",
+        ),
+        (
+            "mix75_25_consistency005",
+            "sparse_horn_cifar10_rgb_multiscale16_64_"
+            "local050_fb005_auxdist8_signed_gain_conditioning_vscale30_"
+            "center_feedback_state_mix75_25_consistency005",
+        ),
+    )
+    for seed in (11, 23):
+        for variant_name, local_preset in variants:
+            run_name = (
+                "mnist_generator_cifar10_rgb_coarse_readout_consistency_"
+                f"{variant_name}_n256_resizeconv_train2000_seed{seed}_20e"
+            )
+            args = shlex.split(f"--seed {seed} --preset {local_preset} {audit_args}")
+            output_dir = VOLUME_MOUNT / "mnist_generator" / run_name
+            args = _with_default_arg(args, "--output-dir", output_dir)
+            entries.append((args, run_name))
+    return entries
+
+
 def _sweep_entries(preset: str) -> list[tuple[list[str], str]]:
     if preset == "mnist_generator_core":
         return _mnist_generator_core_sweep()
@@ -4741,6 +5082,20 @@ def _sweep_entries(preset: str) -> list[tuple[list[str], str]]:
         return _mnist_generator_cifar10_rgb_centered_signed_gain_timing_probe()
     if preset == "mnist_generator_cifar10_rgb_centered_signed_gain_target_probe":
         return _mnist_generator_cifar10_rgb_centered_signed_gain_target_probe()
+    if preset == "mnist_generator_cifar10_rgb_coarse_objective_probe":
+        return _mnist_generator_cifar10_rgb_coarse_objective_probe()
+    if preset == "mnist_generator_cifar10_rgb_feedback_signal_probe":
+        return _mnist_generator_cifar10_rgb_feedback_signal_probe()
+    if preset == "mnist_generator_cifar10_rgb_feedback_source_gate_probe":
+        return _mnist_generator_cifar10_rgb_feedback_source_gate_probe()
+    if preset == "mnist_generator_cifar10_rgb_feedback_source_mix_probe":
+        return _mnist_generator_cifar10_rgb_feedback_source_mix_probe()
+    if preset == "mnist_generator_cifar10_rgb_feedback_source_mix_auxfix_probe":
+        return _mnist_generator_cifar10_rgb_feedback_source_mix_auxfix_probe()
+    if preset == "mnist_generator_cifar10_rgb_readout_fusion_probe":
+        return _mnist_generator_cifar10_rgb_readout_fusion_probe()
+    if preset == "mnist_generator_cifar10_rgb_coarse_readout_consistency_probe":
+        return _mnist_generator_cifar10_rgb_coarse_readout_consistency_probe()
     if preset == "mnist_generator_cifar10_rgb_attribution_probe":
         return _mnist_generator_cifar10_rgb_attribution_probe_sweep()
     if preset == "mnist_generator_cifar10_rgb_sparse_drive_probe":
@@ -4798,6 +5153,8 @@ def _write_sweep_csv(results: list[dict[str, Any]], path: Path) -> None:
         "final_eval_loss",
         "final_train_coarse_auxiliary_loss",
         "final_eval_coarse_auxiliary_loss",
+        "final_train_coarse_readout_consistency_loss",
+        "final_eval_coarse_readout_consistency_loss",
         "best_loss",
         "best_epoch",
         "final_epoch",
@@ -4832,6 +5189,13 @@ def _write_sweep_csv(results: list[dict[str, Any]], path: Path) -> None:
         "generator.coarse_conditioning_strength",
         "generator.coarse_auxiliary_weight",
         "generator.coarse_auxiliary_target_size",
+        "generator.coarse_auxiliary_loss_mode",
+        "generator.coarse_readout_consistency_weight",
+        "generator.coarse_readout_consistency_onset_epoch",
+        "generator.multiscale_feedback_signal_mode",
+        "generator.multiscale_feedback_source_gate",
+        "generator.multiscale_feedback_source_mix",
+        "generator.multiscale_readout_fusion_strength",
         "generator.conditional",
         "generator.label_phase_scale",
         "generator.conditioning_mode",
@@ -4967,6 +5331,9 @@ def _write_sweep_csv(results: list[dict[str, Any]], path: Path) -> None:
         "generator.success_diagnostics.multiscale_vertical_phase_lag",
         "generator.success_diagnostics.multiscale_feedback_phase_lag",
         "generator.success_diagnostics.multiscale_vertical_signal_scale",
+        "generator.success_diagnostics.multiscale_feedback_signal_mode",
+        "generator.success_diagnostics.multiscale_feedback_source_gate",
+        "generator.success_diagnostics.multiscale_feedback_source_mix",
         "generator.success_diagnostics.multiscale_vertical_target_gate",
         "generator.success_diagnostics.multiscale_vertical_soft_gate_floor",
         "generator.success_diagnostics.multiscale_vertical_mode",
@@ -4981,6 +5348,7 @@ def _write_sweep_csv(results: list[dict[str, Any]], path: Path) -> None:
         "generator.success_diagnostics.multiscale_conditioning_strength",
         "generator.success_diagnostics.multiscale_auxiliary_readout_layer",
         "generator.success_diagnostics.multiscale_auxiliary_readout_size",
+        "generator.success_diagnostics.multiscale_readout_fusion_strength",
         "generator.success_diagnostics.num_auxiliary_layers",
         "generator.success_diagnostics.num_vertical_couplings",
         "generator.success_diagnostics.vertical_profile_density",

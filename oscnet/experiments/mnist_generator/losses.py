@@ -25,26 +25,28 @@ def downsample_image_batch(
     target_size = int(target_size)
     if target_size < 1:
         raise ValueError("target_size must be positive")
-    images_hw = images.reshape(images.shape[0], height, width, channels)
+    images_chw = images.reshape(images.shape[0], channels, height, width)
     if height % target_size == 0 and width % target_size == 0:
         block_h = height // target_size
         block_w = width // target_size
-        lowres = images_hw.reshape(
+        lowres = images_chw.reshape(
             images.shape[0],
+            channels,
             target_size,
             block_h,
             target_size,
             block_w,
-            channels,
         )
-        lowres = jnp.mean(lowres, axis=(2, 4))
+        lowres = jnp.mean(lowres, axis=(3, 5))
     else:
+        images_hw = jnp.transpose(images_chw, (0, 2, 3, 1))
         lowres = jax.image.resize(
             images_hw,
             (images.shape[0], target_size, target_size, channels),
             method="linear",
         )
-    return lowres.reshape(images.shape[0], target_size * target_size * channels)
+        lowres = jnp.transpose(lowres, (0, 3, 1, 2))
+    return lowres.reshape(images.shape[0], channels * target_size * target_size)
 
 
 def coarse_auxiliary_image_loss(
@@ -55,16 +57,81 @@ def coarse_auxiliary_image_loss(
     labels: Optional[Array],
     image_shape: Tuple[int, ...],
     target_size: int,
+    loss_mode: str = "mse",
+    num_classes: int = 0,
 ) -> Array:
-    """Match a multiscale auxiliary layer to a low-resolution image target."""
+    """Match a multiscale auxiliary layer to a low-resolution image target.
+
+    ``mse`` is the historical paired target. ``distributional`` asks the
+    auxiliary layer to match low-resolution batch and class statistics instead,
+    which is a better fit for unpaired class-conditional generation.
+    """
 
     generated = model.sample_auxiliary_image(key, real.shape[0], labels)
+    return coarse_auxiliary_image_loss_from_generated(
+        generated,
+        real,
+        labels=labels,
+        image_shape=image_shape,
+        target_size=target_size,
+        loss_mode=loss_mode,
+        num_classes=num_classes,
+    )
+
+
+def coarse_auxiliary_image_loss_from_generated(
+    generated: Array,
+    real: Array,
+    *,
+    labels: Optional[Array],
+    image_shape: Tuple[int, ...],
+    target_size: int,
+    loss_mode: str = "mse",
+    num_classes: int = 0,
+) -> Array:
+    """Score a low-resolution auxiliary image against real-image targets."""
+
     target = downsample_image_batch(
         real,
         image_shape=image_shape,
         target_size=target_size,
     )
-    return jnp.mean((generated - jax.lax.stop_gradient(target)) ** 2)
+    target = jax.lax.stop_gradient(target)
+    if loss_mode == "mse":
+        return jnp.mean((generated - target) ** 2)
+    if loss_mode == "distributional":
+        loss = distribution_moment_loss(target, generated) + pixel_marginal_loss(
+            target,
+            generated,
+        )
+        if labels is not None and num_classes > 0:
+            loss = loss + class_moment_loss(
+                target,
+                generated,
+                labels,
+                num_classes=int(num_classes),
+        )
+        return loss
+    raise ValueError("coarse auxiliary loss mode must be 'mse' or 'distributional'")
+
+
+def coarse_readout_consistency_loss(
+    generated: Array,
+    auxiliary_generated: Array,
+    *,
+    image_shape: Tuple[int, ...],
+    target_size: int,
+) -> Array:
+    """Make the final readout agree with the same-sample coarse scaffold."""
+
+    generated_lowres = downsample_image_batch(
+        generated,
+        image_shape=image_shape,
+        target_size=target_size,
+    )
+    auxiliary_target = jax.lax.stop_gradient(auxiliary_generated)
+    return jnp.mean((generated_lowres - auxiliary_target) ** 2)
+
 
 def sliced_wasserstein_loss(real: Array, generated: Array, projections: Array) -> Array:
     """Compare two batches by sorted random one-dimensional projections."""

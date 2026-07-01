@@ -277,6 +277,38 @@ def build_arg_parser(preset: str = "none") -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--multiscale-feedback-signal-mode",
+        choices=["position", "state"],
+        default="position",
+        help=(
+            "Signal used by bottom-up multiscale feedback projections. "
+            "'position' preserves the historical phase/position-only route; "
+            "'state' feeds back bounded position-plus-velocity evidence."
+        ),
+    )
+    parser.add_argument(
+        "--multiscale-feedback-source-gate",
+        choices=["all", "conditioning", "non_conditioning", "weighted"],
+        default="all",
+        help=(
+            "Optional source-side gate for bottom-up feedback projections "
+            "from the decoded fine layer. 'conditioning' lets the coarse "
+            "layer listen only to class-drive target columns; "
+            "'non_conditioning' listens to the complement; 'weighted' uses "
+            "--multiscale-feedback-source-mix."
+        ),
+    )
+    parser.add_argument(
+        "--multiscale-feedback-source-mix",
+        type=_parse_float_tuple,
+        default=(1.0, 1.0),
+        help=(
+            "Two comma-separated weights for weighted bottom-up source "
+            "gating: conditioning,non_conditioning. The weighted gate is "
+            "mean-normalized so average feedback strength stays comparable."
+        ),
+    )
+    parser.add_argument(
         "--multiscale-vertical-target-gate",
         choices=["all", "conditioning", "non_conditioning"],
         default="all",
@@ -397,6 +429,16 @@ def build_arg_parser(preset: str = "none") -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--multiscale-readout-fusion-strength",
+        type=float,
+        default=0.0,
+        help=(
+            "Blend strength for injecting the upsampled auxiliary readout into "
+            "the final image. 0 disables fusion; small values such as 0.1 "
+            "test whether the coarse scaffold helps rendering."
+        ),
+    )
+    parser.add_argument(
         "--coarse-auxiliary-weight",
         type=float,
         default=0.0,
@@ -410,6 +452,37 @@ def build_arg_parser(preset: str = "none") -> argparse.ArgumentParser:
         type=int,
         default=8,
         help="Square target size for the optional coarse auxiliary image loss.",
+    )
+    parser.add_argument(
+        "--coarse-auxiliary-loss-mode",
+        choices=["mse", "distributional"],
+        default="mse",
+        help=(
+            "Objective for the optional coarse auxiliary image loss. 'mse' "
+            "matches the historical paired low-resolution target; "
+            "'distributional' matches low-resolution moments/marginals and "
+            "class moments to preserve generative diversity."
+        ),
+    )
+    parser.add_argument(
+        "--coarse-readout-consistency-weight",
+        type=float,
+        default=0.0,
+        help=(
+            "Training-only weight that matches the downsampled final image to "
+            "the same-trajectory auxiliary readout. This lets the coarse layer "
+            "guide the fine readout without direct output blending."
+        ),
+    )
+    parser.add_argument(
+        "--coarse-readout-consistency-onset-epoch",
+        type=int,
+        default=0,
+        help=(
+            "Epoch at which coarse readout consistency turns on. Use a small "
+            "warmup so the auxiliary scaffold learns before guiding the final "
+            "readout. 0 enables it from the start."
+        ),
     )
     parser.add_argument("--state-mlp-hidden-dim", type=int, default=48)
     parser.add_argument("--state-mlp-depth", type=int, default=1)
@@ -678,6 +751,9 @@ def config_from_args(args: argparse.Namespace) -> MNISTGeneratorExperimentConfig
         multiscale_vertical_phase_lag=args.multiscale_vertical_phase_lag,
         multiscale_feedback_phase_lag=args.multiscale_feedback_phase_lag,
         multiscale_vertical_signal_scale=args.multiscale_vertical_signal_scale,
+        multiscale_feedback_signal_mode=args.multiscale_feedback_signal_mode,
+        multiscale_feedback_source_gate=args.multiscale_feedback_source_gate,
+        multiscale_feedback_source_mix=args.multiscale_feedback_source_mix,
         multiscale_vertical_target_gate=args.multiscale_vertical_target_gate,
         multiscale_vertical_soft_gate_floor=(
             args.multiscale_vertical_soft_gate_floor
@@ -703,8 +779,16 @@ def config_from_args(args: argparse.Namespace) -> MNISTGeneratorExperimentConfig
         multiscale_auxiliary_readout_layer=(
             args.multiscale_auxiliary_readout_layer
         ),
+        multiscale_readout_fusion_strength=(
+            args.multiscale_readout_fusion_strength
+        ),
         coarse_auxiliary_weight=args.coarse_auxiliary_weight,
         coarse_auxiliary_target_size=args.coarse_auxiliary_target_size,
+        coarse_auxiliary_loss_mode=args.coarse_auxiliary_loss_mode,
+        coarse_readout_consistency_weight=args.coarse_readout_consistency_weight,
+        coarse_readout_consistency_onset_epoch=(
+            args.coarse_readout_consistency_onset_epoch
+        ),
         state_mlp_hidden_dim=args.state_mlp_hidden_dim,
         state_mlp_depth=args.state_mlp_depth,
         state_mlp_residual_scale=args.state_mlp_residual_scale,

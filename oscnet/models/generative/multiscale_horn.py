@@ -57,6 +57,9 @@ class MultiscaleHORNImageGenerator(HORNImageGenerator):
     multiscale_vertical_phase_lag: float = eqx.field(static=True)
     multiscale_feedback_phase_lag: float = eqx.field(static=True)
     multiscale_vertical_signal_scale: float = eqx.field(static=True)
+    multiscale_feedback_signal_mode: str = eqx.field(static=True)
+    multiscale_feedback_source_gate: str = eqx.field(static=True)
+    multiscale_feedback_source_mix: Tuple[float, float] = eqx.field(static=True)
     multiscale_vertical_target_gate: str = eqx.field(static=True)
     multiscale_vertical_soft_gate_floor: float = eqx.field(static=True)
     multiscale_vertical_mode: str = eqx.field(static=True)
@@ -73,6 +76,7 @@ class MultiscaleHORNImageGenerator(HORNImageGenerator):
     multiscale_conditioning_strength: float = eqx.field(static=True)
     multiscale_auxiliary_readout_size: int = eqx.field(static=True)
     multiscale_auxiliary_readout_layer: int = eqx.field(static=True)
+    multiscale_readout_fusion_strength: float = eqx.field(static=True)
     num_auxiliary_layers: int = eqx.field(static=True)
     num_vertical_couplings: int = eqx.field(static=True)
 
@@ -94,6 +98,9 @@ class MultiscaleHORNImageGenerator(HORNImageGenerator):
         multiscale_vertical_phase_lag: float = 0.0,
         multiscale_feedback_phase_lag: float = 0.0,
         multiscale_vertical_signal_scale: float = 1.0,
+        multiscale_feedback_signal_mode: str = "position",
+        multiscale_feedback_source_gate: str = "all",
+        multiscale_feedback_source_mix: Tuple[float, float] = (1.0, 1.0),
         multiscale_vertical_target_gate: str = "all",
         multiscale_vertical_soft_gate_floor: float = 0.0,
         multiscale_vertical_mode: str = "additive",
@@ -110,6 +117,7 @@ class MultiscaleHORNImageGenerator(HORNImageGenerator):
         multiscale_conditioning_strength: float = 1.0,
         multiscale_auxiliary_readout_size: int = 8,
         multiscale_auxiliary_readout_layer: int = 0,
+        multiscale_readout_fusion_strength: float = 0.0,
         **kwargs,
     ):
         if not multiscale_layer_sizes:
@@ -203,12 +211,43 @@ class MultiscaleHORNImageGenerator(HORNImageGenerator):
                 "multiscale_vertical_intervention must be 'normal', 'zero', "
                 "'shuffle_batch', or 'flip'"
             )
+        if multiscale_feedback_signal_mode not in ("position", "state"):
+            raise ValueError(
+                "multiscale_feedback_signal_mode must be 'position' or 'state'"
+            )
+        if multiscale_feedback_source_gate not in (
+            "all",
+            "conditioning",
+            "non_conditioning",
+            "weighted",
+        ):
+            raise ValueError(
+                "multiscale_feedback_source_gate must be 'all', "
+                "'conditioning', 'non_conditioning', or 'weighted'"
+            )
+        if len(multiscale_feedback_source_mix) != 2:
+            raise ValueError(
+                "multiscale_feedback_source_mix must contain "
+                "(conditioning_weight, non_conditioning_weight)"
+            )
+        if any(weight < 0.0 for weight in multiscale_feedback_source_mix):
+            raise ValueError("multiscale_feedback_source_mix weights must be non-negative")
+        if (
+            multiscale_feedback_source_gate == "weighted"
+            and sum(float(weight) for weight in multiscale_feedback_source_mix) <= 0.0
+        ):
+            raise ValueError(
+                "weighted multiscale_feedback_source_gate requires at least "
+                "one positive source mix weight"
+            )
         if multiscale_vertical_onset_step < 0:
             raise ValueError("multiscale_vertical_onset_step must be non-negative")
         if multiscale_vertical_ramp_steps < 0:
             raise ValueError("multiscale_vertical_ramp_steps must be non-negative")
         if multiscale_vertical_intervention_scale < 0.0:
             raise ValueError("multiscale_vertical_intervention_scale must be non-negative")
+        if multiscale_readout_fusion_strength > 1.0:
+            raise ValueError("multiscale_readout_fusion_strength must be <= 1")
         for name, value in (
             ("multiscale_vertical_strength", multiscale_vertical_strength),
             ("multiscale_feedback_strength", multiscale_feedback_strength),
@@ -226,6 +265,10 @@ class MultiscaleHORNImageGenerator(HORNImageGenerator):
                 multiscale_vertical_gain_target_std,
             ),
             ("multiscale_conditioning_strength", multiscale_conditioning_strength),
+            (
+                "multiscale_readout_fusion_strength",
+                multiscale_readout_fusion_strength,
+            ),
         ):
             if value < 0.0:
                 raise ValueError(f"{name} must be non-negative")
@@ -277,6 +320,11 @@ class MultiscaleHORNImageGenerator(HORNImageGenerator):
         self.multiscale_vertical_signal_scale = float(
             multiscale_vertical_signal_scale
         )
+        self.multiscale_feedback_signal_mode = multiscale_feedback_signal_mode
+        self.multiscale_feedback_source_gate = multiscale_feedback_source_gate
+        self.multiscale_feedback_source_mix = tuple(
+            float(weight) for weight in multiscale_feedback_source_mix
+        )
         self.multiscale_vertical_target_gate = multiscale_vertical_target_gate
         self.multiscale_vertical_soft_gate_floor = float(
             multiscale_vertical_soft_gate_floor
@@ -305,6 +353,9 @@ class MultiscaleHORNImageGenerator(HORNImageGenerator):
         self.multiscale_conditioning_strength = float(multiscale_conditioning_strength)
         self.multiscale_auxiliary_readout_size = int(multiscale_auxiliary_readout_size)
         self.multiscale_auxiliary_readout_layer = int(multiscale_auxiliary_readout_layer)
+        self.multiscale_readout_fusion_strength = float(
+            multiscale_readout_fusion_strength
+        )
         self.num_auxiliary_layers = len(self.multiscale_layer_sizes)
         self.dynamics_family = "multiscale_horn"
 
@@ -434,6 +485,49 @@ class MultiscaleHORNImageGenerator(HORNImageGenerator):
         pixels = features @ self.auxiliary_readout_weight + self.auxiliary_readout_bias
         return _activation(self.output_activation)(pixels)
 
+    def upsample_auxiliary_image(self, auxiliary_image: Array) -> Array:
+        """Upsample a channel-first auxiliary image to the final image shape."""
+
+        height, width, channels = _image_hw_channels(self.image_shape)
+        source_size = int(self.multiscale_auxiliary_readout_size)
+        lowres = auxiliary_image.reshape(
+            auxiliary_image.shape[0],
+            channels,
+            source_size,
+            source_size,
+        )
+        if height % source_size == 0 and width % source_size == 0:
+            upsampled = jnp.repeat(lowres, height // source_size, axis=2)
+            upsampled = jnp.repeat(upsampled, width // source_size, axis=3)
+        else:
+            lowres_hw = jnp.transpose(lowres, (0, 2, 3, 1))
+            upsampled_hw = jax.image.resize(
+                lowres_hw,
+                (auxiliary_image.shape[0], height, width, channels),
+                method="linear",
+            )
+            upsampled = jnp.transpose(upsampled_hw, (0, 3, 1, 2))
+        return upsampled.reshape(auxiliary_image.shape[0], self.image_dim)
+
+    def decode_layered_state(
+        self,
+        positions: Tuple[Array, ...],
+        velocities: Tuple[Array, ...],
+    ) -> Array:
+        """Decode the fine state, optionally blending in an auxiliary scaffold."""
+
+        fine = self.decode_state(positions[-1], velocities[-1])
+        strength = float(self.multiscale_readout_fusion_strength)
+        if strength <= 0.0:
+            return fine
+        layer_index = self.multiscale_auxiliary_readout_layer
+        auxiliary = self.decode_auxiliary_state(
+            positions[layer_index],
+            velocities[layer_index],
+        )
+        auxiliary_upsampled = self.upsample_auxiliary_image(auxiliary)
+        return (1.0 - strength) * fine + strength * auxiliary_upsampled
+
     def initial_auxiliary_state(
         self,
         key: jax.random.PRNGKey,
@@ -552,6 +646,7 @@ class MultiscaleHORNImageGenerator(HORNImageGenerator):
         self,
         spec_index: int,
         source_position: Array,
+        source_velocity: Optional[Array] = None,
         target_gate: Optional[str] = None,
     ) -> Array:
         spec = self.vertical_specs[spec_index]
@@ -559,10 +654,22 @@ class MultiscaleHORNImageGenerator(HORNImageGenerator):
             spec_index,
             target_gate,
         )
+        is_feedback = spec.source_layer > spec.target_layer
+        if is_feedback:
+            coupling = coupling * self._vertical_source_gate(spec)[None, :]
         if not self.train_recurrent_dynamics:
             coupling = jax.lax.stop_gradient(coupling)
             source_position = jax.lax.stop_gradient(source_position)
+            if source_velocity is not None:
+                source_velocity = jax.lax.stop_gradient(source_velocity)
         source = jnp.tanh(source_position + float(spec.phase_lag))
+        if (
+            is_feedback
+            and self.multiscale_feedback_signal_mode == "state"
+            and source_velocity is not None
+        ):
+            velocity_source = jnp.tanh(source_velocity)
+            source = 0.5 * (source + velocity_source)
         signal = (
             float(spec.strength)
             * float(self.multiscale_vertical_signal_scale)
@@ -570,6 +677,31 @@ class MultiscaleHORNImageGenerator(HORNImageGenerator):
             / float(self.layer_specs[spec.source_layer].num_oscillators)
         )
         return jnp.tanh(signal)
+
+    def _vertical_source_gate(self, spec: InterLayerCouplingSpec) -> Array:
+        """Return source-side gating for bottom-up feedback projections."""
+
+        source_size = self.layer_specs[spec.source_layer].num_oscillators
+        if self.multiscale_feedback_source_gate == "all":
+            return jnp.ones((source_size,), dtype=jnp.float32)
+        is_fine_source = spec.source_layer == len(self.layer_specs) - 1
+        if not is_fine_source or source_size != self.num_oscillators:
+            return jnp.ones((source_size,), dtype=jnp.float32)
+        mask = self._conditioning_target_mask_array()
+        if self.multiscale_feedback_source_gate == "conditioning":
+            return mask
+        non_conditioning = 1.0 - mask
+        if self.multiscale_feedback_source_gate == "non_conditioning":
+            return non_conditioning
+        conditioning_weight, non_conditioning_weight = (
+            self.multiscale_feedback_source_mix
+        )
+        gate = (
+            float(conditioning_weight) * mask
+            + float(non_conditioning_weight) * non_conditioning
+        )
+        mean = jnp.mean(gate)
+        return jnp.where(mean > 0.0, gate / mean, gate)
 
     def _normalize_vertical_modulation(self, modulation: Array) -> Array:
         """Return a homeostatic vertical modulation signal."""
@@ -609,6 +741,7 @@ class MultiscaleHORNImageGenerator(HORNImageGenerator):
         layer_index: int,
         target_position: Array,
         positions: Tuple[Array, ...],
+        velocities: Optional[Tuple[Array, ...]] = None,
         step_index: Optional[Array] = None,
     ) -> Tuple[Array, Array, Array]:
         vertical_drive = jnp.zeros_like(target_position)
@@ -632,6 +765,9 @@ class MultiscaleHORNImageGenerator(HORNImageGenerator):
                         * self._vertical_modulation_signal(
                             spec_index,
                             positions[spec.source_layer],
+                            None
+                            if velocities is None
+                            else velocities[spec.source_layer],
                             target_gate="all",
                         )
                     )
@@ -641,6 +777,9 @@ class MultiscaleHORNImageGenerator(HORNImageGenerator):
                         * self._vertical_modulation_signal(
                             spec_index,
                             positions[spec.source_layer],
+                            None
+                            if velocities is None
+                            else velocities[spec.source_layer],
                             target_gate=self.multiscale_vertical_target_gate,
                         )
                     )
@@ -648,6 +787,7 @@ class MultiscaleHORNImageGenerator(HORNImageGenerator):
                     modulation = modulation + self._vertical_modulation_signal(
                         spec_index,
                         positions[spec.source_layer],
+                        None if velocities is None else velocities[spec.source_layer],
                     )
         schedule_scale = self._vertical_schedule_scale(step_index)
         if self.multiscale_vertical_mode == "dual_gain":
@@ -753,6 +893,7 @@ class MultiscaleHORNImageGenerator(HORNImageGenerator):
                 layer_index,
                 position,
                 positions,
+                velocities,
                 step_index,
             )
             interaction_term = (
@@ -940,12 +1081,20 @@ class MultiscaleHORNImageGenerator(HORNImageGenerator):
             labels,
             return_trajectory=True,
         )
-        generated = self.decode_state(final_positions[-1], final_velocities[-1])
         aux_readout_layer = self.multiscale_auxiliary_readout_layer
+        auxiliary_lowres_generated = self.decode_auxiliary_state(
+            final_positions[aux_readout_layer],
+            final_velocities[aux_readout_layer],
+        )
+        auxiliary_upsampled_generated = self.upsample_auxiliary_image(
+            auxiliary_lowres_generated
+        )
+        generated = self.decode_layered_state(final_positions, final_velocities)
         _, fine_vertical_gain, fine_vertical_modulation = self._vertical_layer_terms(
             len(final_positions) - 1,
             final_positions[-1],
             final_positions,
+            final_velocities,
             max(self.steps - 1, 0),
         )
         fine_vertical_gain_trajectory = []
@@ -958,6 +1107,7 @@ class MultiscaleHORNImageGenerator(HORNImageGenerator):
                 len(step_positions) - 1,
                 step_positions[-1],
                 step_positions,
+                tuple(trajectory[step_index] for trajectory in velocity_trajectories),
                 step_index,
             )
             fine_vertical_gain_trajectory.append(step_gain)
@@ -988,9 +1138,15 @@ class MultiscaleHORNImageGenerator(HORNImageGenerator):
             "velocity_trajectory": velocity_trajectories[-1],
             "final_velocity": final_velocities[-1],
             "generated": generated,
-            "auxiliary_lowres_generated": self.decode_auxiliary_state(
-                final_positions[aux_readout_layer],
-                final_velocities[aux_readout_layer],
+            "fine_generated": self.decode_state(
+                final_positions[-1],
+                final_velocities[-1],
+            ),
+            "auxiliary_lowres_generated": auxiliary_lowres_generated,
+            "auxiliary_upsampled_generated": auxiliary_upsampled_generated,
+            "readout_fusion_strength": jnp.asarray(
+                self.multiscale_readout_fusion_strength,
+                dtype=fine_vertical_gain.dtype,
             ),
             "auxiliary_readout_weight": self.auxiliary_readout_weight,
             "auxiliary_readout_bias": self.auxiliary_readout_bias,
@@ -1029,6 +1185,26 @@ class MultiscaleHORNImageGenerator(HORNImageGenerator):
                     "damping": 3,
                 }[self.multiscale_vertical_gain_target],
                 dtype=jnp.int32,
+            ),
+            "feedback_signal_mode": jnp.asarray(
+                0 if self.multiscale_feedback_signal_mode == "position" else 1,
+                dtype=jnp.int32,
+            ),
+            "feedback_source_gate": jnp.asarray(
+                (
+                    0
+                    if self.multiscale_feedback_source_gate == "all"
+                    else 1
+                    if self.multiscale_feedback_source_gate == "conditioning"
+                    else 2
+                    if self.multiscale_feedback_source_gate == "non_conditioning"
+                    else 3
+                ),
+                dtype=jnp.int32,
+            ),
+            "feedback_source_mix": jnp.asarray(
+                self.multiscale_feedback_source_mix,
+                dtype=fine_vertical_gain.dtype,
             ),
             "vertical_gain_normalization": jnp.asarray(
                 {
@@ -1151,6 +1327,9 @@ class MultiscaleHORNImageGenerator(HORNImageGenerator):
             trace[f"vertical_{spec_index}_profile"] = self.vertical_profile_matrix(
                 spec_index
             )
+            trace[f"vertical_{spec_index}_source_gate"] = self._vertical_source_gate(
+                spec
+            )
             trace[f"vertical_{spec_index}_source_layer"] = jnp.asarray(
                 spec.source_layer,
                 dtype=jnp.int32,
@@ -1160,3 +1339,37 @@ class MultiscaleHORNImageGenerator(HORNImageGenerator):
                 dtype=jnp.int32,
             )
         return trace
+
+    def __call__(
+        self,
+        key: jax.random.PRNGKey,
+        batch_size: int,
+        labels: Optional[Array] = None,
+    ) -> Array:
+        generated, _ = self.sample_with_auxiliary_image(key, batch_size, labels)
+        return generated
+
+    def sample_with_auxiliary_image(
+        self,
+        key: jax.random.PRNGKey,
+        batch_size: int,
+        labels: Optional[Array] = None,
+    ) -> Tuple[Array, Array]:
+        """Sample a final image and same-trajectory auxiliary scaffold."""
+
+        auxiliary_key, fine_key = jax.random.split(key)
+        aux_positions0, aux_velocities0 = self.initial_auxiliary_state(
+            auxiliary_key,
+            batch_size,
+        )
+        fine_position0, fine_velocity0 = self.initial_state(fine_key, batch_size, labels)
+        final_positions, final_velocities = self.evolve_layered_state(
+            ((*aux_positions0, fine_position0), (*aux_velocities0, fine_velocity0)),
+            labels,
+        )
+        layer_index = self.multiscale_auxiliary_readout_layer
+        auxiliary = self.decode_auxiliary_state(
+            final_positions[layer_index],
+            final_velocities[layer_index],
+        )
+        return self.decode_layered_state(final_positions, final_velocities), auxiliary

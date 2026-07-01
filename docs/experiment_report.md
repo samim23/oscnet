@@ -65,6 +65,24 @@ control, HORN's current edge is diversity/settling behavior; StateMLP still
 wins raw pixel proximity. The HORN route uses only about 3.7% of possible
 oscillator couplings.
 
+Current clean generator defaults:
+
+- `sparse_horn_mnist_recommended`: stable default for
+  `python examples/image_mnist_generator.py`.
+- `sparse_horn_cifar10_rgb_current`: stable CIFAR-10 RGB HORN recipe, currently
+  aliasing the normalized-local sparse HORN generator.
+- `sparse_horn_cifar10_rgb_hierarchy_lead`: active multiscale mechanism lead,
+  useful for hierarchy probes but not the stable rendering default.
+
+The hierarchy lead is kept separate from the stable CIFAR default because of
+the final readout/visual-quality bottleneck, not because the hierarchy probes
+were empty. Across paired CIFAR RGB hierarchy sweeps, active multiscale routes
+have improved generated-label accuracy, diversity, feature diversity,
+attractor accuracy, and basin score in several settings. They also often lose
+nearest-pixel proximity, throughput, or visual sharpness. The current open
+problem is converting better coarse/fine attractor basins into better rendered
+RGB samples.
+
 The strongest masked-completion direction is also not a conventional latent
 autoencoder. It is a conditional spatial field/refinement model, strongest when
 a semantic prior is paired with a local recurrent correction field. Winfree
@@ -1835,7 +1853,7 @@ SWD/moment/prototype objective, so it tests the decoder port only. A positive
 or negative result here should not be treated as a final Un-0 reproduction
 until the conditional drift loss is added.
 
-Result:
+Result before the RGB coarse-auxiliary layout fix:
 
 ```text
 outputs/analysis/modal_mnist_generator_resize_conv_core.csv
@@ -8013,6 +8031,528 @@ Implication:
   a mixed route that preserves drive-level causality while adding a small
   coupling/damping modulation branch. Do not jump to deeper stacks until the
   coarse layer has a job.
+
+## Coarse Objective Probe
+
+The next hierarchy test keeps the current centered signed-gain baseline, but
+changes the auxiliary coarse objective. Earlier `*_auxlow8` probes used paired
+low-resolution MSE: the coarse layer is asked to produce the downsampled image
+for the current training example. That gives the top layer a clear job, but it
+may also overconstrain a class-conditional generator by pushing the coarse state
+toward one paired thumbnail rather than a class-level attractor basin.
+
+New mechanism:
+
+```text
+coarse_auxiliary_loss_mode="mse":            paired low-res image target
+coarse_auxiliary_loss_mode="distributional": low-res batch/class moments and marginals
+```
+
+Probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=8 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_coarse_objective_probe
+```
+
+Planned comparison:
+
+- `center_mse`: centered selective signed-gain hierarchy plus paired coarse MSE.
+- `center_dist`: same hierarchy plus distributional coarse objective.
+- `no_vertical_mse`: no active vertical route plus paired coarse MSE.
+- `no_vertical_dist`: no active vertical route plus distributional coarse
+  objective.
+
+Interpretation before running:
+
+- If `center_dist` improves class accuracy/diversity/basin over `center_mse`,
+  the coarse layer likely wants a distributional/contextual role, not paired
+  image-copy pressure.
+- If both distributional rows help equally, the win is probably an auxiliary
+  readout regularizer, not vertical hierarchy.
+- If neither helps, the next serious hierarchy move is bidirectional
+  fine-to-coarse feedback or a genuinely different coarse representation, not
+  more gain schedules.
+
+Artifacts:
+
+```text
+outputs/analysis/modal_mnist_generator_cifar10_rgb_coarse_objective_probe.csv
+outputs/analysis/cifar10_rgb_coarse_objective_probe/frontier_summary.md
+outputs/analysis/cifar10_rgb_coarse_objective_probe/paired_deltas.md
+```
+
+Aggregate result across seeds 11 and 23:
+
+| Variant | Runs | Acc | Diversity | Nearest-real MSE | Feature diversity | Feature nearest-real | Attractor acc | Basin score |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `center_dist` | 2 | 0.3799 | 0.9788 | 0.0313 | 0.8088 | 0.3310 | 0.3813 | 1.6700 |
+| `center_mse` | 2 | 0.3584 | 0.8552 | 0.0246 | 0.8154 | 0.2693 | 0.3500 | 1.2703 |
+| `no_vertical_dist` | 2 | 0.3975 | 0.8228 | 0.0229 | 0.8141 | 0.2707 | 0.4188 | 1.5578 |
+| `no_vertical_mse` | 2 | 0.3271 | 0.8735 | 0.0254 | 0.7877 | 0.3254 | 0.3313 | 1.2641 |
+
+Paired read:
+
+- Distributional coarse supervision improves `center_mse -> center_dist` on
+  generated-label accuracy (+0.0215), diversity (+0.1236), attractor accuracy
+  (+0.0313), and basin score (+0.3997), but worsens nearest-real and
+  feature-nearest proximity.
+- Distributional coarse supervision improves `no_vertical_mse ->
+  no_vertical_dist` even more clearly on generated-label accuracy (+0.0703),
+  feature-nearest proximity (-0.0547), attractor accuracy (+0.0875), and basin
+  score (+0.2936), with a diversity tradeoff.
+- Under the distributional objective, `center_dist` beats `no_vertical_dist` on
+  diversity (+0.1560) and basin score (+0.1122), but loses generated-label
+  accuracy, attractor accuracy, nearest-real MSE, and feature-nearest proximity.
+- Vertical intervention deltas are larger for `center_dist` than `center_mse`
+  (`flip.output_mse_vs_normal` around `0.000295` vs `0.000054`), so the active
+  route is more causal under the distributional objective, but still not the
+  quality frontier.
+
+Updated read:
+
+The distributional coarse objective is worth keeping. It prevents the coarse
+auxiliary layer from behaving purely like a paired thumbnail decoder and gives
+better class/attractor behavior. But the improvement is not yet evidence that
+vertical hierarchy is the source of the win, because the no-vertical
+distributional auxiliary bank is the strongest quality row. The active centered
+signed-gain hierarchy mainly buys diversity/basin behavior while sacrificing
+pixel/feature proximity and some class accuracy.
+
+Implication:
+
+- Promote `*_auxdist8` to the preferred coarse-objective probe.
+- Do not claim hierarchy solved CIFAR generation. The coarse objective is useful
+  infrastructure; the vertical route still needs a content-specific role.
+- The next hierarchy move should be bidirectional fine-to-coarse feedback or a
+  mixed route that preserves no-vertical distributional quality while injecting
+  selective signed vertical causality. Deeper stacks should wait until the
+  two-layer mechanism does more than trade proximity for diversity.
+
+## Feedback Signal Probe
+
+The previous probes used bidirectional vertical topology, but the bottom-up
+feedback signal was still basically phase/position-only. This probe asks whether
+fine-to-coarse feedback should carry more of the fine layer's dynamical state.
+
+New mechanism:
+
+```text
+multiscale_feedback_signal_mode="position": historical bottom-up phase/position signal
+multiscale_feedback_signal_mode="state":    bounded position-plus-velocity feedback
+```
+
+Probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=8 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_feedback_signal_probe
+```
+
+Planned comparison:
+
+- `mse_position` vs `mse_state`: does state feedback help under paired coarse
+  MSE?
+- `dist_position` vs `dist_state`: does state feedback help under the stronger
+  distributional coarse objective?
+- `mse_position` vs `dist_position` and `mse_state` vs `dist_state`: does the
+  distributional coarse objective stay useful when feedback carries full HORN
+  state?
+
+Interpretation before running:
+
+- If `dist_state` improves accuracy/attractor metrics without losing the
+  diversity/basin edge, then bottom-up state feedback is a promising mechanism:
+  coarse layers need evidence from the fine field, not just a top-down gain
+  route.
+- If `state` mostly worsens both objectives, then the current hierarchy problem
+  is not lack of feedback signal content; it is probably the lack of a
+  content-specific coarse representation or a mismatch between auxiliary loss
+  and fine readout.
+- If `state` helps MSE but not distributional, the feedback may be acting as a
+  paired-thumbnail stabilizer rather than a generative hierarchy mechanism.
+
+Artifacts:
+
+```text
+outputs/analysis/modal_mnist_generator_cifar10_rgb_feedback_signal_probe.csv
+outputs/analysis/cifar10_rgb_feedback_signal_probe/frontier_summary.md
+outputs/analysis/cifar10_rgb_feedback_signal_probe/paired_deltas.md
+```
+
+Aggregate result across seeds 11 and 23:
+
+| Variant | Runs | Acc | Diversity | Nearest-real MSE | Feature diversity | Feature nearest-real | Attractor acc | Basin score | Samples/sec |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `dist_position` | 2 | 0.3242 | 0.8881 | 0.0265 | 0.7875 | 0.3055 | 0.3250 | 1.2655 | 289.6 |
+| `dist_state` | 2 | 0.4131 | 0.9657 | 0.0311 | 0.8438 | 0.2516 | 0.4000 | 1.7156 | 126.0 |
+| `mse_position` | 2 | 0.4092 | 0.8024 | 0.0216 | 0.7960 | 0.2747 | 0.4313 | 1.4560 | 276.9 |
+| `mse_state` | 2 | 0.4014 | 0.8768 | 0.0256 | 0.8052 | 0.2354 | 0.3813 | 1.4733 | 157.4 |
+
+Paired read:
+
+- Under the distributional objective, state feedback is clearly useful:
+  `dist_position -> dist_state` improves generated-label accuracy (+0.0889),
+  diversity (+0.0776), feature diversity (+0.0563), feature-nearest proximity
+  (-0.0539), attractor accuracy (+0.0750), and basin score (+0.4501).
+- The tradeoff is pixel proximity and speed: `dist_state` worsens nearest-real
+  MSE (+0.0045) and samples much slower than `dist_position` (about 126 vs 290
+  samples/sec in this probe).
+- Under paired coarse MSE, state feedback is mixed: it improves diversity,
+  feature-nearest proximity, and basin score slightly, but loses generated
+  accuracy, attractor accuracy, nearest-real MSE, output settling, and speed.
+- With state feedback enabled, the distributional objective again produces the
+  stronger semantic/diversity/basin row: `mse_state -> dist_state` improves
+  generated accuracy (+0.0117), diversity (+0.0889), attractor accuracy
+  (+0.0187), and basin score (+0.2423), while losing pixel proximity.
+
+Updated read:
+
+This is the first hierarchy probe in this sequence where bottom-up feedback
+content looks meaningfully helpful. The coarse layer benefits from receiving
+bounded fine-layer position-plus-velocity evidence, but mainly when the coarse
+objective is distributional rather than a paired low-res copy. That supports the
+idea that hierarchy should behave like a contextual attractor scaffold, not a
+thumbnail autoencoder.
+
+The result still does not solve the rendering problem. The best state-feedback
+row strengthens class-consistent basin behavior and diversity, but sacrifices
+nearest-pixel proximity and throughput. So the next step should not be "more
+feedback everywhere." It should preserve `dist_state` as the active-hierarchy
+lead and ask how to convert the better basin into better visible samples:
+stronger or staged readout, explicit fine image objective, or a selective
+state-feedback gate that keeps the useful dynamical evidence without dragging
+all fine noise into the coarse state.
+
+## Feedback Source-Gate Probe
+
+The feedback-signal probe showed that bottom-up state feedback helps the
+distributional active hierarchy, but may also feed too much fine-layer noise
+into the coarse state. The next compact probe asks which fine columns the
+coarse layer should listen to.
+
+New mechanism:
+
+```text
+multiscale_feedback_source_gate="all":              listen to the full fine field
+multiscale_feedback_source_gate="conditioning":     listen only to class-drive target columns
+multiscale_feedback_source_gate="non_conditioning": listen to the complement
+```
+
+This is source-side routing for bottom-up feedback. It is the counterpart to
+`multiscale_vertical_target_gate`, which controls where top-down modulation
+lands in the fine field.
+
+Probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=6 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_feedback_source_gate_probe
+```
+
+Planned comparison:
+
+- `source_all`: current `dist_state` lead.
+- `source_conditioning`: the coarse layer reads state evidence only from the
+  fine columns that also receive direct class drive.
+- `source_non_conditioning`: the coarse layer reads state evidence from the
+  non-class-driven complement.
+
+Interpretation before running:
+
+- If `source_conditioning` keeps the basin/diversity gains while improving
+  nearest-real MSE or speed, then the problem was noisy all-field feedback and
+  selective read-in is a promising hierarchy mechanism.
+- If `source_non_conditioning` wins, then the class-driven columns may already
+  be too label-biased; useful bottom-up evidence comes from the less directly
+  conditioned fine field.
+- If `source_all` still wins, then the coarse layer likely needs broad field
+  evidence, and the next rendering improvement should come from readout or
+  objective staging rather than source gating.
+
+Artifacts:
+
+```text
+outputs/analysis/modal_mnist_generator_cifar10_rgb_feedback_source_gate_probe.csv
+outputs/analysis/cifar10_rgb_feedback_source_gate_probe/frontier_summary.md
+outputs/analysis/cifar10_rgb_feedback_source_gate_probe/paired_deltas.md
+```
+
+Aggregate result across seeds 11 and 23:
+
+| Variant | Runs | Acc | Diversity | Nearest-real MSE | Feature diversity | Feature nearest-real | Attractor acc | Basin score | Samples/sec |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `source_all` | 2 | 0.4062 | 0.8351 | 0.0243 | 0.8036 | 0.2214 | 0.4000 | 1.4195 | 150.9 |
+| `source_conditioning` | 2 | 0.3779 | 0.8075 | 0.0221 | 0.7998 | 0.2781 | 0.3937 | 1.2961 | 139.4 |
+| `source_non_conditioning` | 2 | 0.3447 | 0.9051 | 0.0269 | 0.7866 | 0.2784 | 0.3563 | 1.4015 | 148.7 |
+
+Paired read:
+
+- `source_conditioning` improves nearest-real MSE (-0.0022) and output
+  settling (-0.0031) versus `source_all`, but loses generated-label accuracy
+  (-0.0283), diversity (-0.0276), feature-nearest proximity (+0.0567),
+  attractor accuracy (-0.0063), and basin score (-0.1234).
+- `source_non_conditioning` improves raw diversity (+0.0699) versus
+  `source_all`, but loses generated-label accuracy (-0.0615), nearest-real MSE
+  (+0.0025), feature diversity (-0.0170), feature-nearest proximity (+0.0570),
+  attractor accuracy (-0.0437), and basin score (-0.0180).
+- `source_non_conditioning` beats `source_conditioning` on diversity and basin
+  score, but loses class accuracy, pixel proximity, feature diversity,
+  attractor accuracy, and output settling.
+
+Updated read:
+
+Hard source gating does not convert the state-feedback basin into better
+visible quality. The all-source route remains the strongest semantic and
+feature-nearest row in this paired sweep, which suggests the coarse layer needs
+broad fine-field evidence rather than only class-driven columns. Conditioning
+source gating acts more like a proximity/settling regularizer. Non-conditioning
+source gating preserves more diversity, but weakens class consistency.
+
+This does not invalidate state feedback; it narrows the next move. The useful
+mechanism seems to be broad fine-to-coarse state evidence plus a distributional
+coarse objective. The remaining bottleneck is probably how the improved basin is
+rendered back into images, or how the feedback is weighted continuously rather
+than hard-routed. Next candidate probes: staged/wider readout, a lightweight
+fine-image loss, or learned soft feedback-source weights rather than binary
+source masks.
+
+## Feedback Source-Mix Probe
+
+Hard source gates were too blunt: all-source feedback kept the strongest
+semantic/basin row, conditioning-only feedback acted like a proximity
+regularizer, and non-conditioning-only feedback preserved diversity while
+weakening class control. This probe keeps the successful `dist_state`
+configuration and changes the source routing continuously.
+
+New mechanism:
+
+```text
+multiscale_feedback_source_gate="weighted"
+multiscale_feedback_source_mix=(conditioning_weight, non_conditioning_weight)
+```
+
+The weighted source mask is mean-normalized. That matters: fixed ratios should
+change which fine columns the coarse layer listens to, not secretly weaken or
+strengthen the entire feedback path.
+
+Probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=8 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_feedback_source_mix_probe
+```
+
+Planned comparison:
+
+- `source_all`: current all-source `dist_state` lead.
+- `mix75_25`: stronger read-in from class-conditioned fine columns.
+- `mix50_50`: normalized weighted-gate sanity check; should behave like
+  `source_all` under matched seeds.
+- `mix25_75`: stronger read-in from non-class-conditioned fine columns.
+
+Interpretation before running:
+
+- If `mix75_25` improves pixel proximity or output settling without losing the
+  semantic/basin edge, soft class-source emphasis is useful.
+- If `mix25_75` increases diversity without the class collapse of hard
+  `source_non_conditioning`, autonomous fine-state feedback carries useful
+  generative variation.
+- If `source_all` still wins, the next improvement is probably not source
+  routing. Move to readout/objective staging or learned state-dependent
+  feedback weights.
+
+Result:
+
+```text
+Variant       Acc     Diversity  Nearest MSE  Feature div  Attractor acc  Basin
+mix25_75      0.3574  0.8497     0.0249       0.7609       0.3563         1.3835
+mix50_50      0.4014  0.8902     0.0259       0.8068       0.4437         1.7444
+mix75_25      0.4424  0.8798     0.0252       0.8476       0.4188         1.6099
+source_all    0.3984  0.8665     0.0258       0.8272       0.3813         1.3313
+```
+
+Matched deltas versus `source_all`:
+
+- `mix75_25` improves generated-label accuracy on both seeds (+0.0439),
+  feature diversity on both seeds (+0.0204), attractor accuracy on both seeds
+  (+0.0375), and basin score on both seeds (+0.2786). It worsens
+  feature-nearest proximity, so this is not a strict image-quality win.
+- `mix50_50` is not bitwise identical to `source_all` under the GPU run, but it
+  acts as a close sanity neighbor and gives the strongest attractor accuracy
+  (+0.0625) and basin score (+0.4131).
+- `mix25_75` slightly improves nearest-real MSE and feature-nearest proximity,
+  but loses generated accuracy, feature diversity, and attractor accuracy.
+
+Visual read: all source-mix variants are still blurry CIFAR-like samples. The
+source-mix mechanism improves the measured hierarchy/basin frontier, not yet the
+rendered image quality. The useful direction is therefore not "listen only to
+autonomous fine state"; the better routing is class-source-heavy but still
+allows some autonomous evidence. Next move should turn this stronger basin into
+better images with a richer readout/objective, or make the mix learned and
+state-dependent after a stronger visual metric is in place.
+
+Important follow-up: while preparing the next readout probe, we found that the
+CIFAR RGB coarse auxiliary target was downsampled with an `H,W,C` reshape even
+though direct CIFAR RGB data is stored flat `C,H,W`. This is harmless for MNIST
+and grayscale CIFAR, but it scrambles the low-resolution RGB target used by the
+coarse auxiliary objective. The source-mix numbers above should therefore be
+treated as pre-fix evidence that routing changes the basin/frontier, not as a
+final judgment on the hierarchy's visual potential. The next run is an `auxfix`
+rerun of the same source-mix design with channel-first downsampling.
+
+Auxfix result:
+
+```text
+Variant       Acc     Diversity  Nearest MSE  Feature div  Attractor acc  Basin
+mix25_75      0.3438  0.7956     0.0223       0.8078       0.3313         1.1276
+mix50_50      0.4014  0.8794     0.0262       0.8359       0.4188         1.6633
+mix75_25      0.3760  0.9335     0.0287       0.8250       0.4000         1.6707
+source_all    0.3682  0.7863     0.0216       0.7955       0.3312         1.1372
+```
+
+Matched auxfix deltas versus `source_all`:
+
+- `mix50_50` improves generated-label accuracy (+0.0332), feature diversity
+  (+0.0404), attractor accuracy (+0.0875), and basin score (+0.5261) on both
+  seeds, at the cost of worse nearest-real MSE.
+- `mix75_25` gives the largest diversity (+0.1472) and basin gain (+0.5334),
+  and improves attractor accuracy (+0.0688), but has the weakest pixel
+  proximity of the source-mix variants.
+- `mix25_75` remains mostly a proximity-biased variant and does not improve the
+  hierarchy/basin read.
+
+Visual read: auxfix samples are still blurry CIFAR-like abstractions. The
+channel-layout fix did not produce a visible breakthrough, but it makes the
+mechanism cleaner: weighted feedback source routing is real, and the best
+hierarchy frontier is no longer hard `source_all`. The remaining problem is
+turning a better class/diversity/attractor basin into sharper rendered images.
+That points back to readout/objective design, not more source-gate sweeps.
+
+### Readout Fusion Probe
+
+Motivation: the weighted feedback source runs suggested that the hierarchy has
+a stronger coarse/fine basin than the rendered CIFAR samples show. The next
+conservative test was to decode the supervised auxiliary layer to a low-res
+image, upsample it channel-first, and blend it into the final fine readout with
+`multiscale_readout_fusion_strength`. This keeps the coarse route low-capacity:
+it can supply a weak scaffold, but it does not add a second full decoder.
+
+Run:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=8 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_readout_fusion_probe
+```
+
+This produced:
+
+```text
+outputs/analysis/modal_mnist_generator_cifar10_rgb_readout_fusion_probe.csv
+outputs/analysis/cifar10_rgb_readout_fusion_probe/frontier_summary.md
+outputs/analysis/cifar10_rgb_readout_fusion_probe/paired_deltas.md
+outputs/modal_samples/readout_fusion/contact_sheet.png
+```
+
+Result:
+
+```text
+Variant             Acc     Diversity  Nearest MSE  Feature div  Attractor acc  Basin
+mix50_50            0.3916  0.9030     0.0278       0.8062       0.3563         1.4250
+mix50_50_fusion010  0.3730  0.8781     0.0255       0.8031       0.3438         1.3385
+mix50_50_fusion025  0.3418  0.8563     0.0257       0.8134       0.3187         1.2485
+mix75_25_fusion010  0.3799  0.8774     0.0266       0.7788       0.3813         1.4673
+```
+
+Matched deltas versus `mix50_50`:
+
+- `mix50_50_fusion010` improves nearest-real MSE and output-settling ratio, but
+  loses generated-label accuracy, diversity, feature-nearest proximity,
+  attractor accuracy, and basin score on average.
+- `mix50_50_fusion025` is too strong: it improves nearest-real MSE slightly and
+  output settling, but costs semantic accuracy/diversity and visually adds a
+  coarser/blockier texture.
+- `mix75_25_fusion010` is the only fusion variant that improves attractor
+  accuracy and basin score on average. It also improves nearest-real MSE, but
+  still loses generated-label accuracy and diversity relative to `mix50_50`.
+
+Visual read: fusion does not solve the blurry CIFAR rendering problem. A small
+fusion blend can make outputs a little closer to real pixels and can strengthen
+one attractor metric when paired with `mix75_25`, but it does not convert the
+better hierarchy basin into sharply rendered images. The next readout move
+should therefore be a staged or auxiliary objective that trains the fine
+readout to use the coarse scaffold, not a stronger direct image blend.
+
+### Coarse Readout Consistency Probe
+
+Direct fusion was too literal, so the next probe moved the coarse scaffold into
+the training objective instead of the sample path. The multiscale generator now
+supports returning both outputs from the same trajectory:
+
+```text
+sample_with_auxiliary_image(...) -> final fine image, auxiliary low-res image
+```
+
+The added loss downscales the final image and asks it to stay consistent with
+the same-run auxiliary low-res image:
+
+```text
+coarse_readout_consistency_weight
+coarse_readout_consistency_onset_epoch
+```
+
+The auxiliary image is stop-gradiented for this term, so the loss teaches the
+fine readout to respect the coarse scaffold rather than letting the auxiliary
+branch chase the final image. The tested variants used an onset at epoch 5.
+
+Run:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=8 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_coarse_readout_consistency_probe
+```
+
+Artifacts:
+
+```text
+outputs/analysis/modal_mnist_generator_cifar10_rgb_coarse_readout_consistency_probe.csv
+outputs/analysis/cifar10_rgb_coarse_readout_consistency_probe/frontier_summary.md
+outputs/analysis/cifar10_rgb_coarse_readout_consistency_probe/paired_deltas.md
+outputs/modal_samples/coarse_readout_consistency/contact_sheet.png
+```
+
+Result:
+
+```text
+Variant                 Acc     Diversity  Nearest MSE  Feature div  Attractor acc  Output settle
+mix50_50                0.4238  0.8971     0.0268       0.8568       0.4000         0.1352
+mix50_50_consistency005 0.1895  0.4779     0.0107       0.6469       0.1875         0.0803
+mix50_50_consistency010 0.3359  0.4260     0.0098       0.8398       0.3375         0.0467
+mix75_25_consistency005 0.3418  0.4895     0.0106       0.7478       0.3438         0.0548
+```
+
+Matched deltas versus `mix50_50`:
+
+- Every consistency variant improves nearest-real MSE and output-settling ratio.
+- Every consistency variant loses generated-label accuracy, diversity,
+  attractor accuracy, and basin score.
+- `consistency010` is less damaging to feature diversity than
+  `consistency005`, but it still collapses raw diversity strongly.
+
+Visual read: the consistency variants are smoother and closer in pixel space,
+but also more repetitive and less class-consistent. This is the same trap in a
+cleaner form: low-resolution per-sample agreement rewards prototype/low-pass
+behavior. It is a useful diagnostic and control, not the next default generator
+recipe.
+
+Updated readout conclusion:
+
+- Keep direct fusion and consistency as ablation tools.
+- Do not keep increasing pixel-level coarse-to-fine pressure.
+- The next promising readout path should use a feature/semantic coarse
+  objective, a learned/gated interface from the coarse scaffold into the fine
+  readout, or an explicit staged task where the coarse layer predicts
+  class/shape statistics rather than exact low-res pixels.
 
 ## Maintenance Notes
 

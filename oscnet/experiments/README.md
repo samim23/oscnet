@@ -24,7 +24,7 @@ outputs/               generated local run artifacts
 
 For runnable commands, start with `examples/README.md`.
 
-## Recommended Generator Workflow
+## Recommended Generator Workflows
 
 The strongest end-to-end image-generation workflow is the **sparse local HORN
 MNIST generator**:
@@ -35,6 +35,24 @@ python examples/image_mnist_generator.py
 
 The example defaults to `sparse_horn_mnist_recommended`, a strict
 class-coupled HORN recipe with sparse local coupling and higher HORN damping.
+
+The current CIFAR-10 RGB frontier recipe is:
+
+```bash
+python examples/image_mnist_generator.py --preset sparse_horn_cifar10_rgb_current
+```
+
+Use it when you care less about a quick demo and more about natural-image
+transfer, diversity, attractor behavior, and the HORN-vs-control frontier.
+The active hierarchy lead is:
+
+```bash
+python examples/image_mnist_generator.py --preset sparse_horn_cifar10_rgb_hierarchy_lead
+```
+
+That preset is for multiscale mechanism work. It has improved key
+basin/diversity/attractor metrics in paired probes, but it is not yet the
+stable rendered-image default.
 
 Why it is first in the queue:
 
@@ -184,6 +202,8 @@ What to keep honest:
   readout floor to `ch16`:
 
   ```bash
+  python examples/image_mnist_generator.py --preset sparse_horn_cifar10_rgb_current
+  python examples/image_mnist_generator.py --preset sparse_horn_cifar10_rgb_hierarchy_lead
   python examples/image_mnist_generator.py --preset sparse_horn_cifar10_rgb_recommended_normlocal
   python examples/image_mnist_generator.py --preset sparse_horn_cifar10_rgb_coarse16_normlocal_gentle_local050
   python examples/image_mnist_generator.py --preset sparse_horn_cifar10_rgb_recommended
@@ -198,12 +218,19 @@ What to keep honest:
     --sweep-preset mnist_generator_cifar10_rgb_frontier_probe
   ```
 
-  Current result: the normalized-local HORN preset is the strongest CIFAR RGB
-  HORN recipe so far. It keeps the sparse local coupling density, but row-sum
-  normalizes recurrent gain and improves semantic/attractor metrics over the
-  older unnormalized local-radius runs. StateMLP remains the raw nearest-pixel
-  and throughput control. Samples are still blurry, so this is a
-  transfer-frontier result, not a solved CIFAR generator. The
+  Current result: `sparse_horn_cifar10_rgb_current` is the stable CIFAR RGB
+  HORN default. It aliases the normalized-local HORN recipe, keeps sparse local
+  coupling density, row-sum normalizes recurrent gain, and improves
+  semantic/attractor metrics over the older unnormalized local-radius runs.
+  StateMLP remains the raw nearest-pixel and throughput control. Samples are
+  still blurry, so this is a transfer-frontier result, not a solved CIFAR
+  generator. `sparse_horn_cifar10_rgb_hierarchy_lead` is the current short
+  alias for the active multiscale mechanism lead; use it for hierarchy work,
+  not as the stable rendering default. That caution is about the final RGB
+  readout, not about whether hierarchy had signal: paired probes show gains in
+  generated-label accuracy, diversity, feature diversity, attractor accuracy,
+  and basin score, while nearest-pixel MSE/speed and visual sharpness remain
+  bottlenecks. The
   `coarse16_normlocal_gentle_local050` preset is the current multiscale probe:
   a 16-oscillator coarse HORN bank with weak local-radius coarse-to-fine drive.
   Four-seed RGB results suggest it improves the diversity/basin frontier versus
@@ -278,6 +305,14 @@ What to keep honest:
   The `*_soft025` variants add a weak non-target gain floor to selective
   routing. Current read: this helps unsigned selective gain slightly, but it
   hurts selective signed gain, so it is a diagnostic rather than a default.
+  The latest feedback-signal probe keeps the active centered signed-gain
+  hierarchy and switches fine-to-coarse feedback from phase/position-only to
+  bounded position-plus-velocity state. Current read: `dist_state` is the
+  strongest active-hierarchy basin/diversity lead, but it still loses
+  nearest-pixel proximity and speed, so it is a mechanism lead rather than the
+  default CIFAR rendering recipe. A source-gate follow-up found that hard
+  gating the feedback source to class-conditioned or non-conditioned fine
+  columns does not beat listening to the full fine field.
 - Detailed results and caveats live in `docs/experiment_report.md`.
 
 ## Harness Menu

@@ -166,6 +166,9 @@ def _checkpoint_hyperparams(config: MNISTGeneratorExperimentConfig) -> Dict[str,
         "multiscale_vertical_signal_scale": (
             config.multiscale_vertical_signal_scale
         ),
+        "multiscale_feedback_signal_mode": config.multiscale_feedback_signal_mode,
+        "multiscale_feedback_source_gate": config.multiscale_feedback_source_gate,
+        "multiscale_feedback_source_mix": config.multiscale_feedback_source_mix,
         "multiscale_vertical_target_gate": config.multiscale_vertical_target_gate,
         "multiscale_vertical_soft_gate_floor": (
             config.multiscale_vertical_soft_gate_floor
@@ -191,8 +194,18 @@ def _checkpoint_hyperparams(config: MNISTGeneratorExperimentConfig) -> Dict[str,
         "multiscale_auxiliary_readout_layer": (
             config.multiscale_auxiliary_readout_layer
         ),
+        "multiscale_readout_fusion_strength": (
+            config.multiscale_readout_fusion_strength
+        ),
         "coarse_auxiliary_weight": config.coarse_auxiliary_weight,
         "coarse_auxiliary_target_size": config.coarse_auxiliary_target_size,
+        "coarse_auxiliary_loss_mode": config.coarse_auxiliary_loss_mode,
+        "coarse_readout_consistency_weight": (
+            config.coarse_readout_consistency_weight
+        ),
+        "coarse_readout_consistency_onset_epoch": (
+            config.coarse_readout_consistency_onset_epoch
+        ),
         "train_recurrent_dynamics": config.train_recurrent_dynamics,
         "train_conditioning_dynamics": config.train_conditioning_dynamics,
         "conditional": config.conditional,

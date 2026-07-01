@@ -19,6 +19,8 @@ from .losses import (
     conditional_feature_drift_loss,
     conditional_pixel_drift_loss,
     coarse_auxiliary_image_loss,
+    coarse_auxiliary_image_loss_from_generated,
+    coarse_readout_consistency_loss,
     downsample_image_batch,
     generator_distribution_loss,
     generator_loss,
@@ -33,13 +35,23 @@ from .metrics import (
     compute_generator_vertical_intervention_audit,
     sample_generator_images,
 )
-from .presets import GENERATOR_PRESETS, RECOMMENDED_GENERATOR_PRESET, preset_defaults
+from .presets import (
+    CURRENT_CIFAR10_RGB_GENERATOR_PRESET,
+    CURRENT_CIFAR10_RGB_HIERARCHY_PRESET,
+    CURRENT_MNIST_GENERATOR_PRESET,
+    GENERATOR_PRESETS,
+    RECOMMENDED_GENERATOR_PRESET,
+    preset_defaults,
+)
 from .queue import MNISTDriftQueue
 from .runner import evaluate_generator_loss, run_mnist_generator_experiment
 
 __all__ = [
     "GENERATOR_PRESETS",
     "ConvImageFeatureClassifier",
+    "CURRENT_CIFAR10_RGB_GENERATOR_PRESET",
+    "CURRENT_CIFAR10_RGB_HIERARCHY_PRESET",
+    "CURRENT_MNIST_GENERATOR_PRESET",
     "FeatureClassifier",
     "MNISTDriftQueue",
     "MNISTFeatureClassifier",
@@ -58,6 +70,8 @@ __all__ = [
     "conditional_feature_drift_loss",
     "conditional_pixel_drift_loss",
     "coarse_auxiliary_image_loss",
+    "coarse_auxiliary_image_loss_from_generated",
+    "coarse_readout_consistency_loss",
     "config_from_args",
     "downsample_image_batch",
     "evaluate_generator_loss",

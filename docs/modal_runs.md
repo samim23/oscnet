@@ -2529,6 +2529,300 @@ auxiliary row and broad-gain-only row remain better on the main semantic and
 attractor metrics. Treat dual gain as useful infrastructure and a causality
 diagnostic, not as the new default recipe.
 
+## CIFAR RGB Coarse Objective Probe
+
+Test whether the auxiliary coarse layer should learn a paired low-resolution
+copy (`mse`) or a distributional low-resolution class/batch target
+(`distributional`). This is a hierarchy bottleneck test: if the distributional
+coarse objective helps, the coarse layer may be useful as a class-level
+attractor scaffold rather than a blurry thumbnail decoder.
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=8 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_coarse_objective_probe
+```
+
+This writes:
+
+```text
+outputs/analysis/modal_mnist_generator_cifar10_rgb_coarse_objective_probe.csv
+outputs/analysis/modal_mnist_generator_cifar10_rgb_coarse_objective_probe.json
+```
+
+Analyze it with:
+
+```bash
+python scripts/analyze_mnist_generator_frontier.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_coarse_objective_probe.csv \
+  --output-dir outputs/analysis/cifar10_rgb_coarse_objective_probe \
+  --title "CIFAR-10 RGB coarse objective frontier" \
+  --accuracy-floor 0 \
+  --no-plot
+
+python scripts/analyze_generator_paired_deltas.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_coarse_objective_probe.csv \
+  --output-dir outputs/analysis/cifar10_rgb_coarse_objective_probe \
+  --variant-regex 'coarse_objective_(.+?)_n256' \
+  --pair center_mse:center_dist \
+  --pair no_vertical_mse:no_vertical_dist \
+  --pair no_vertical_mse:center_mse \
+  --pair no_vertical_dist:center_dist \
+  --title "CIFAR-10 RGB coarse objective paired deltas"
+```
+
+This writes:
+
+```text
+outputs/analysis/cifar10_rgb_coarse_objective_probe/frontier_summary.md
+outputs/analysis/cifar10_rgb_coarse_objective_probe/paired_deltas.md
+```
+
+Current read: the distributional coarse objective is useful, but the win is not
+specific to vertical hierarchy. It improves no-vertical accuracy, attractor
+accuracy, feature-nearest distance, and basin score strongly. In the centered
+signed-gain hierarchy, it improves diversity and basin score but worsens
+nearest-real and feature-nearest proximity. The active vertical route is causal
+under the distributional objective, with larger intervention output deltas than
+paired MSE, but it is still not the quality frontier. Treat `*_auxdist8` as a
+better coarse-objective diagnostic and keep working on a more content-specific
+vertical route before adding deeper stacks.
+
+Legacy single-baseline analysis command:
+
+```bash
+python scripts/analyze_generator_paired_deltas.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_coarse_objective_probe.csv \
+  --output-dir outputs/analysis/cifar10_rgb_coarse_objective_probe \
+  --baseline-variant center_mse \
+  --target-variant center_dist \
+  --target-variant no_vertical_mse \
+  --target-variant no_vertical_dist \
+  --title "CIFAR-10 RGB coarse objective paired deltas"
+```
+
+## CIFAR RGB Feedback Signal Probe
+
+Test whether bottom-up feedback should send only phase/position information
+from fine to coarse layers, or whether the coarse layer benefits from seeing
+bounded fine position-plus-velocity state. This keeps the active centered
+signed-gain hierarchy fixed and changes only
+`multiscale_feedback_signal_mode`.
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=8 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_feedback_signal_probe
+```
+
+This writes:
+
+```text
+outputs/analysis/modal_mnist_generator_cifar10_rgb_feedback_signal_probe.csv
+outputs/analysis/modal_mnist_generator_cifar10_rgb_feedback_signal_probe.json
+```
+
+Analyze it with:
+
+```bash
+python scripts/analyze_mnist_generator_frontier.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_feedback_signal_probe.csv \
+  --output-dir outputs/analysis/cifar10_rgb_feedback_signal_probe \
+  --title "CIFAR-10 RGB feedback-signal frontier" \
+  --accuracy-floor 0 \
+  --no-plot
+
+python scripts/analyze_generator_paired_deltas.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_feedback_signal_probe.csv \
+  --output-dir outputs/analysis/cifar10_rgb_feedback_signal_probe \
+  --variant-regex 'feedback_signal_(.+?)_n256' \
+  --pair mse_position:mse_state \
+  --pair dist_position:dist_state \
+  --pair mse_position:dist_position \
+  --pair mse_state:dist_state \
+  --title "CIFAR-10 RGB feedback-signal paired deltas"
+```
+
+This writes:
+
+```text
+outputs/analysis/cifar10_rgb_feedback_signal_probe/frontier_summary.md
+outputs/analysis/cifar10_rgb_feedback_signal_probe/paired_deltas.md
+```
+
+Current read: bottom-up state feedback is useful when paired with the
+distributional coarse objective. `dist_state` beats `dist_position` on
+generated-label accuracy, diversity, feature diversity, feature-nearest
+distance, attractor accuracy, and basin score. It loses nearest-pixel MSE and
+sampling speed, so treat it as the active-hierarchy lead for dynamical basin
+quality, not as the final CIFAR rendering recipe. The next probe should convert
+that better basin into visible quality through readout/objective changes or a
+more selective state-feedback gate.
+
+## CIFAR RGB Feedback Source-Gate Probe
+
+Test whether the useful `state` feedback should read from the whole fine field,
+only the class-drive target columns, or their complement. This keeps the
+distributional coarse objective and active centered signed-gain hierarchy fixed,
+then changes `multiscale_feedback_source_gate`.
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=6 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_feedback_source_gate_probe
+```
+
+This writes:
+
+```text
+outputs/analysis/modal_mnist_generator_cifar10_rgb_feedback_source_gate_probe.csv
+outputs/analysis/modal_mnist_generator_cifar10_rgb_feedback_source_gate_probe.json
+```
+
+Analyze it with:
+
+```bash
+python scripts/analyze_mnist_generator_frontier.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_feedback_source_gate_probe.csv \
+  --output-dir outputs/analysis/cifar10_rgb_feedback_source_gate_probe \
+  --title "CIFAR-10 RGB feedback source-gate frontier" \
+  --accuracy-floor 0 \
+  --no-plot
+
+python scripts/analyze_generator_paired_deltas.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_feedback_source_gate_probe.csv \
+  --output-dir outputs/analysis/cifar10_rgb_feedback_source_gate_probe \
+  --variant-regex 'feedback_source_gate_(.+?)_n256' \
+  --pair source_all:source_conditioning \
+  --pair source_all:source_non_conditioning \
+  --pair source_conditioning:source_non_conditioning \
+  --title "CIFAR-10 RGB feedback source-gate paired deltas"
+```
+
+Current read: hard source gating does not beat the all-source feedback route.
+`source_all` remains the strongest semantic/feature-nearest row. Listening only
+to class-conditioned fine columns improves nearest-real MSE and output settling
+but loses accuracy, diversity, feature-nearest distance, and basin score.
+Listening only to non-conditioned columns improves raw diversity but weakens
+class consistency. Treat broad state feedback as the active-hierarchy lead; the
+next rendering improvement should come from readout/objective staging or learned
+soft feedback weights, not binary source masks.
+
+## CIFAR RGB Feedback Source-Mix Probe
+
+Test mean-normalized soft source mixing for bottom-up state feedback. This keeps
+the `dist_state` active hierarchy fixed and changes only the relative
+conditioning/non-conditioning source balance:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=8 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_feedback_source_mix_probe
+```
+
+This writes:
+
+```text
+outputs/analysis/modal_mnist_generator_cifar10_rgb_feedback_source_mix_probe.csv
+outputs/analysis/modal_mnist_generator_cifar10_rgb_feedback_source_mix_probe.json
+```
+
+Analyze it with:
+
+```bash
+python scripts/analyze_mnist_generator_frontier.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_feedback_source_mix_probe.csv \
+  --output-dir outputs/analysis/cifar10_rgb_feedback_source_mix_probe \
+  --title "CIFAR-10 RGB feedback source-mix frontier" \
+  --accuracy-floor 0 \
+  --no-plot
+
+python scripts/analyze_generator_paired_deltas.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_feedback_source_mix_probe.csv \
+  --output-dir outputs/analysis/cifar10_rgb_feedback_source_mix_probe \
+  --variant-regex 'feedback_source_mix_(.+?)_n256' \
+  --pair source_all:mix75_25 \
+  --pair source_all:mix50_50 \
+  --pair source_all:mix25_75 \
+  --pair mix75_25:mix25_75 \
+  --title "CIFAR-10 RGB feedback source-mix paired deltas"
+```
+
+Pre-run read: `mix50_50` is a sanity check for the normalized weighted gate and
+should behave like `source_all` under matched seeds. If `mix75_25` improves
+nearest-real MSE without giving up the `source_all` semantic/basin edge, the
+class-conditioned source channel is useful but should be continuous rather than
+binary. If `mix25_75` increases diversity without the semantic collapse seen in
+hard `source_non_conditioning`, the autonomous fine field is carrying useful
+generative variation that hard gating exposed too aggressively.
+
+Current read:
+
+- `mix75_25` is the best generated-label / feature-diversity compromise:
+  accuracy 0.4424 vs 0.3984 for `source_all`, feature diversity 0.8476 vs
+  0.8272, attractor accuracy 0.4188 vs 0.3813, and basin score 1.6099 vs
+  1.3313 across two seeds.
+- `mix50_50` gives the strongest attractor metrics: attractor accuracy 0.4437
+  and basin score 1.7444. It is close to `source_all` in the ordinary sample
+  metrics, but not bitwise identical under the GPU sweep.
+- `mix25_75` improves nearest-real proximity slightly, but loses class
+  consistency and feature diversity.
+- Visual samples remain blurry CIFAR-like outputs. The result supports soft,
+  class-source-heavy feedback routing as a hierarchy mechanism, not yet a
+  rendered-quality breakthrough.
+
+Sample grids were pulled to:
+
+```text
+outputs/modal_samples/feedback_source_mix/contact_sheet_samples.png
+```
+
+Important caveat: these numbers were produced before fixing the RGB
+coarse-auxiliary target layout. Direct CIFAR RGB data is flat `C,H,W`, while
+the old auxiliary downsampler reshaped it as `H,W,C`. Rerun the same source-mix
+probe with corrected channel-first downsampling:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=8 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_feedback_source_mix_auxfix_probe
+```
+
+Analyze the corrected run with:
+
+```bash
+python scripts/analyze_mnist_generator_frontier.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_feedback_source_mix_auxfix_probe.csv \
+  --output-dir outputs/analysis/cifar10_rgb_feedback_source_mix_auxfix_probe \
+  --title "CIFAR-10 RGB feedback source-mix auxfix frontier" \
+  --accuracy-floor 0 \
+  --no-plot
+
+python scripts/analyze_generator_paired_deltas.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_feedback_source_mix_auxfix_probe.csv \
+  --output-dir outputs/analysis/cifar10_rgb_feedback_source_mix_auxfix_probe \
+  --variant-regex 'feedback_source_mix_auxfix_(.+?)_n256' \
+  --pair source_all:mix75_25 \
+  --pair source_all:mix50_50 \
+  --pair source_all:mix25_75 \
+  --pair mix75_25:mix25_75 \
+  --title "CIFAR-10 RGB feedback source-mix auxfix paired deltas"
+```
+
+Auxfix read:
+
+- `mix50_50` gives the best generated-label accuracy and attractor accuracy:
+  accuracy 0.4014 vs 0.3682 for `source_all`, feature diversity 0.8359 vs
+  0.7955, attractor accuracy 0.4188 vs 0.3312, and basin score 1.6633 vs
+  1.1372.
+- `mix75_25` gives the strongest diversity and basin score: diversity 0.9335
+  and basin score 1.6707, but worsens nearest-real MSE.
+- `mix25_75` is not the right direction for hierarchy; it stays closer in
+  pixel space but does not improve class/basin metrics.
+- Visual samples remain blurry/abstract, so the fixed hierarchy still needs a
+  better final readout/objective before it becomes a visible CIFAR-quality win.
+
+Corrected sample grids:
+
+```text
+outputs/modal_samples/feedback_source_mix_auxfix/contact_sheet_samples.png
+```
+
 ## CIFAR RGB Vertical Homeostasis Probe
 
 Test whether calibrated vertical gain helps when it is homeostatically centered
@@ -2674,3 +2968,104 @@ Local CPU/GPU execution remains the regular experiment command:
 ```bash
 python examples/image_mnist_oscillatory_autoencoder.py --help
 ```
+
+## CIFAR RGB Readout Fusion Probe
+
+Run the conservative coarse-to-final readout fusion probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=8 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_readout_fusion_probe
+```
+
+This writes:
+
+```text
+outputs/analysis/modal_mnist_generator_cifar10_rgb_readout_fusion_probe.csv
+outputs/analysis/modal_mnist_generator_cifar10_rgb_readout_fusion_probe.json
+```
+
+Analyze it with:
+
+```bash
+python scripts/analyze_mnist_generator_frontier.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_readout_fusion_probe.csv \
+  --output-dir outputs/analysis/cifar10_rgb_readout_fusion_probe \
+  --title "CIFAR-10 RGB readout fusion frontier" \
+  --accuracy-floor 0 \
+  --no-plot
+
+python scripts/analyze_generator_paired_deltas.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_readout_fusion_probe.csv \
+  --output-dir outputs/analysis/cifar10_rgb_readout_fusion_probe \
+  --variant-regex 'readout_fusion_(.+?)_n256' \
+  --pair mix50_50:mix50_50_fusion010 \
+  --pair mix50_50:mix50_50_fusion025 \
+  --pair mix50_50:mix75_25_fusion010 \
+  --title "CIFAR-10 RGB readout fusion paired deltas"
+```
+
+Pull sample grids from the Modal volume:
+
+```bash
+modal volume get oscnet-runs \
+  mnist_generator/<run>/plots/mnist_generator_samples_epoch_020.png \
+  outputs/modal_samples/readout_fusion/samples/<run>.png --force
+```
+
+Current read: direct readout fusion is a useful probe but not a visual-quality
+breakthrough. It improves nearest-real MSE and output-settling in some cases,
+but usually costs semantic accuracy/diversity. `mix75_25_fusion010` is the only
+variant that improved attractor accuracy and basin score versus `mix50_50`.
+Treat this as evidence for a staged/coarse-aware readout objective, not for
+increasing the fusion blend.
+
+## CIFAR RGB Coarse Readout Consistency Probe
+
+Run the staged/coarse-aware readout consistency probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=8 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_coarse_readout_consistency_probe
+```
+
+This writes:
+
+```text
+outputs/analysis/modal_mnist_generator_cifar10_rgb_coarse_readout_consistency_probe.csv
+outputs/analysis/modal_mnist_generator_cifar10_rgb_coarse_readout_consistency_probe.json
+```
+
+Analyze it with:
+
+```bash
+python scripts/analyze_mnist_generator_frontier.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_coarse_readout_consistency_probe.csv \
+  --output-dir outputs/analysis/cifar10_rgb_coarse_readout_consistency_probe \
+  --title "CIFAR-10 RGB coarse readout consistency frontier" \
+  --accuracy-floor 0 \
+  --no-plot
+
+python scripts/analyze_generator_paired_deltas.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_coarse_readout_consistency_probe.csv \
+  --output-dir outputs/analysis/cifar10_rgb_coarse_readout_consistency_probe \
+  --variant-regex 'coarse_readout_consistency_(.+?)_n256' \
+  --pair mix50_50:mix50_50_consistency005 \
+  --pair mix50_50:mix50_50_consistency010 \
+  --pair mix50_50:mix75_25_consistency005 \
+  --title "CIFAR-10 RGB coarse readout consistency paired deltas"
+```
+
+Pull sample grids from the Modal volume:
+
+```bash
+modal volume get oscnet-runs \
+  mnist_generator/<run>/plots/mnist_generator_samples_epoch_020.png \
+  outputs/modal_samples/coarse_readout_consistency/samples/<run>.png --force
+```
+
+Current read: this is a cleaner version of the direct-fusion failure mode.
+Coarse readout consistency improves nearest-real MSE and output-settling, but
+it strongly reduces diversity, generated-label accuracy, attractor accuracy,
+and basin score. Treat it as a diagnostic/control showing that pixel-level
+coarse agreement is too prototype-biased for the generator objective.

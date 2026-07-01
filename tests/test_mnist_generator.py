@@ -8,6 +8,9 @@ from oscnet.experiments.harness import AutoencoderExperimentConfig
 from oscnet.experiments.mnist_autoencoder import load_mnist_data
 from oscnet.experiments.mnist_generator import (
     ConvImageFeatureClassifier,
+    CURRENT_CIFAR10_RGB_GENERATOR_PRESET,
+    CURRENT_CIFAR10_RGB_HIERARCHY_PRESET,
+    CURRENT_MNIST_GENERATOR_PRESET,
     MNISTDriftQueue,
     MNISTFeatureClassifier,
     MNISTGeneratorExperimentConfig,
@@ -25,6 +28,8 @@ from oscnet.experiments.mnist_generator import (
     compute_generator_success_diagnostics,
     compute_generator_trace_dynamics,
     compute_generator_vertical_intervention_audit,
+    coarse_auxiliary_image_loss,
+    coarse_readout_consistency_loss,
     downsample_image_batch,
     generator_distribution_loss,
     generator_loss,
@@ -48,6 +53,28 @@ def test_sliced_wasserstein_loss_is_zero_for_identical_batches():
     loss = sliced_wasserstein_loss(images, images, projections)
 
     assert loss < 1e-7
+
+
+def test_downsample_image_batch_preserves_channel_first_rgb_layout():
+    red = jnp.ones((4, 4), dtype=jnp.float32)
+    green = jnp.ones((4, 4), dtype=jnp.float32) * 2.0
+    blue = jnp.ones((4, 4), dtype=jnp.float32) * 3.0
+    image = jnp.stack([red, green, blue], axis=0).reshape(1, -1)
+
+    downsampled = downsample_image_batch(
+        image,
+        image_shape=(4, 4, 3),
+        target_size=2,
+    )
+
+    expected = jnp.concatenate(
+        [
+            jnp.ones((4,), dtype=jnp.float32),
+            jnp.ones((4,), dtype=jnp.float32) * 2.0,
+            jnp.ones((4,), dtype=jnp.float32) * 3.0,
+        ]
+    ).reshape(1, -1)
+    assert jnp.allclose(downsampled, expected)
 
 
 def test_sparse_horn_mnist_preset_sets_current_recipe():
@@ -98,6 +125,32 @@ def test_generator_recommended_preset_is_opt_in_default():
     model = build_mnist_generator_model(recommended, jax.random.PRNGKey(0))
     assert model.label_phase_shift is None
     assert model.label_condition_coupling is not None
+
+
+def test_current_generator_aliases_are_stable_winners():
+    assert CURRENT_MNIST_GENERATOR_PRESET == RECOMMENDED_GENERATOR_PRESET
+
+    cifar = config_from_args(
+        parse_args(["--preset", CURRENT_CIFAR10_RGB_GENERATOR_PRESET])
+    )
+    assert cifar.model_family == "horn"
+    assert cifar.dataset_name == "cifar10_rgb"
+    assert cifar.image_shape == (32, 32, 3)
+    assert cifar.coupling_normalization == "row_sum"
+    assert cifar.loss_mode == "pixel_feature_drift"
+    assert cifar.train_limit == 2000
+    assert cifar.run.output_dir.name.endswith("cifar10_rgb_current")
+
+    hierarchy = config_from_args(
+        parse_args(["--preset", CURRENT_CIFAR10_RGB_HIERARCHY_PRESET])
+    )
+    assert hierarchy.model_family == "multiscale_horn"
+    assert hierarchy.dataset_name == "cifar10_rgb"
+    assert hierarchy.coarse_auxiliary_loss_mode == "distributional"
+    assert hierarchy.multiscale_feedback_source_gate == "weighted"
+    assert hierarchy.multiscale_feedback_source_mix == (0.5, 0.5)
+    assert hierarchy.coarse_readout_consistency_weight == 0.0
+    assert hierarchy.run.output_dir.name.endswith("cifar10_rgb_hierarchy_lead")
 
 
 def test_generator_cli_accepts_coupling_normalization():
@@ -215,6 +268,12 @@ def test_generator_cli_accepts_multiscale_horn_options():
                 "-0.2",
                 "--multiscale-vertical-signal-scale",
                 "10.0",
+                "--multiscale-feedback-signal-mode",
+                "state",
+                "--multiscale-feedback-source-gate",
+                "conditioning",
+                "--multiscale-feedback-source-mix",
+                "0.75,0.25",
                 "--multiscale-vertical-target-gate",
                 "conditioning",
                 "--multiscale-vertical-soft-gate-floor",
@@ -241,10 +300,18 @@ def test_generator_cli_accepts_multiscale_horn_options():
                 "0.75",
                 "--multiscale-auxiliary-readout-layer",
                 "1",
+                "--multiscale-readout-fusion-strength",
+                "0.25",
                 "--coarse-auxiliary-weight",
                 "0.05",
                 "--coarse-auxiliary-target-size",
                 "8",
+                "--coarse-auxiliary-loss-mode",
+                "distributional",
+                "--coarse-readout-consistency-weight",
+                "0.05",
+                "--coarse-readout-consistency-onset-epoch",
+                "5",
                 "--vertical-audit-modes",
                 "normal,zero,shuffle,flip,scale025",
                 "--vertical-audit-sample-count",
@@ -269,6 +336,9 @@ def test_generator_cli_accepts_multiscale_horn_options():
     assert parsed.multiscale_vertical_phase_lag == 0.3
     assert parsed.multiscale_feedback_phase_lag == -0.2
     assert parsed.multiscale_vertical_signal_scale == 10.0
+    assert parsed.multiscale_feedback_signal_mode == "state"
+    assert parsed.multiscale_feedback_source_gate == "conditioning"
+    assert parsed.multiscale_feedback_source_mix == (0.75, 0.25)
     assert parsed.multiscale_vertical_target_gate == "conditioning"
     assert parsed.multiscale_vertical_soft_gate_floor == 0.25
     assert parsed.multiscale_vertical_mode == "dual_gain"
@@ -282,8 +352,12 @@ def test_generator_cli_accepts_multiscale_horn_options():
     assert parsed.multiscale_vertical_ramp_steps == 5
     assert parsed.multiscale_conditioning_strength == 0.75
     assert parsed.multiscale_auxiliary_readout_layer == 1
+    assert parsed.multiscale_readout_fusion_strength == 0.25
     assert parsed.coarse_auxiliary_weight == 0.05
     assert parsed.coarse_auxiliary_target_size == 8
+    assert parsed.coarse_auxiliary_loss_mode == "distributional"
+    assert parsed.coarse_readout_consistency_weight == 0.05
+    assert parsed.coarse_readout_consistency_onset_epoch == 5
     assert parsed.vertical_audit_modes == (
         "normal",
         "zero",
@@ -363,6 +437,7 @@ def test_sparse_horn_mnist_control_presets_share_recipe():
         "sparse_horn_cifar10_rgb_recommended": "horn",
         "sparse_horn_cifar10_rgb_recommended_drive025": "horn",
         "sparse_horn_cifar10_rgb_recommended_normlocal": "horn",
+        "sparse_horn_cifar10_rgb_current": "horn",
         "sparse_horn_cifar10_rgb_coarse16_normlocal": "coarse_horn",
         "sparse_horn_cifar10_rgb_coarse16_normlocal_gentle": "coarse_horn",
         "sparse_horn_cifar10_rgb_coarse16_normlocal_gentle_dist050": (
@@ -488,6 +563,36 @@ def test_sparse_horn_mnist_control_presets_share_recipe():
             "sparse_horn_cifar10_rgb_multiscale16_64_"
             "local050_fb005_auxlow8_dual_gain_conditioning_vscale30_normstd015"
         ): "multiscale_horn",
+        (
+            "sparse_horn_cifar10_rgb_multiscale16_64_"
+            "local050_fb005_auxdist8_signed_gain_conditioning_vscale30_"
+            "center_feedback_state_mix75_25_fusion010"
+        ): "multiscale_horn",
+        (
+            "sparse_horn_cifar10_rgb_multiscale16_64_"
+            "local050_fb005_auxdist8_signed_gain_conditioning_vscale30_"
+            "center_feedback_state_mix75_25_consistency005"
+        ): "multiscale_horn",
+        (
+            "sparse_horn_cifar10_rgb_multiscale16_64_"
+            "local050_fb005_auxdist8_signed_gain_conditioning_vscale30_"
+            "center_feedback_state_mix50_50_consistency005"
+        ): "multiscale_horn",
+        (
+            "sparse_horn_cifar10_rgb_multiscale16_64_"
+            "local050_fb005_auxdist8_signed_gain_conditioning_vscale30_"
+            "center_feedback_state_mix50_50_consistency010"
+        ): "multiscale_horn",
+        (
+            "sparse_horn_cifar10_rgb_multiscale16_64_"
+            "local050_fb005_auxdist8_signed_gain_conditioning_vscale30_"
+            "center_feedback_state_mix50_50_fusion010"
+        ): "multiscale_horn",
+        (
+            "sparse_horn_cifar10_rgb_multiscale16_64_"
+            "local050_fb005_auxdist8_signed_gain_conditioning_vscale30_"
+            "center_feedback_state_mix50_50_fusion025"
+        ): "multiscale_horn",
         "sparse_horn_cifar10_rgb_recommended_drive025_spatial_grid": "horn",
         "sparse_horn_cifar10_rgb_recommended_drive025_center_block": "horn",
         "sparse_horn_cifar10_rgb_recommended_drive010": "horn",
@@ -516,6 +621,7 @@ def test_sparse_horn_mnist_control_presets_share_recipe():
         assert parsed.readout_mode == "mean_relative"
         if preset in (
             "sparse_horn_cifar10_rgb_recommended_normlocal",
+            "sparse_horn_cifar10_rgb_current",
             "sparse_horn_cifar10_rgb_coarse16_normlocal",
             "sparse_horn_cifar10_rgb_coarse16_normlocal_gentle",
             "sparse_horn_cifar10_rgb_coarse16_normlocal_gentle_dist050",
@@ -545,7 +651,9 @@ def test_sparse_horn_mnist_control_presets_share_recipe():
                 if preset.endswith("_local050"):
                     assert parsed.coarse_to_fine_profile == "local_radius"
                     assert parsed.coarse_to_fine_length_scale == 0.5
-        elif preset.startswith("sparse_horn_cifar10_rgb_multiscale16_64"):
+        elif preset.startswith(
+            "sparse_horn_cifar10_rgb_multiscale16_64"
+        ) or preset == "sparse_horn_cifar10_rgb_hierarchy_lead":
             assert parsed.loss_mode == "pixel_feature_drift"
             assert parsed.train_limit == 2000
             assert parsed.model_family == "multiscale_horn"
@@ -553,10 +661,14 @@ def test_sparse_horn_mnist_control_presets_share_recipe():
             assert parsed.multiscale_coupling_normalization == "row_sum"
             assert parsed.multiscale_vertical_profile == "local_radius"
             assert parsed.multiscale_vertical_length_scale == 0.5
-            if "_auxlow8" in preset:
+            if "_auxlow8" in preset or "_auxdist8" in preset:
                 assert parsed.coarse_auxiliary_weight == 0.05
                 assert parsed.coarse_auxiliary_target_size == 8
                 assert parsed.multiscale_auxiliary_readout_layer == 0
+                expected_loss_mode = (
+                    "distributional" if "_auxdist8" in preset else "mse"
+                )
+                assert parsed.coarse_auxiliary_loss_mode == expected_loss_mode
             else:
                 assert parsed.coarse_auxiliary_weight == 0.0
             if preset.endswith("_vgate_conditioning") or preset.endswith(
@@ -592,10 +704,46 @@ def test_sparse_horn_mnist_control_presets_share_recipe():
                 assert parsed.multiscale_vertical_signal_scale == 30.0
             else:
                 assert parsed.multiscale_vertical_signal_scale == 1.0
+            expected_feedback_mode = (
+                "state" if "_feedback_state" in preset else "position"
+            )
+            assert parsed.multiscale_feedback_signal_mode == expected_feedback_mode
+            if "_source_conditioning" in preset:
+                expected_source_gate = "conditioning"
+            elif "_source_non_conditioning" in preset:
+                expected_source_gate = "non_conditioning"
+            elif "_mix" in preset:
+                expected_source_gate = "weighted"
+            else:
+                expected_source_gate = "all"
+            assert parsed.multiscale_feedback_source_gate == expected_source_gate
+            if "_mix75_25" in preset:
+                assert parsed.multiscale_feedback_source_mix == (0.75, 0.25)
+            elif "_mix50_50" in preset:
+                assert parsed.multiscale_feedback_source_mix == (0.5, 0.5)
+            elif "_mix25_75" in preset:
+                assert parsed.multiscale_feedback_source_mix == (0.25, 0.75)
+            else:
+                assert parsed.multiscale_feedback_source_mix == (1.0, 1.0)
+            if "_fusion010" in preset:
+                assert parsed.multiscale_readout_fusion_strength == 0.10
+            elif "_fusion025" in preset:
+                assert parsed.multiscale_readout_fusion_strength == 0.25
+            else:
+                assert parsed.multiscale_readout_fusion_strength == 0.0
+            if "_consistency005" in preset:
+                assert parsed.coarse_readout_consistency_weight == 0.05
+                assert parsed.coarse_readout_consistency_onset_epoch == 5
+            elif "_consistency010" in preset:
+                assert parsed.coarse_readout_consistency_weight == 0.10
+                assert parsed.coarse_readout_consistency_onset_epoch == 5
+            else:
+                assert parsed.coarse_readout_consistency_weight == 0.0
+                assert parsed.coarse_readout_consistency_onset_epoch == 0
             if "_normstd015" in preset:
                 assert parsed.multiscale_vertical_gain_normalization == "center_rms"
                 assert parsed.multiscale_vertical_gain_target_std == 0.015
-            elif preset.endswith("_center"):
+            elif "_center" in preset:
                 assert parsed.multiscale_vertical_gain_normalization == "center"
                 assert parsed.multiscale_vertical_gain_target_std == 0.0
             else:
@@ -882,6 +1030,19 @@ def test_sparse_horn_mnist_control_presets_share_recipe():
     )
     assert cifar_rgb_multiscale_aux.coarse_auxiliary_weight == 0.05
     assert cifar_rgb_multiscale_aux.coarse_auxiliary_target_size == 8
+    assert cifar_rgb_multiscale_aux.coarse_auxiliary_loss_mode == "mse"
+
+    cifar_rgb_multiscale_auxdist = config_from_args(
+        parse_args(
+            [
+                "--preset",
+                "sparse_horn_cifar10_rgb_multiscale16_64_local050_fb005_auxdist8",
+            ]
+        )
+    )
+    assert cifar_rgb_multiscale_auxdist.coarse_auxiliary_weight == 0.05
+    assert cifar_rgb_multiscale_auxdist.coarse_auxiliary_target_size == 8
+    assert cifar_rgb_multiscale_auxdist.coarse_auxiliary_loss_mode == "distributional"
 
     cifar_rgb_drive025 = config_from_args(
         parse_args(["--preset", "sparse_horn_cifar10_rgb_recommended_drive025"])
@@ -1493,6 +1654,92 @@ def test_downsample_image_batch_block_averages_flat_images():
     assert bool(jnp.allclose(lowres, expected))
 
 
+def test_coarse_auxiliary_image_loss_supports_distributional_mode():
+    class DummyAuxiliaryModel:
+        def sample_auxiliary_image(self, key, batch_size, labels):
+            del key, labels
+            return jnp.zeros((batch_size, 4), dtype=jnp.float32)
+
+    real = jnp.asarray(
+        [
+            [0.0, 0.2, 0.7, 1.0] * 4,
+            [1.0, 0.7, 0.2, 0.0] * 4,
+            [0.1, 0.3, 0.6, 0.8] * 4,
+        ],
+        dtype=jnp.float32,
+    )
+    labels = jnp.asarray([0, 1, 0], dtype=jnp.int32)
+    key = jax.random.PRNGKey(999)
+
+    mse_loss = coarse_auxiliary_image_loss(
+        DummyAuxiliaryModel(),
+        real,
+        key=key,
+        labels=labels,
+        image_shape=(4, 4),
+        target_size=2,
+        loss_mode="mse",
+        num_classes=2,
+    )
+    distributional_loss = coarse_auxiliary_image_loss(
+        DummyAuxiliaryModel(),
+        real,
+        key=key,
+        labels=labels,
+        image_shape=(4, 4),
+        target_size=2,
+        loss_mode="distributional",
+        num_classes=2,
+    )
+
+    assert mse_loss > 0.0
+    assert distributional_loss > 0.0
+    assert not bool(jnp.allclose(mse_loss, distributional_loss))
+    with pytest.raises(ValueError):
+        coarse_auxiliary_image_loss(
+            DummyAuxiliaryModel(),
+            real,
+            key=key,
+            labels=labels,
+            image_shape=(4, 4),
+            target_size=2,
+            loss_mode="bogus",
+            num_classes=2,
+        )
+
+
+def test_coarse_readout_consistency_loss_matches_same_scale_scaffold():
+    generated = jnp.asarray(
+        [
+            [0.0, 0.0, 1.0, 1.0] * 4,
+            [1.0, 1.0, 0.0, 0.0] * 4,
+        ],
+        dtype=jnp.float32,
+    )
+    auxiliary = downsample_image_batch(
+        generated,
+        image_shape=(4, 4),
+        target_size=2,
+    )
+    shifted_auxiliary = jnp.clip(auxiliary + 0.25, 0.0, 1.0)
+
+    aligned = coarse_readout_consistency_loss(
+        generated,
+        auxiliary,
+        image_shape=(4, 4),
+        target_size=2,
+    )
+    shifted = coarse_readout_consistency_loss(
+        generated,
+        shifted_auxiliary,
+        image_shape=(4, 4),
+        target_size=2,
+    )
+
+    assert bool(jnp.allclose(aligned, 0.0))
+    assert shifted > aligned
+
+
 def test_generator_quality_metrics_can_use_classifier_labels():
     real = jnp.linspace(0.0, 1.0, 6 * 28 * 28).reshape(6, 28 * 28)
     generated = jnp.flip(real, axis=0)
@@ -2040,11 +2287,17 @@ def test_multiscale_horn_generator_samples_and_counts_layered_params():
         multiscale_vertical_length_scale=1.0,
         multiscale_auxiliary_readout_size=4,
         multiscale_auxiliary_readout_layer=0,
+        multiscale_readout_fusion_strength=0.25,
         key=jax.random.PRNGKey(940),
     )
     labels = jnp.asarray([0, 1, 2], dtype=jnp.int32)
     generated = model(jax.random.PRNGKey(941), 3, labels)
     auxiliary = model.sample_auxiliary_image(jax.random.PRNGKey(943), 3, labels)
+    paired_generated, paired_auxiliary = model.sample_with_auxiliary_image(
+        jax.random.PRNGKey(944),
+        3,
+        labels,
+    )
     trace = model.collect_trace(jax.random.PRNGKey(942), 3, labels)
     diagnostics = compute_generator_success_diagnostics(
         model,
@@ -2055,15 +2308,26 @@ def test_multiscale_horn_generator_samples_and_counts_layered_params():
 
     assert generated.shape == (3, 64)
     assert auxiliary.shape == (3, 16)
+    assert paired_generated.shape == (3, 64)
+    assert paired_auxiliary.shape == (3, 16)
     assert model.num_auxiliary_layers == 2
     assert model.num_vertical_couplings == 4
     assert model.multiscale_auxiliary_readout_layer == 0
     assert trace["aux_0_theta_trajectory"].shape == (2, 3, 2)
     assert trace["aux_1_theta_trajectory"].shape == (2, 3, 4)
     assert trace["auxiliary_lowres_generated"].shape == (3, 16)
+    assert trace["auxiliary_upsampled_generated"].shape == (3, 64)
+    assert trace["fine_generated"].shape == (3, 64)
+    assert float(trace["readout_fusion_strength"]) == 0.25
+    expected_fused = (
+        0.75 * trace["fine_generated"]
+        + 0.25 * trace["auxiliary_upsampled_generated"]
+    )
+    assert bool(jnp.allclose(trace["generated"], expected_fused, atol=1e-6))
     assert trace["auxiliary_readout_weight"].shape == (4, 16)
     assert trace["vertical_0_coupling"].shape == (4, 2)
     assert trace["vertical_1_coupling"].shape == (2, 4)
+    assert trace["vertical_0_source_gate"].shape == (2,)
     assert int(trace["vertical_mode"]) == 0
     assert trace["vertical_gain_final"].shape == (3, 8)
     assert diagnostics["dynamics_family"] == "multiscale_horn"
@@ -2076,7 +2340,11 @@ def test_multiscale_horn_generator_samples_and_counts_layered_params():
     assert diagnostics["auxiliary_readout_params"] == 4 * 16 + 16
     assert diagnostics["multiscale_auxiliary_readout_layer"] == 0
     assert diagnostics["multiscale_auxiliary_readout_size"] == 4
+    assert diagnostics["multiscale_readout_fusion_strength"] == 0.25
     assert diagnostics["multiscale_vertical_mode"] == "additive"
+    assert diagnostics["multiscale_feedback_signal_mode"] == "position"
+    assert diagnostics["multiscale_feedback_source_gate"] == "all"
+    assert diagnostics["multiscale_feedback_source_mix"] == [1.0, 1.0]
     assert diagnostics["vertical_profile_density"] <= 1.0
     assert diagnostics["estimated_recurrent_ops_per_sample"] > 2 * 8 * 8
     assert diagnostics["aux_0_state_energy_final"] >= 0.0
@@ -2280,6 +2548,24 @@ def test_multiscale_gain_modulation_changes_layered_dynamics():
         multiscale_vertical_signal_scale=5.0,
         multiscale_vertical_gain_target="damping",
     )
+    state_feedback_model = MultiscaleHORNImageGenerator(
+        **base_kwargs,
+        multiscale_vertical_mode="gain_modulation",
+        multiscale_feedback_signal_mode="state",
+    )
+    state_feedback_source_model = MultiscaleHORNImageGenerator(
+        **base_kwargs,
+        multiscale_vertical_mode="gain_modulation",
+        multiscale_feedback_signal_mode="state",
+        multiscale_feedback_source_gate="conditioning",
+    )
+    weighted_feedback_source_model = MultiscaleHORNImageGenerator(
+        **base_kwargs,
+        multiscale_vertical_mode="gain_modulation",
+        multiscale_feedback_signal_mode="state",
+        multiscale_feedback_source_gate="weighted",
+        multiscale_feedback_source_mix=(0.75, 0.25),
+    )
 
     labels = jnp.asarray([0, 1], dtype=jnp.int32)
     sample_key = jax.random.PRNGKey(961)
@@ -2322,6 +2608,21 @@ def test_multiscale_gain_modulation_changes_layered_dynamics():
         2,
         labels,
     )
+    state_feedback_trace = state_feedback_model.collect_trace(
+        jax.random.PRNGKey(962),
+        2,
+        labels,
+    )
+    state_feedback_source_trace = state_feedback_source_model.collect_trace(
+        jax.random.PRNGKey(962),
+        2,
+        labels,
+    )
+    weighted_feedback_source_trace = weighted_feedback_source_model.collect_trace(
+        jax.random.PRNGKey(962),
+        2,
+        labels,
+    )
     diagnostics = compute_generator_success_diagnostics(gain_model, trace=trace)
     trace_diagnostics = compute_generator_trace_dynamics(gain_model, trace)
     zero_diagnostics = compute_generator_success_diagnostics(
@@ -2356,6 +2657,18 @@ def test_multiscale_gain_modulation_changes_layered_dynamics():
         damping_target_model,
         trace=damping_target_trace,
     )
+    state_feedback_diagnostics = compute_generator_success_diagnostics(
+        state_feedback_model,
+        trace=state_feedback_trace,
+    )
+    state_feedback_source_diagnostics = compute_generator_success_diagnostics(
+        state_feedback_source_model,
+        trace=state_feedback_source_trace,
+    )
+    weighted_feedback_source_diagnostics = compute_generator_success_diagnostics(
+        weighted_feedback_source_model,
+        trace=weighted_feedback_source_trace,
+    )
 
     assert not bool(jnp.allclose(additive_generated, gain_generated))
     assert not bool(jnp.allclose(gain_generated, zero_generated))
@@ -2366,6 +2679,63 @@ def test_multiscale_gain_modulation_changes_layered_dynamics():
     )
     assert not bool(jnp.allclose(scaled_gain_generated, damping_target_generated))
     assert int(trace["vertical_mode"]) == 1
+    assert int(trace["feedback_signal_mode"]) == 0
+    assert int(state_feedback_trace["feedback_signal_mode"]) == 1
+    assert int(trace["feedback_source_gate"]) == 0
+    assert int(state_feedback_source_trace["feedback_source_gate"]) == 1
+    assert int(weighted_feedback_source_trace["feedback_source_gate"]) == 3
+    assert state_feedback_source_trace["vertical_3_source_gate"].shape == (8,)
+    assert float(jnp.sum(state_feedback_source_trace["vertical_3_source_gate"])) == 2.0
+    weighted_source_gate = weighted_feedback_source_trace["vertical_3_source_gate"]
+    assert weighted_source_gate.shape == (8,)
+    assert float(jnp.sum(weighted_source_gate)) == pytest.approx(8.0)
+    assert float(jnp.max(weighted_source_gate)) > float(jnp.min(weighted_source_gate))
+    aux_positions, aux_velocities = gain_model.initial_auxiliary_state(
+        jax.random.PRNGKey(964),
+        2,
+    )
+    fine_position, fine_velocity = gain_model.initial_state(
+        jax.random.PRNGKey(965),
+        2,
+        labels,
+    )
+    layered_positions = (*aux_positions, fine_position)
+    layered_velocities = (*aux_velocities, fine_velocity)
+    _, position_feedback_gain, _ = gain_model._vertical_layer_terms(
+        1,
+        layered_positions[1],
+        layered_positions,
+        layered_velocities,
+        0,
+    )
+    _, state_feedback_gain, _ = state_feedback_model._vertical_layer_terms(
+        1,
+        layered_positions[1],
+        layered_positions,
+        layered_velocities,
+        0,
+    )
+    _, source_gated_feedback_gain, _ = (
+        state_feedback_source_model._vertical_layer_terms(
+            1,
+            layered_positions[1],
+            layered_positions,
+            layered_velocities,
+            0,
+        )
+    )
+    assert not bool(
+        jnp.allclose(
+            position_feedback_gain,
+            state_feedback_gain,
+        )
+    )
+    assert not bool(
+        jnp.allclose(
+            state_feedback_gain,
+            source_gated_feedback_gain,
+        )
+    )
     assert int(trace["vertical_gain_target"]) == 0
     assert trace["vertical_gain_final"].shape == (2, 8)
     assert trace["vertical_gain_trajectory"].shape == (2, 2, 8)
@@ -2376,6 +2746,21 @@ def test_multiscale_gain_modulation_changes_layered_dynamics():
     assert diagnostics["multiscale_vertical_mode"] == "gain_modulation"
     assert diagnostics["multiscale_vertical_gain_target"] == "drive"
     assert diagnostics["multiscale_vertical_signal_scale"] == 1.0
+    assert diagnostics["multiscale_feedback_signal_mode"] == "position"
+    assert diagnostics["multiscale_feedback_source_gate"] == "all"
+    assert state_feedback_diagnostics["multiscale_feedback_signal_mode"] == "state"
+    assert (
+        state_feedback_source_diagnostics["multiscale_feedback_source_gate"]
+        == "conditioning"
+    )
+    assert (
+        weighted_feedback_source_diagnostics["multiscale_feedback_source_gate"]
+        == "weighted"
+    )
+    assert weighted_feedback_source_diagnostics["multiscale_feedback_source_mix"] == [
+        0.75,
+        0.25,
+    ]
     scaled_diagnostics = compute_generator_success_diagnostics(
         scaled_gain_model,
         trace=scaled_trace,
@@ -2731,6 +3116,9 @@ def test_mnist_generator_multiscale_auxiliary_synthetic_training_smoke(tmp_path)
         multiscale_auxiliary_readout_layer=0,
         coarse_auxiliary_weight=0.1,
         coarse_auxiliary_target_size=7,
+        coarse_auxiliary_loss_mode="distributional",
+        coarse_readout_consistency_weight=0.05,
+        coarse_readout_consistency_onset_epoch=1,
         steps=1,
         num_projections=8,
         eval_sample_count=2,
@@ -2749,8 +3137,13 @@ def test_mnist_generator_multiscale_auxiliary_synthetic_training_smoke(tmp_path)
     diagnostics = summary["generator"]["success_diagnostics"]
     assert summary["generator"]["dynamics_family"] == "multiscale_horn"
     assert summary["generator"]["coarse_auxiliary_weight"] == 0.1
+    assert summary["generator"]["coarse_auxiliary_loss_mode"] == "distributional"
+    assert summary["generator"]["coarse_readout_consistency_weight"] == 0.05
+    assert summary["generator"]["coarse_readout_consistency_onset_epoch"] == 1
     assert summary["final_train_coarse_auxiliary_loss"] >= 0.0
     assert summary["final_eval_coarse_auxiliary_loss"] >= 0.0
+    assert summary["final_train_coarse_readout_consistency_loss"] >= 0.0
+    assert summary["final_eval_coarse_readout_consistency_loss"] >= 0.0
     assert diagnostics["auxiliary_readout_params"] > 0
 
 

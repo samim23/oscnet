@@ -63,6 +63,9 @@ class MNISTGeneratorExperimentConfig:
     multiscale_vertical_phase_lag: float = 0.0
     multiscale_feedback_phase_lag: float = 0.0
     multiscale_vertical_signal_scale: float = 1.0
+    multiscale_feedback_signal_mode: str = "position"
+    multiscale_feedback_source_gate: str = "all"
+    multiscale_feedback_source_mix: Tuple[float, float] = (1.0, 1.0)
     multiscale_vertical_target_gate: str = "all"
     multiscale_vertical_soft_gate_floor: float = 0.0
     multiscale_vertical_mode: str = "additive"
@@ -76,8 +79,12 @@ class MNISTGeneratorExperimentConfig:
     multiscale_vertical_ramp_steps: int = 0
     multiscale_conditioning_strength: float = 1.0
     multiscale_auxiliary_readout_layer: int = 0
+    multiscale_readout_fusion_strength: float = 0.0
     coarse_auxiliary_weight: float = 0.0
     coarse_auxiliary_target_size: int = 8
+    coarse_auxiliary_loss_mode: str = "mse"
+    coarse_readout_consistency_weight: float = 0.0
+    coarse_readout_consistency_onset_epoch: int = 0
     state_mlp_hidden_dim: int = 48
     state_mlp_depth: int = 1
     state_mlp_residual_scale: float = 0.1
