@@ -125,7 +125,6 @@ Useful pointers:
 - `examples/` for command-line entrypoints
 - `oscnet/experiments/README.md` for experiment harnesses
 - `docs/model_api.md` for reusable model families and tensor conventions
-- `docs/experiment_report.md` for research notes and benchmark outcomes
 
 ## License
 
