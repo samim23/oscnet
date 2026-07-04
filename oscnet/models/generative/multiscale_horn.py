@@ -40,6 +40,8 @@ class MultiscaleHORNImageGenerator(HORNImageGenerator):
     auxiliary_label_condition_coupling: Tuple[Array, ...]
     auxiliary_readout_weight: Array
     auxiliary_readout_bias: Array
+    multiscale_readout_gate_weight: Array
+    multiscale_readout_gate_bias: Array
     layer_specs: Tuple[OscillatorLayerSpec, ...] = eqx.field(static=True)
     vertical_specs: Tuple[InterLayerCouplingSpec, ...] = eqx.field(static=True)
     multiscale_layer_sizes: Tuple[int, ...] = eqx.field(static=True)
@@ -77,6 +79,9 @@ class MultiscaleHORNImageGenerator(HORNImageGenerator):
     multiscale_auxiliary_readout_size: int = eqx.field(static=True)
     multiscale_auxiliary_readout_layer: int = eqx.field(static=True)
     multiscale_readout_fusion_strength: float = eqx.field(static=True)
+    multiscale_readout_gate_mode: str = eqx.field(static=True)
+    multiscale_readout_gate_strength: float = eqx.field(static=True)
+    multiscale_readout_gate_init_scale: float = eqx.field(static=True)
     num_auxiliary_layers: int = eqx.field(static=True)
     num_vertical_couplings: int = eqx.field(static=True)
 
@@ -118,6 +123,9 @@ class MultiscaleHORNImageGenerator(HORNImageGenerator):
         multiscale_auxiliary_readout_size: int = 8,
         multiscale_auxiliary_readout_layer: int = 0,
         multiscale_readout_fusion_strength: float = 0.0,
+        multiscale_readout_gate_mode: str = "none",
+        multiscale_readout_gate_strength: float = 0.0,
+        multiscale_readout_gate_init_scale: float = 0.0,
         **kwargs,
     ):
         if not multiscale_layer_sizes:
@@ -215,6 +223,10 @@ class MultiscaleHORNImageGenerator(HORNImageGenerator):
             raise ValueError(
                 "multiscale_feedback_signal_mode must be 'position' or 'state'"
             )
+        if multiscale_readout_gate_mode not in ("none", "seed_film"):
+            raise ValueError(
+                "multiscale_readout_gate_mode must be 'none' or 'seed_film'"
+            )
         if multiscale_feedback_source_gate not in (
             "all",
             "conditioning",
@@ -269,6 +281,11 @@ class MultiscaleHORNImageGenerator(HORNImageGenerator):
                 "multiscale_readout_fusion_strength",
                 multiscale_readout_fusion_strength,
             ),
+            ("multiscale_readout_gate_strength", multiscale_readout_gate_strength),
+            (
+                "multiscale_readout_gate_init_scale",
+                multiscale_readout_gate_init_scale,
+            ),
         ):
             if value < 0.0:
                 raise ValueError(f"{name} must be non-negative")
@@ -280,6 +297,7 @@ class MultiscaleHORNImageGenerator(HORNImageGenerator):
             2
             + len(multiscale_layer_sizes) * 3
             + max(1, 2 * (len(multiscale_layer_sizes)))
+            + 1
         )
         keys = jax.random.split(key, split_count)
         kwargs["key"] = keys[0]
@@ -299,6 +317,14 @@ class MultiscaleHORNImageGenerator(HORNImageGenerator):
             raise ValueError(
                 "MultiscaleHORNImageGenerator currently supports "
                 "'none', 'phase_shift', and 'class_coupling' conditioning"
+            )
+        if (
+            multiscale_readout_gate_mode != "none"
+            and self.decoder_mode != "resize_conv"
+        ):
+            raise ValueError(
+                "multiscale_readout_gate_mode currently requires "
+                "decoder_mode='resize_conv'"
             )
 
         self.multiscale_layer_sizes = tuple(int(size) for size in multiscale_layer_sizes)
@@ -355,6 +381,13 @@ class MultiscaleHORNImageGenerator(HORNImageGenerator):
         self.multiscale_auxiliary_readout_layer = int(multiscale_auxiliary_readout_layer)
         self.multiscale_readout_fusion_strength = float(
             multiscale_readout_fusion_strength
+        )
+        self.multiscale_readout_gate_mode = multiscale_readout_gate_mode
+        self.multiscale_readout_gate_strength = float(
+            multiscale_readout_gate_strength
+        )
+        self.multiscale_readout_gate_init_scale = float(
+            multiscale_readout_gate_init_scale
         )
         self.num_auxiliary_layers = len(self.multiscale_layer_sizes)
         self.dynamics_family = "multiscale_horn"
@@ -422,6 +455,7 @@ class MultiscaleHORNImageGenerator(HORNImageGenerator):
             for vertical_key, spec in zip(vertical_keys, self.vertical_specs)
         )
         readout_key = keys[key_index + len(self.vertical_specs)]
+        gate_key = keys[key_index + len(self.vertical_specs) + 1]
         _, _, channels = _image_hw_channels(self.image_shape)
         readout_layer_size = self.multiscale_layer_sizes[
             self.multiscale_auxiliary_readout_layer
@@ -446,6 +480,23 @@ class MultiscaleHORNImageGenerator(HORNImageGenerator):
                 float(aux_bias_value),
                 dtype=jnp.float32,
             )
+        seed_channels = int(self.resize_conv_seed_shape[0])
+        gate_dim = 2 * seed_channels
+        if self.multiscale_readout_gate_mode == "none":
+            self.multiscale_readout_gate_weight = jnp.zeros(
+                (readout_features, gate_dim),
+                dtype=jnp.float32,
+            )
+        else:
+            self.multiscale_readout_gate_weight = (
+                jax.random.normal(gate_key, (readout_features, gate_dim))
+                * self.multiscale_readout_gate_init_scale
+                / jnp.sqrt(float(max(readout_features, 1)))
+            )
+        self.multiscale_readout_gate_bias = jnp.zeros(
+            (gate_dim,),
+            dtype=jnp.float32,
+        )
 
         if (
             self.num_classes > 0
@@ -509,6 +560,60 @@ class MultiscaleHORNImageGenerator(HORNImageGenerator):
             upsampled = jnp.transpose(upsampled_hw, (0, 3, 1, 2))
         return upsampled.reshape(auxiliary_image.shape[0], self.image_dim)
 
+    def decode_state_with_readout_gate(
+        self,
+        fine_position: Array,
+        fine_velocity: Array,
+        auxiliary_position: Array,
+        auxiliary_velocity: Array,
+    ) -> Array:
+        """Decode the fine state after auxiliary FiLM modulation of seed features."""
+
+        if (
+            self.decoder_mode != "resize_conv"
+            or self.multiscale_readout_gate_mode == "none"
+            or self.multiscale_readout_gate_strength <= 0.0
+        ):
+            return self.decode_state(fine_position, fine_velocity)
+        if self.resize_conv_output is None:
+            raise ValueError("resize_conv decoder is missing output convolution")
+
+        features = self.state_features(fine_position, fine_velocity).reshape(
+            fine_position.shape[0],
+            -1,
+        )
+        channels, seed_h, seed_w = self.resize_conv_seed_shape
+        hidden = features.reshape(fine_position.shape[0], channels, seed_h, seed_w)
+
+        auxiliary_features = self.auxiliary_state_features(
+            auxiliary_position,
+            auxiliary_velocity,
+        )
+        gate = (
+            auxiliary_features @ self.multiscale_readout_gate_weight
+            + self.multiscale_readout_gate_bias
+        )
+        scale_raw, shift_raw = jnp.split(gate, 2, axis=-1)
+        strength = float(self.multiscale_readout_gate_strength)
+        scale = 1.0 + strength * jnp.tanh(scale_raw)
+        shift = strength * jnp.tanh(shift_raw)
+        hidden = hidden * scale[:, :, None, None] + shift[:, :, None, None]
+
+        for layer_index in range(0, len(self.resize_conv_layers), 2):
+            hidden = jnp.repeat(hidden, 2, axis=2)
+            hidden = jnp.repeat(hidden, 2, axis=3)
+            hidden = jax.vmap(self.resize_conv_layers[layer_index])(hidden)
+            hidden = jax.nn.leaky_relu(hidden, negative_slope=0.2)
+            hidden = jax.vmap(self.resize_conv_layers[layer_index + 1])(hidden)
+            hidden = jax.nn.leaky_relu(hidden, negative_slope=0.2)
+        pixels = jax.vmap(self.resize_conv_output)(hidden)
+        pixels = pixels.reshape(fine_position.shape[0], self.image_dim)
+        pixels = pixels + self._state_residual_logits(fine_position, fine_velocity)
+        pixels = pixels + self._resonant_readout_logits(fine_position, fine_velocity)
+        return _activation(self.output_activation)(
+            pixels
+        )
+
     def decode_layered_state(
         self,
         positions: Tuple[Array, ...],
@@ -516,11 +621,16 @@ class MultiscaleHORNImageGenerator(HORNImageGenerator):
     ) -> Array:
         """Decode the fine state, optionally blending in an auxiliary scaffold."""
 
-        fine = self.decode_state(positions[-1], velocities[-1])
+        layer_index = self.multiscale_auxiliary_readout_layer
+        fine = self.decode_state_with_readout_gate(
+            positions[-1],
+            velocities[-1],
+            positions[layer_index],
+            velocities[layer_index],
+        )
         strength = float(self.multiscale_readout_fusion_strength)
         if strength <= 0.0:
             return fine
-        layer_index = self.multiscale_auxiliary_readout_layer
         auxiliary = self.decode_auxiliary_state(
             positions[layer_index],
             velocities[layer_index],

@@ -121,6 +121,9 @@ def build_arg_parser(preset: str = "none") -> argparse.ArgumentParser:
             "multiscale_horn",
             "multiscale_horn_decoder_only",
             "frozen_multiscale_horn",
+            "multimode_horn",
+            "multimode_horn_decoder_only",
+            "frozen_multimode_horn",
             "state_mlp",
             "state_mlp_decoder_only",
             "frozen_state_mlp",
@@ -194,6 +197,118 @@ def build_arg_parser(preset: str = "none") -> argparse.ArgumentParser:
     )
     parser.add_argument("--output-feedback-init-scale", type=float, default=0.02)
     parser.add_argument("--output-feedback-basis-sigma", type=float, default=0.0)
+    parser.add_argument(
+        "--state-residual-readout-strength",
+        type=float,
+        default=0.0,
+        help=(
+            "Optional final HORN-state local residual readout added to resize-conv "
+            "logits. Defaults to 0 to preserve the baseline decoder."
+        ),
+    )
+    parser.add_argument(
+        "--state-residual-readout-init-scale",
+        type=float,
+        default=0.01,
+    )
+    parser.add_argument("--state-residual-readout-patch-size", type=int, default=5)
+    parser.add_argument("--state-residual-readout-sigma", type=float, default=0.0)
+    parser.add_argument(
+        "--resonant-readout-strength",
+        type=float,
+        default=0.0,
+        help=(
+            "Optional shared HORN resonant filter-bank readout from local "
+            "phase/velocity/coherence observables. Defaults to 0."
+        ),
+    )
+    parser.add_argument("--resonant-readout-init-scale", type=float, default=0.02)
+    parser.add_argument("--resonant-readout-patch-size", type=int, default=5)
+    parser.add_argument("--resonant-readout-sigma", type=float, default=0.0)
+    parser.add_argument(
+        "--state-anchor-weight",
+        type=float,
+        default=0.0,
+        help=(
+            "Training-only image-to-HORN-state anchor loss weight. 0 disables "
+            "the local encoder anchor path."
+        ),
+    )
+    parser.add_argument(
+        "--state-anchor-steps",
+        type=_parse_int_tuple,
+        default=(4, 8, 16),
+        help=(
+            "Comma-separated HORN settling depths sampled by the state anchor "
+            "loss, for example '4,8,16'."
+        ),
+    )
+    parser.add_argument("--state-anchor-noise-scale", type=float, default=0.05)
+    parser.add_argument(
+        "--state-anchor-mode",
+        choices=["none", "reconstruct", "settle", "frozen_dynamics"],
+        default="none",
+        help=(
+            "State-anchor control mode. 'reconstruct' is k=0 encode/decode; "
+            "'settle' trains through dynamics; 'frozen_dynamics' stops "
+            "gradients on recurrent/conditioning parameters in the anchor path."
+        ),
+    )
+    parser.add_argument("--state-anchor-encoder-kernel-size", type=int, default=3)
+    parser.add_argument(
+        "--state-prior-sampling-mode",
+        choices=["none", "global", "class"],
+        default="none",
+        help=(
+            "Optional training-time initial-state prior for generated drift "
+            "samples. 'global' fits one anchor-state PCA prior across all "
+            "classes; 'class' fits one prior per class."
+        ),
+    )
+    parser.add_argument("--state-prior-rank", type=int, default=32)
+    parser.add_argument("--state-prior-noise-scale", type=float, default=1.0)
+    parser.add_argument(
+        "--state-prior-refresh-epochs",
+        type=int,
+        default=1,
+        help="Refit the host-side state prior every N epochs when enabled.",
+    )
+    parser.add_argument(
+        "--state-prior-start-epoch",
+        type=int,
+        default=1,
+        help="First epoch that may train generated samples from the state prior.",
+    )
+    parser.add_argument(
+        "--multimode-num-modes",
+        type=int,
+        default=2,
+        help=(
+            "Number of frequency modes per spatial HORN site for "
+            "model-family=multimode_horn."
+        ),
+    )
+    parser.add_argument(
+        "--multimode-frequency-scales",
+        type=_parse_float_tuple,
+        default=(),
+        help=(
+            "Comma-separated fixed frequency scales for multimode HORN. "
+            "Empty uses a gentle low/high default."
+        ),
+    )
+    parser.add_argument(
+        "--multimode-mode-coupling-strength",
+        type=float,
+        default=0.25,
+        help="Within-site coupling strength among multimode HORN frequency bands.",
+    )
+    parser.add_argument(
+        "--multimode-mode-coupling-profile",
+        choices=["dense", "adjacent"],
+        default="dense",
+        help="Within-site mode coupling profile for multimode HORN.",
+    )
     parser.add_argument("--num-coarse-oscillators", type=int, default=16)
     parser.add_argument(
         "--coarse-coupling-profile",
@@ -439,6 +554,34 @@ def build_arg_parser(preset: str = "none") -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--multiscale-readout-gate-mode",
+        choices=["none", "seed_film"],
+        default="none",
+        help=(
+            "Learned coarse-to-fine readout modulation. 'seed_film' uses the "
+            "selected auxiliary oscillator layer to scale and shift the "
+            "resize-conv seed tensor before rendering."
+        ),
+    )
+    parser.add_argument(
+        "--multiscale-readout-gate-strength",
+        type=float,
+        default=0.0,
+        help=(
+            "Strength for the learned readout gate. 0 disables the gate even "
+            "when --multiscale-readout-gate-mode is set."
+        ),
+    )
+    parser.add_argument(
+        "--multiscale-readout-gate-init-scale",
+        type=float,
+        default=0.0,
+        help=(
+            "Initialization scale for the readout gate projection. The "
+            "default 0 starts from the ungated model while remaining trainable."
+        ),
+    )
+    parser.add_argument(
         "--coarse-auxiliary-weight",
         type=float,
         default=0.0,
@@ -482,6 +625,64 @@ def build_arg_parser(preset: str = "none") -> argparse.ArgumentParser:
             "Epoch at which coarse readout consistency turns on. Use a small "
             "warmup so the auxiliary scaffold learns before guiding the final "
             "readout. 0 enables it from the start."
+        ),
+    )
+    parser.add_argument(
+        "--frequency-objective-weight",
+        type=float,
+        default=0.0,
+        help=(
+            "Optional image-spectrum objective weight. This matches generated "
+            "frequency-band and edge statistics to real images without "
+            "forcing paired pixel alignment."
+        ),
+    )
+    parser.add_argument(
+        "--frequency-objective-edge-weight",
+        type=float,
+        default=1.0,
+        help=(
+            "Relative weight for the Laplacian/edge-statistics term inside "
+            "--frequency-objective-weight."
+        ),
+    )
+    parser.add_argument(
+        "--patch-objective-weight",
+        type=float,
+        default=0.0,
+        help=(
+            "Optional local patch-distribution objective weight. This compares "
+            "unpaired small image patches with sliced Wasserstein projections."
+        ),
+    )
+    parser.add_argument("--patch-objective-patch-size", type=int, default=5)
+    parser.add_argument(
+        "--patch-objective-patch-sizes",
+        type=_parse_int_tuple,
+        default=(),
+        help=(
+            "Optional comma-separated multiscale patch sizes. Empty uses "
+            "--patch-objective-patch-size."
+        ),
+    )
+    parser.add_argument("--patch-objective-stride", type=int, default=4)
+    parser.add_argument(
+        "--patch-objective-offsets",
+        type=_parse_int_tuple,
+        default=(0,),
+        help=(
+            "Comma-separated patch-grid offsets. Multiple offsets score all "
+            "offset_y/offset_x combinations and reduce fixed-grid striping."
+        ),
+    )
+    parser.add_argument("--patch-objective-projections", type=int, default=32)
+    parser.add_argument(
+        "--patch-objective-edge-weight",
+        type=float,
+        default=0.25,
+        help=(
+            "Relative weight for the Laplacian-patch term inside "
+            "--patch-objective-weight."
         ),
     )
     parser.add_argument("--state-mlp-hidden-dim", type=int, default=48)
@@ -530,6 +731,26 @@ def build_arg_parser(preset: str = "none") -> argparse.ArgumentParser:
     parser.add_argument("--resize-conv-seed-size", type=int, default=7)
     parser.add_argument("--resize-conv-upsamples", type=int, default=2)
     parser.add_argument("--resize-conv-min-channels", type=int, default=8)
+    parser.add_argument(
+        "--resize-conv-seed-layout",
+        choices=["flat", "retinotopic"],
+        default="flat",
+        help=(
+            "How final oscillator features are arranged before resize-conv. "
+            "'flat' preserves the historical reshape; 'retinotopic' maps "
+            "oscillator-grid sites to seed pixels."
+        ),
+    )
+    parser.add_argument(
+        "--resize-conv-seed-min-channels",
+        type=int,
+        default=0,
+        help=(
+            "Minimum retinotopic seed channels. Values above the natural "
+            "position/velocity channel count pad local oscillator observables "
+            "instead of flattening extra spatial sites."
+        ),
+    )
     parser.add_argument(
         "--output-activation",
         choices=["identity", "sigmoid", "tanh"],
@@ -625,6 +846,69 @@ def build_arg_parser(preset: str = "none") -> argparse.ArgumentParser:
         help=(
             "Samples used for vertical intervention quality metrics. "
             "Set to 0 to reuse --eval-sample-count."
+        ),
+    )
+    parser.add_argument(
+        "--state-probe-sample-count",
+        type=int,
+        default=0,
+        help=(
+            "Samples used for the final linear state-information probe. "
+            "Set to 0 to disable."
+        ),
+    )
+    parser.add_argument(
+        "--state-probe-target-size",
+        type=int,
+        default=8,
+        help="Low-resolution scaffold size used by the state-information probe.",
+    )
+    parser.add_argument(
+        "--state-probe-ridge",
+        type=float,
+        default=1e-3,
+        help="Ridge penalty for linear probes fitted to traced oscillator states.",
+    )
+    parser.add_argument(
+        "--state-fit-sample-count",
+        type=int,
+        default=0,
+        help=(
+            "Number of real images for frozen-decoder per-image state fitting. "
+            "Set to 0 to disable."
+        ),
+    )
+    parser.add_argument(
+        "--state-fit-steps",
+        type=int,
+        default=100,
+        help="Adam steps for the frozen-decoder state fitting probe.",
+    )
+    parser.add_argument(
+        "--state-fit-learning-rate",
+        type=float,
+        default=5e-2,
+        help="Learning rate for the frozen-decoder state fitting probe.",
+    )
+    parser.add_argument(
+        "--state-fit-init-scale",
+        type=float,
+        default=0.05,
+        help="Initial random state scale for frozen-decoder state fitting.",
+    )
+    parser.add_argument(
+        "--state-fit-ridge",
+        type=float,
+        default=1e-3,
+        help="Ridge penalty for fitted-state linear readout probes.",
+    )
+    parser.add_argument(
+        "--state-fit-settle-steps",
+        type=_parse_int_tuple,
+        default=(0, 8, 16, 32),
+        help=(
+            "Comma-separated settling depths to apply after fitting final "
+            "states, e.g. '0,8,16,32'."
         ),
     )
     parser.add_argument(
@@ -726,6 +1010,28 @@ def config_from_args(args: argparse.Namespace) -> MNISTGeneratorExperimentConfig
         output_feedback_strength=args.output_feedback_strength,
         output_feedback_init_scale=args.output_feedback_init_scale,
         output_feedback_basis_sigma=args.output_feedback_basis_sigma,
+        state_residual_readout_strength=args.state_residual_readout_strength,
+        state_residual_readout_init_scale=args.state_residual_readout_init_scale,
+        state_residual_readout_patch_size=args.state_residual_readout_patch_size,
+        state_residual_readout_sigma=args.state_residual_readout_sigma,
+        resonant_readout_strength=args.resonant_readout_strength,
+        resonant_readout_init_scale=args.resonant_readout_init_scale,
+        resonant_readout_patch_size=args.resonant_readout_patch_size,
+        resonant_readout_sigma=args.resonant_readout_sigma,
+        state_anchor_weight=args.state_anchor_weight,
+        state_anchor_steps=args.state_anchor_steps,
+        state_anchor_noise_scale=args.state_anchor_noise_scale,
+        state_anchor_mode=args.state_anchor_mode,
+        state_anchor_encoder_kernel_size=args.state_anchor_encoder_kernel_size,
+        state_prior_sampling_mode=args.state_prior_sampling_mode,
+        state_prior_rank=args.state_prior_rank,
+        state_prior_noise_scale=args.state_prior_noise_scale,
+        state_prior_refresh_epochs=args.state_prior_refresh_epochs,
+        state_prior_start_epoch=args.state_prior_start_epoch,
+        multimode_num_modes=args.multimode_num_modes,
+        multimode_frequency_scales=args.multimode_frequency_scales,
+        multimode_mode_coupling_strength=args.multimode_mode_coupling_strength,
+        multimode_mode_coupling_profile=args.multimode_mode_coupling_profile,
         num_coarse_oscillators=args.num_coarse_oscillators,
         coarse_coupling_profile=args.coarse_coupling_profile,
         coarse_coupling_normalization=args.coarse_coupling_normalization,
@@ -782,6 +1088,11 @@ def config_from_args(args: argparse.Namespace) -> MNISTGeneratorExperimentConfig
         multiscale_readout_fusion_strength=(
             args.multiscale_readout_fusion_strength
         ),
+        multiscale_readout_gate_mode=args.multiscale_readout_gate_mode,
+        multiscale_readout_gate_strength=args.multiscale_readout_gate_strength,
+        multiscale_readout_gate_init_scale=(
+            args.multiscale_readout_gate_init_scale
+        ),
         coarse_auxiliary_weight=args.coarse_auxiliary_weight,
         coarse_auxiliary_target_size=args.coarse_auxiliary_target_size,
         coarse_auxiliary_loss_mode=args.coarse_auxiliary_loss_mode,
@@ -789,6 +1100,15 @@ def config_from_args(args: argparse.Namespace) -> MNISTGeneratorExperimentConfig
         coarse_readout_consistency_onset_epoch=(
             args.coarse_readout_consistency_onset_epoch
         ),
+        frequency_objective_weight=args.frequency_objective_weight,
+        frequency_objective_edge_weight=args.frequency_objective_edge_weight,
+        patch_objective_weight=args.patch_objective_weight,
+        patch_objective_patch_size=args.patch_objective_patch_size,
+        patch_objective_patch_sizes=args.patch_objective_patch_sizes,
+        patch_objective_stride=args.patch_objective_stride,
+        patch_objective_offsets=args.patch_objective_offsets,
+        patch_objective_projections=args.patch_objective_projections,
+        patch_objective_edge_weight=args.patch_objective_edge_weight,
         state_mlp_hidden_dim=args.state_mlp_hidden_dim,
         state_mlp_depth=args.state_mlp_depth,
         state_mlp_residual_scale=args.state_mlp_residual_scale,
@@ -807,6 +1127,8 @@ def config_from_args(args: argparse.Namespace) -> MNISTGeneratorExperimentConfig
         resize_conv_seed_size=args.resize_conv_seed_size,
         resize_conv_upsamples=args.resize_conv_upsamples,
         resize_conv_min_channels=args.resize_conv_min_channels,
+        resize_conv_seed_layout=args.resize_conv_seed_layout,
+        resize_conv_seed_min_channels=args.resize_conv_seed_min_channels,
         output_activation=args.output_activation,
         output_bias_init=args.output_bias_init,
         num_projections=args.num_projections,
@@ -841,6 +1163,15 @@ def config_from_args(args: argparse.Namespace) -> MNISTGeneratorExperimentConfig
         attractor_variants_per_class=args.attractor_variants_per_class,
         vertical_audit_modes=args.vertical_audit_modes,
         vertical_audit_sample_count=args.vertical_audit_sample_count,
+        state_probe_sample_count=args.state_probe_sample_count,
+        state_probe_target_size=args.state_probe_target_size,
+        state_probe_ridge=args.state_probe_ridge,
+        state_fit_sample_count=args.state_fit_sample_count,
+        state_fit_steps=args.state_fit_steps,
+        state_fit_learning_rate=args.state_fit_learning_rate,
+        state_fit_init_scale=args.state_fit_init_scale,
+        state_fit_ridge=args.state_fit_ridge,
+        state_fit_settle_steps=args.state_fit_settle_steps,
         train_settling_steps=args.train_settling_steps,
         settling_steps=args.settling_steps,
         dataset_name=args.dataset_name,

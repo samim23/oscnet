@@ -3,15 +3,23 @@
 from __future__ import annotations
 
 import copy
-from typing import Any, Dict, Optional, Sequence
+from typing import Any, Callable, Dict, Optional, Sequence, Tuple
 
 import equinox as eqx
 import jax
 import jax.numpy as jnp
 import numpy as np
+import optax
+
+from oscnet.models.generative.common import _image_hw_channels
 
 from .common import Array
 from .features import FeatureClassifier
+
+InitialStateSampler = Callable[
+    [jax.random.PRNGKey, int, Optional[Array]],
+    Tuple[Array, Array],
+]
 
 
 def _pairwise_squared_l2(x: np.ndarray, y: np.ndarray) -> np.ndarray:
@@ -29,6 +37,314 @@ def _finite_mean(values: np.ndarray) -> float:
     return float(np.mean(finite)) if finite.size else float("nan")
 
 
+def _sqrt_psd(matrix: np.ndarray, *, eps: float = 1e-6) -> np.ndarray:
+    """Symmetric positive-semidefinite matrix square root."""
+
+    if matrix.size == 0:
+        return matrix
+    symmetric = 0.5 * (matrix + matrix.T)
+    values, vectors = np.linalg.eigh(symmetric)
+    values = np.maximum(values, 0.0)
+    return (vectors * np.sqrt(values + eps)) @ vectors.T
+
+
+def _frechet_feature_distance(real: np.ndarray, gen: np.ndarray) -> float:
+    """FID-style Gaussian distance in classifier feature space."""
+
+    if real.shape[0] < 2 or gen.shape[0] < 2:
+        return float("nan")
+    real_mean = np.mean(real, axis=0)
+    gen_mean = np.mean(gen, axis=0)
+    real_cov = np.cov(real, rowvar=False)
+    gen_cov = np.cov(gen, rowvar=False)
+    if real_cov.ndim == 0:
+        real_cov = real_cov.reshape(1, 1)
+        gen_cov = gen_cov.reshape(1, 1)
+    sqrt_real = _sqrt_psd(real_cov)
+    covmean = _sqrt_psd(sqrt_real @ gen_cov @ sqrt_real)
+    distance = (
+        np.sum((real_mean - gen_mean) ** 2)
+        + np.trace(real_cov + gen_cov - 2.0 * covmean)
+    )
+    return float(max(distance, 0.0))
+
+
+def _polynomial_mmd2_unbiased(real: np.ndarray, gen: np.ndarray) -> float:
+    """KID-style unbiased polynomial-kernel MMD in feature space."""
+
+    n = int(real.shape[0])
+    m = int(gen.shape[0])
+    if n < 2 or m < 2:
+        return float("nan")
+    dim = float(max(real.shape[1], 1))
+    k_xx = ((real @ real.T) / dim + 1.0) ** 3
+    k_yy = ((gen @ gen.T) / dim + 1.0) ** 3
+    k_xy = ((real @ gen.T) / dim + 1.0) ** 3
+    np.fill_diagonal(k_xx, 0.0)
+    np.fill_diagonal(k_yy, 0.0)
+    return float(
+        np.sum(k_xx) / (n * (n - 1))
+        + np.sum(k_yy) / (m * (m - 1))
+        - 2.0 * np.mean(k_xy)
+    )
+
+
+def _feature_precision_recall(real: np.ndarray, gen: np.ndarray) -> Dict[str, float]:
+    """Nearest-neighbor feature coverage at the real manifold median radius."""
+
+    if real.shape[0] < 2 or gen.shape[0] < 1:
+        return {
+            "classifier_feature_precision_at_real_median": float("nan"),
+            "classifier_feature_recall_at_real_median": float("nan"),
+            "classifier_feature_real_median_radius": float("nan"),
+        }
+    real_pairwise = _pairwise_squared_l2(real, real)
+    np.fill_diagonal(real_pairwise, np.inf)
+    real_radius = float(np.median(np.min(real_pairwise, axis=1)))
+    gen_to_real = np.min(_pairwise_squared_l2(gen, real), axis=1)
+    real_to_gen = np.min(_pairwise_squared_l2(real, gen), axis=1)
+    return {
+        "classifier_feature_precision_at_real_median": float(
+            np.mean(gen_to_real <= real_radius)
+        ),
+        "classifier_feature_recall_at_real_median": float(
+            np.mean(real_to_gen <= real_radius)
+        ),
+        "classifier_feature_real_median_radius": real_radius,
+    }
+
+
+def _reshape_flat_images_nchw(
+    images: np.ndarray,
+    image_shape: Sequence[int],
+) -> np.ndarray:
+    """Reshape flat MNIST/CIFAR batches to channel-first image tensors."""
+
+    height, width, channels = _image_hw_channels(tuple(int(size) for size in image_shape))
+    expected_dim = int(height * width * channels)
+    flat = np.asarray(images, dtype=np.float32).reshape(images.shape[0], -1)
+    if flat.shape[-1] != expected_dim:
+        raise ValueError(
+            f"flat images have dim {flat.shape[-1]}, but image_shape={image_shape} "
+            f"implies {expected_dim}"
+        )
+    if channels == 1:
+        return flat.reshape(flat.shape[0], 1, height, width)
+    return flat.reshape(flat.shape[0], channels, height, width)
+
+
+def _downsample_flat_images_np(
+    images: np.ndarray,
+    *,
+    image_shape: Sequence[int],
+    target_size: int,
+) -> np.ndarray:
+    """Downsample flat channel-first images with channel layout preserved."""
+
+    target = int(target_size)
+    if target <= 0:
+        raise ValueError("target_size must be positive")
+    nchw = _reshape_flat_images_nchw(images, image_shape)
+    _, channels, height, width = nchw.shape
+    if height == target and width == target:
+        return nchw.reshape(nchw.shape[0], channels * target * target)
+    if height % target == 0 and width % target == 0:
+        y_factor = height // target
+        x_factor = width // target
+        pooled = nchw.reshape(
+            nchw.shape[0],
+            channels,
+            target,
+            y_factor,
+            target,
+            x_factor,
+        ).mean(axis=(3, 5))
+        return pooled.reshape(nchw.shape[0], channels * target * target)
+    y_idx = np.rint(np.linspace(0, height - 1, target)).astype(np.int64)
+    x_idx = np.rint(np.linspace(0, width - 1, target)).astype(np.int64)
+    sampled = nchw[:, :, y_idx, :][:, :, :, x_idx]
+    return sampled.reshape(nchw.shape[0], channels * target * target)
+
+
+def _upsample_lowres_flat_images_np(
+    lowres_images: np.ndarray,
+    *,
+    image_shape: Sequence[int],
+    target_size: int,
+) -> np.ndarray:
+    """Nearest-neighbor upsample channel-first low-res flat images."""
+
+    target = int(target_size)
+    if target <= 0:
+        raise ValueError("target_size must be positive")
+    height, width, channels = _image_hw_channels(tuple(int(size) for size in image_shape))
+    flat = np.asarray(lowres_images, dtype=np.float32).reshape(lowres_images.shape[0], -1)
+    expected_dim = int(channels * target * target)
+    if flat.shape[-1] != expected_dim:
+        raise ValueError(
+            f"lowres images have dim {flat.shape[-1]}, but target_size={target} "
+            f"and image_shape={image_shape} imply {expected_dim}"
+        )
+    lowres = flat.reshape(flat.shape[0], channels, target, target)
+    if height % target == 0 and width % target == 0:
+        upsampled = np.repeat(
+            np.repeat(lowres, height // target, axis=-2),
+            width // target,
+            axis=-1,
+        )
+    else:
+        y_idx = np.floor(np.arange(height) * target / height).astype(np.int64)
+        x_idx = np.floor(np.arange(width) * target / width).astype(np.int64)
+        y_idx = np.clip(y_idx, 0, target - 1)
+        x_idx = np.clip(x_idx, 0, target - 1)
+        upsampled = lowres[:, :, y_idx, :][:, :, :, x_idx]
+    return upsampled.reshape(flat.shape[0], height * width * channels)
+
+
+def compute_frequency_diagnostics(
+    real_images: Array,
+    generated: Array,
+    *,
+    image_shape: Sequence[int],
+) -> Dict[str, float]:
+    """Measure frequency and edge-energy differences for generated images."""
+
+    real = _reshape_flat_images_nchw(np.asarray(real_images), image_shape)
+    gen = _reshape_flat_images_nchw(np.asarray(generated), image_shape)
+    real = real[: gen.shape[0]]
+    gen = np.clip(gen, 0.0, 1.0)
+    if gen.shape[0] == 0:
+        return {}
+
+    real_centered = real - np.mean(real, axis=(-2, -1), keepdims=True)
+    gen_centered = gen - np.mean(gen, axis=(-2, -1), keepdims=True)
+    real_power = np.mean(np.abs(np.fft.rfft2(real_centered, axes=(-2, -1))) ** 2, axis=(0, 1))
+    gen_power = np.mean(np.abs(np.fft.rfft2(gen_centered, axes=(-2, -1))) ** 2, axis=(0, 1))
+
+    height, width = real.shape[-2:]
+    fy = np.fft.fftfreq(height)[:, None]
+    fx = np.fft.rfftfreq(width)[None, :]
+    radius = np.sqrt(fx * fx + fy * fy)
+    max_radius = float(np.max(radius))
+    if max_radius > 0.0:
+        radius = radius / max_radius
+    low_mask = radius <= 0.25
+    mid_mask = (radius > 0.25) & (radius <= 0.50)
+    high_mask = radius > 0.50
+
+    def _band_ratio(power: np.ndarray, mask: np.ndarray) -> float:
+        total = float(np.sum(power))
+        if total <= 0.0:
+            return float("nan")
+        return float(np.sum(power[mask]) / total)
+
+    def _spectral_centroid(power: np.ndarray) -> float:
+        total = float(np.sum(power))
+        if total <= 0.0:
+            return float("nan")
+        return float(np.sum(power * radius) / total)
+
+    def _laplacian_variance(images: np.ndarray) -> float:
+        lap = (
+            -4.0 * images
+            + np.roll(images, 1, axis=-2)
+            + np.roll(images, -1, axis=-2)
+            + np.roll(images, 1, axis=-1)
+            + np.roll(images, -1, axis=-1)
+        )
+        return float(np.mean(np.var(lap, axis=(-2, -1))))
+
+    real_high = _band_ratio(real_power, high_mask)
+    gen_high = _band_ratio(gen_power, high_mask)
+    real_mid = _band_ratio(real_power, mid_mask)
+    gen_mid = _band_ratio(gen_power, mid_mask)
+    real_low = _band_ratio(real_power, low_mask)
+    gen_low = _band_ratio(gen_power, low_mask)
+    real_centroid = _spectral_centroid(real_power)
+    gen_centroid = _spectral_centroid(gen_power)
+    real_lap = _laplacian_variance(real)
+    gen_lap = _laplacian_variance(gen)
+
+    return {
+        "frequency_real_low_power_ratio": real_low,
+        "frequency_generated_low_power_ratio": gen_low,
+        "frequency_real_mid_power_ratio": real_mid,
+        "frequency_generated_mid_power_ratio": gen_mid,
+        "frequency_real_high_power_ratio": real_high,
+        "frequency_generated_high_power_ratio": gen_high,
+        "frequency_high_power_ratio_delta": float(gen_high - real_high),
+        "frequency_high_power_ratio": float(gen_high / (real_high + 1e-8)),
+        "frequency_spectral_centroid_real": real_centroid,
+        "frequency_spectral_centroid_generated": gen_centroid,
+        "frequency_spectral_centroid_ratio": float(
+            gen_centroid / (real_centroid + 1e-8)
+        ),
+        "edge_laplacian_variance_real": real_lap,
+        "edge_laplacian_variance_generated": gen_lap,
+        "edge_laplacian_variance_ratio": float(gen_lap / (real_lap + 1e-8)),
+    }
+
+
+def _state_spatial_spectrum_diagnostics(
+    values: np.ndarray,
+    *,
+    prefix: str,
+) -> Dict[str, float]:
+    """Summarize spatial spectrum when oscillator count forms a square grid."""
+
+    if values.ndim < 2:
+        return {}
+    flat = np.asarray(values, dtype=np.float32).reshape(-1, values.shape[-1])
+    n = int(flat.shape[-1])
+    side = int(round(np.sqrt(n)))
+    if side * side != n or flat.shape[0] == 0:
+        return {}
+
+    grid = flat.reshape(flat.shape[0], side, side)
+    centered = grid - np.mean(grid, axis=(-2, -1), keepdims=True)
+    power = np.mean(np.abs(np.fft.rfft2(centered, axes=(-2, -1))) ** 2, axis=0)
+    total = float(np.sum(power))
+    if total <= 0.0:
+        return {
+            f"{prefix}_low_power_ratio": float("nan"),
+            f"{prefix}_mid_power_ratio": float("nan"),
+            f"{prefix}_high_power_ratio": float("nan"),
+            f"{prefix}_spectral_centroid": float("nan"),
+            f"{prefix}_laplacian_variance": float("nan"),
+        }
+
+    fy = np.fft.fftfreq(side)[:, None]
+    fx = np.fft.rfftfreq(side)[None, :]
+    radius = np.sqrt(fx * fx + fy * fy)
+    max_radius = float(np.max(radius))
+    if max_radius > 0.0:
+        radius = radius / max_radius
+
+    low_mask = radius <= 0.25
+    mid_mask = (radius > 0.25) & (radius <= 0.50)
+    high_mask = radius > 0.50
+
+    def _ratio(mask: np.ndarray) -> float:
+        return float(np.sum(power[mask]) / total)
+
+    laplacian = (
+        -4.0 * grid
+        + np.roll(grid, 1, axis=-2)
+        + np.roll(grid, -1, axis=-2)
+        + np.roll(grid, 1, axis=-1)
+        + np.roll(grid, -1, axis=-1)
+    )
+    return {
+        f"{prefix}_low_power_ratio": _ratio(low_mask),
+        f"{prefix}_mid_power_ratio": _ratio(mid_mask),
+        f"{prefix}_high_power_ratio": _ratio(high_mask),
+        f"{prefix}_spectral_centroid": float(np.sum(power * radius) / total),
+        f"{prefix}_laplacian_variance": float(
+            np.mean(np.var(laplacian, axis=(-2, -1)))
+        ),
+    }
+
+
 def sample_generator_images(
     model: eqx.Module,
     *,
@@ -36,6 +352,7 @@ def sample_generator_images(
     sample_count: int,
     batch_size: int,
     labels: Optional[Array] = None,
+    initial_state_sampler: Optional[InitialStateSampler] = None,
 ) -> Array:
     """Generate a requested number of images in batches."""
 
@@ -46,9 +363,24 @@ def sample_generator_images(
     while remaining > 0:
         current = min(batch_size, remaining)
         label_batch = None if labels is None else labels[start : start + current]
-        generated.append(
-            model(jax.random.fold_in(key, batch_index), current, label_batch)
-        )
+        batch_key = jax.random.fold_in(key, batch_index)
+        if initial_state_sampler is None:
+            generated.append(model(batch_key, current, label_batch))
+        else:
+            if not hasattr(model, "evolve_state") or not hasattr(model, "decode_state"):
+                raise ValueError(
+                    "initial_state_sampler requires evolve_state/decode_state"
+                )
+            position, velocity = initial_state_sampler(
+                batch_key,
+                current,
+                label_batch,
+            )
+            final_position, final_velocity = model.evolve_state(
+                (position, velocity),
+                label_batch,
+            )
+            generated.append(model.decode_state(final_position, final_velocity))
         remaining -= current
         start += current
         batch_index += 1
@@ -62,12 +394,12 @@ def compute_generator_quality_metrics(
     labels: Optional[Array] = None,
     prototypes: Optional[Array] = None,
     classifier: Optional[FeatureClassifier] = None,
+    image_shape: Optional[Sequence[int]] = None,
 ) -> Dict[str, float]:
     """Compute lightweight distribution and diversity diagnostics."""
 
     real = np.asarray(real_images, dtype=np.float32).reshape(real_images.shape[0], -1)
     gen = np.asarray(generated, dtype=np.float32).reshape(generated.shape[0], -1)
-    real = real[: gen.shape[0]]
 
     clipped = np.clip(gen, 0.0, 1.0)
     real_mean = real.mean(axis=0)
@@ -75,9 +407,10 @@ def compute_generator_quality_metrics(
     real_std = real.std(axis=0)
     gen_std = clipped.std(axis=0)
 
-    pairwise = np.mean((clipped[:, None, :] - real[None, :, :]) ** 2, axis=-1)
+    image_dim = float(max(clipped.shape[-1], 1))
+    pairwise = _pairwise_squared_l2(clipped, real) / image_dim
     nearest_real_mse = np.min(pairwise, axis=1)
-    real_pairwise = np.mean((real[:, None, :] - real[None, :, :]) ** 2, axis=-1)
+    real_pairwise = _pairwise_squared_l2(real, real) / image_dim
     np.fill_diagonal(real_pairwise, np.inf)
 
     metrics = {
@@ -89,8 +422,23 @@ def compute_generator_quality_metrics(
         "pixel_std_mse": float(np.mean((gen_std - real_std) ** 2)),
         "diversity_ratio": float(np.mean(gen_std) / (np.mean(real_std) + 1e-8)),
         "nearest_real_mse": float(np.mean(nearest_real_mse)),
+        "nearest_real_mse_min": float(np.min(nearest_real_mse)),
+        "nearest_real_mse_p01": float(np.quantile(nearest_real_mse, 0.01)),
+        "nearest_real_mse_p05": float(np.quantile(nearest_real_mse, 0.05)),
+        "duplicate_rate_mse_001": float(np.mean(nearest_real_mse < 0.001)),
+        "duplicate_rate_mse_0025": float(np.mean(nearest_real_mse < 0.0025)),
+        "duplicate_rate_mse_005": float(np.mean(nearest_real_mse < 0.005)),
+        "duplicate_rate_mse_010": float(np.mean(nearest_real_mse < 0.010)),
         "real_nearest_real_mse": float(np.mean(np.min(real_pairwise, axis=1))),
     }
+    if image_shape is not None:
+        metrics.update(
+            compute_frequency_diagnostics(
+                real_images,
+                generated,
+                image_shape=image_shape,
+            )
+        )
     if labels is not None and prototypes is not None:
         labels_np = np.asarray(labels[: gen.shape[0]], dtype=np.int32)
         prototypes_np = np.asarray(prototypes, dtype=np.float32)
@@ -168,8 +516,17 @@ def compute_generator_quality_metrics(
                     _finite_mean(feature_gen_pairwise)
                     / (feature_real_pairwise_mean + 1e-8)
                 ),
+                "classifier_feature_frechet_distance": _frechet_feature_distance(
+                    real_features,
+                    gen_features,
+                ),
+                "classifier_feature_kid_mmd2": _polynomial_mmd2_unbiased(
+                    real_features,
+                    gen_features,
+                ),
             }
         )
+        metrics.update(_feature_precision_recall(real_features, gen_features))
     return metrics
 
 
@@ -773,6 +1130,449 @@ def compute_generator_trace_dynamics(
     return diagnostics
 
 
+def _state_probe_features(
+    trace: Dict[str, Array],
+    theta_key: str,
+    velocity_key: Optional[str],
+) -> Optional[np.ndarray]:
+    """Build phase/amplitude features for a traced oscillator state."""
+
+    if theta_key not in trace:
+        return None
+    theta = np.asarray(trace[theta_key], dtype=np.float32).reshape(
+        np.asarray(trace[theta_key]).shape[0],
+        -1,
+    )
+    parts = [np.tanh(theta), np.sin(theta), np.cos(theta)]
+    if velocity_key is not None and velocity_key in trace:
+        velocity = np.asarray(trace[velocity_key], dtype=np.float32).reshape(
+            theta.shape[0],
+            -1,
+        )
+        parts.append(np.tanh(velocity))
+    return np.concatenate(parts, axis=-1)
+
+
+def _ridge_probe_predictions(
+    features: np.ndarray,
+    target: np.ndarray,
+    *,
+    ridge: float,
+) -> Optional[tuple[np.ndarray, np.ndarray, np.ndarray]]:
+    """Fit a deterministic train/test ridge probe and return test predictions."""
+
+    x = np.asarray(features, dtype=np.float64)
+    y = np.asarray(target, dtype=np.float64).reshape(x.shape[0], -1)
+    if x.shape[0] != y.shape[0] or x.shape[0] < 4:
+        return None
+    if not np.all(np.isfinite(x)) or not np.all(np.isfinite(y)):
+        return None
+    rng = np.random.default_rng(0)
+    order = rng.permutation(x.shape[0])
+    train_count = int(np.clip(round(0.7 * x.shape[0]), 2, x.shape[0] - 1))
+    train_idx = order[:train_count]
+    test_idx = order[train_count:]
+    x_train = x[train_idx]
+    x_test = x[test_idx]
+    y_train = y[train_idx]
+    y_test = y[test_idx]
+    mean = np.mean(x_train, axis=0, keepdims=True)
+    std = np.std(x_train, axis=0, keepdims=True)
+    x_train = (x_train - mean) / np.maximum(std, 1e-6)
+    x_test = (x_test - mean) / np.maximum(std, 1e-6)
+    x_train = np.concatenate([x_train, np.ones((x_train.shape[0], 1))], axis=-1)
+    x_test = np.concatenate([x_test, np.ones((x_test.shape[0], 1))], axis=-1)
+    gram = x_train.T @ x_train
+    penalty = np.eye(gram.shape[0], dtype=np.float64) * float(ridge)
+    penalty[-1, -1] = 0.0
+    rhs = x_train.T @ y_train
+    try:
+        weights = np.linalg.solve(gram + penalty, rhs)
+    except np.linalg.LinAlgError:
+        weights = np.linalg.pinv(gram + penalty) @ rhs
+    return x_test @ weights, y_test, test_idx
+
+
+def _regression_probe_metrics(
+    features: np.ndarray,
+    target: np.ndarray,
+    *,
+    ridge: float,
+    prefix: str,
+) -> Dict[str, float]:
+    predictions = _ridge_probe_predictions(features, target, ridge=ridge)
+    if predictions is None:
+        return {}
+    predicted, y_test, _ = predictions
+    mse = float(np.mean((predicted - y_test) ** 2))
+    variance = float(np.mean((y_test - np.mean(y_test, axis=0, keepdims=True)) ** 2))
+    return {
+        f"{prefix}_mse": mse,
+        f"{prefix}_r2": float(1.0 - mse / (variance + 1e-8)),
+        f"{prefix}_target_variance": variance,
+    }
+
+
+def _label_probe_metrics(
+    features: np.ndarray,
+    labels: np.ndarray,
+    *,
+    num_classes: int,
+    ridge: float,
+) -> Dict[str, float]:
+    label_array = np.asarray(labels, dtype=np.int64).reshape(-1)
+    if label_array.shape[0] != features.shape[0] or label_array.shape[0] < 4:
+        return {}
+    one_hot = np.eye(int(num_classes), dtype=np.float32)[
+        np.clip(label_array, 0, int(num_classes) - 1)
+    ]
+    predictions = _ridge_probe_predictions(features, one_hot, ridge=ridge)
+    if predictions is None:
+        return {}
+    predicted, y_test, test_idx = predictions
+    predicted_labels = np.argmax(predicted, axis=-1)
+    true_labels = label_array[test_idx]
+    mse = float(np.mean((predicted - y_test) ** 2))
+    variance = float(np.mean((y_test - np.mean(y_test, axis=0, keepdims=True)) ** 2))
+    return {
+        "label_accuracy": float(np.mean(predicted_labels == true_labels)),
+        "label_mse": mse,
+        "label_r2": float(1.0 - mse / (variance + 1e-8)),
+    }
+
+
+def compute_generator_state_information_probe(
+    model: eqx.Module,
+    trace: Dict[str, Array],
+    *,
+    labels: Optional[Array] = None,
+    classifier: Optional[FeatureClassifier] = None,
+    image_shape: Optional[Sequence[int]] = None,
+    target_size: int = 8,
+    ridge: float = 1e-3,
+) -> Dict[str, Any]:
+    """Probe what information is linearly decodable from traced states.
+
+    This diagnostic is meant to separate "state formation" from "readout"
+    problems. It probes the model's own traced samples, not a paired
+    reconstruction target, so it should be read as an attribution compass
+    rather than a standalone generative-quality score.
+    """
+
+    state_sets: Dict[str, np.ndarray] = {}
+    initial = _state_probe_features(trace, "initial_theta", "initial_velocity")
+    if initial is not None:
+        state_sets["fine_initial"] = initial
+    final = _state_probe_features(trace, "final_theta", "final_velocity")
+    if final is not None:
+        state_sets["fine_final"] = final
+
+    auxiliary_features = []
+    layer_index = 0
+    while f"aux_{layer_index}_final_theta" in trace:
+        features = _state_probe_features(
+            trace,
+            f"aux_{layer_index}_final_theta",
+            f"aux_{layer_index}_final_velocity",
+        )
+        if features is not None:
+            state_sets[f"aux_{layer_index}_final"] = features
+            auxiliary_features.append(features)
+        layer_index += 1
+    if auxiliary_features and final is not None:
+        state_sets["combined_final"] = np.concatenate(
+            [*auxiliary_features, final],
+            axis=-1,
+        )
+
+    if not state_sets:
+        return {}
+    sample_count = min(features.shape[0] for features in state_sets.values())
+    if sample_count < 4:
+        return {
+            "sample_count": int(sample_count),
+            "insufficient_samples": True,
+        }
+    state_sets = {
+        name: features[:sample_count]
+        for name, features in state_sets.items()
+    }
+
+    targets: Dict[str, np.ndarray] = {}
+    generated = None
+    if "generated" in trace and image_shape is not None:
+        generated = np.asarray(trace["generated"], dtype=np.float32)[:sample_count]
+        lowres = _downsample_flat_images_np(
+            generated,
+            image_shape=image_shape,
+            target_size=target_size,
+        )
+        upsampled = _upsample_lowres_flat_images_np(
+            lowres,
+            image_shape=image_shape,
+            target_size=target_size,
+        )
+        targets["generated_lowres"] = lowres
+        targets["generated_highpass"] = generated.reshape(sample_count, -1) - upsampled
+    if "auxiliary_lowres_generated" in trace:
+        targets["auxiliary_lowres_generated"] = np.asarray(
+            trace["auxiliary_lowres_generated"],
+            dtype=np.float32,
+        )[:sample_count].reshape(sample_count, -1)
+    if classifier is not None and generated is not None:
+        targets["classifier_features"] = np.asarray(
+            classifier.features(jnp.asarray(generated)),
+            dtype=np.float32,
+        )
+
+    probe: Dict[str, Any] = {
+        "sample_count": int(sample_count),
+        "target_size": int(target_size),
+        "ridge": float(ridge),
+        "state_sets": {},
+    }
+    label_array = None if labels is None else np.asarray(labels)[:sample_count]
+    num_classes = int(getattr(model, "num_classes", 10))
+    for state_name, state_features in state_sets.items():
+        metrics: Dict[str, float] = {
+            "feature_dim": int(state_features.shape[-1]),
+        }
+        if label_array is not None:
+            metrics.update(
+                _label_probe_metrics(
+                    state_features,
+                    label_array,
+                    num_classes=num_classes,
+                    ridge=ridge,
+                )
+            )
+        for target_name, target in targets.items():
+            metrics.update(
+                _regression_probe_metrics(
+                    state_features,
+                    np.asarray(target, dtype=np.float32)[:sample_count],
+                    ridge=ridge,
+                    prefix=target_name,
+                )
+            )
+        probe["state_sets"][state_name] = metrics
+    if "fine_initial" in probe["state_sets"] and "fine_final" in probe["state_sets"]:
+        for key in (
+            "label_accuracy",
+            "label_r2",
+            "generated_lowres_r2",
+            "generated_highpass_r2",
+            "classifier_features_r2",
+        ):
+            initial_value = probe["state_sets"]["fine_initial"].get(key)
+            final_value = probe["state_sets"]["fine_final"].get(key)
+            if initial_value is not None and final_value is not None:
+                probe[f"fine_final_minus_initial_{key}"] = float(
+                    final_value - initial_value
+                )
+    return probe
+
+
+def compute_generator_state_fitting_probe(
+    model: eqx.Module,
+    real_images: Array,
+    *,
+    key: jax.random.PRNGKey,
+    labels: Optional[Array] = None,
+    image_shape: Optional[Sequence[int]] = None,
+    sample_count: int = 32,
+    fit_steps: int = 100,
+    learning_rate: float = 5e-2,
+    init_scale: float = 0.05,
+    settle_steps: Sequence[int] = (0, 8, 16, 32),
+    ridge: float = 1e-3,
+) -> Dict[str, Any]:
+    """Fit per-image final oscillator states through a frozen decoder.
+
+    This diagnostic asks a different question than the ordinary state probe:
+    can the frozen state representation and decoder reconstruct real images at
+    all if we are allowed to optimize one final HORN state per image? It then
+    tests whether those fitted details survive additional oscillator settling.
+    """
+
+    if not hasattr(model, "decode_state"):
+        return {"unsupported": True, "reason": "model has no decode_state"}
+    if sample_count <= 0:
+        return {}
+    count = min(int(sample_count), int(real_images.shape[0]))
+    if count < 2:
+        return {"sample_count": int(count), "insufficient_samples": True}
+    target = jnp.asarray(real_images[:count], dtype=jnp.float32).reshape(count, -1)
+    fit_labels = None
+    if labels is not None:
+        fit_labels = jnp.asarray(labels[:count], dtype=jnp.int32)
+
+    position_key, velocity_key = jax.random.split(key)
+    position = (
+        jax.random.normal(position_key, (count, int(model.num_oscillators)))
+        * float(init_scale)
+    )
+    velocity = (
+        jax.random.normal(velocity_key, (count, int(model.num_oscillators)))
+        * float(init_scale)
+    )
+
+    optimizer = optax.adam(float(learning_rate))
+    opt_state = optimizer.init((position, velocity))
+
+    def loss_fn(fit_position: Array, fit_velocity: Array) -> Array:
+        reconstruction = model.decode_state(fit_position, fit_velocity)
+        return jnp.mean((reconstruction - target) ** 2)
+
+    @jax.jit
+    def fit_step(
+        fit_position: Array,
+        fit_velocity: Array,
+        fit_opt_state: optax.OptState,
+    ) -> Tuple[Array, Array, optax.OptState, Array]:
+        loss_value, grads = jax.value_and_grad(loss_fn, argnums=(0, 1))(
+            fit_position,
+            fit_velocity,
+        )
+        updates, next_opt_state = optimizer.update(
+            grads,
+            fit_opt_state,
+            (fit_position, fit_velocity),
+        )
+        next_position, next_velocity = optax.apply_updates(
+            (fit_position, fit_velocity),
+            updates,
+        )
+        if hasattr(model, "_bound_state"):
+            next_position = model._bound_state(next_position)
+            next_velocity = model._bound_state(next_velocity)
+        return next_position, next_velocity, next_opt_state, loss_value
+
+    initial_loss = float(loss_fn(position, velocity))
+    losses = []
+    for _ in range(int(fit_steps)):
+        position, velocity, opt_state, loss_value = fit_step(
+            position,
+            velocity,
+            opt_state,
+        )
+        losses.append(float(loss_value))
+    fitted = model.decode_state(position, velocity)
+    final_loss = float(jnp.mean((fitted - target) ** 2))
+
+    def prefixed_metrics(prefix: str, generated: Array) -> Dict[str, float]:
+        generated_np = np.asarray(generated, dtype=np.float32)
+        target_np = np.asarray(target, dtype=np.float32)
+        clipped = np.clip(generated_np, 0.0, 1.0)
+        metrics: Dict[str, float] = {
+            f"{prefix}_paired_mse": float(np.mean((clipped - target_np) ** 2)),
+            f"{prefix}_paired_l1": float(np.mean(np.abs(clipped - target_np))),
+            f"{prefix}_generated_std": float(np.std(clipped)),
+        }
+        if image_shape is not None:
+            for name, value in compute_frequency_diagnostics(
+                target_np,
+                generated_np,
+                image_shape=image_shape,
+            ).items():
+                metrics[f"{prefix}_{name}"] = float(value)
+        return metrics
+
+    probe: Dict[str, Any] = {
+        "sample_count": int(count),
+        "fit_steps": int(fit_steps),
+        "learning_rate": float(learning_rate),
+        "init_scale": float(init_scale),
+        "initial_mse": initial_loss,
+        "final_mse": final_loss,
+        "mse_delta": float(final_loss - initial_loss),
+        "loss_tail": losses[-5:],
+        "settle_steps": [int(step) for step in settle_steps],
+    }
+    probe.update(prefixed_metrics("fit", fitted))
+
+    fitted_features = _state_probe_features(
+        {"final_theta": position, "final_velocity": velocity},
+        "final_theta",
+        "final_velocity",
+    )
+    if fitted_features is not None and image_shape is not None:
+        real_np = np.asarray(target, dtype=np.float32)
+        target_size = 8
+        lowres = _downsample_flat_images_np(
+            real_np,
+            image_shape=image_shape,
+            target_size=target_size,
+        )
+        upsampled = _upsample_lowres_flat_images_np(
+            lowres,
+            image_shape=image_shape,
+            target_size=target_size,
+        )
+        probe["fresh_readout"] = {
+            "feature_dim": int(fitted_features.shape[-1]),
+            "target_size": int(target_size),
+            **_regression_probe_metrics(
+                fitted_features,
+                real_np,
+                ridge=ridge,
+                prefix="real_full",
+            ),
+            **_regression_probe_metrics(
+                fitted_features,
+                lowres,
+                ridge=ridge,
+                prefix="real_lowres",
+            ),
+            **_regression_probe_metrics(
+                fitted_features,
+                real_np - upsampled,
+                ridge=ridge,
+                prefix="real_highpass",
+            ),
+        }
+
+    for step in settle_steps:
+        step = int(step)
+        if step <= 0 or not hasattr(model, "evolve_state"):
+            settled_position, settled_velocity = position, velocity
+        else:
+            settled_model = _model_with_steps(model, step)
+            settled_position, settled_velocity = settled_model.evolve_state(
+                (position, velocity),
+                fit_labels,
+            )
+        settled = model.decode_state(settled_position, settled_velocity)
+        probe.update(prefixed_metrics(f"settle_{step:03d}", settled))
+        if step > 0:
+            perturb_key = jax.random.fold_in(key, step)
+            noise_position_key, noise_velocity_key = jax.random.split(perturb_key)
+            noise_position = jax.random.normal(noise_position_key, position.shape)
+            noise_velocity = jax.random.normal(noise_velocity_key, velocity.shape)
+            displacement_norm = jnp.sqrt(
+                jnp.sum((settled_position - position) ** 2, axis=-1)
+                + jnp.sum((settled_velocity - velocity) ** 2, axis=-1)
+                + 1e-12
+            )
+            noise_norm = jnp.sqrt(
+                jnp.sum(noise_position**2, axis=-1)
+                + jnp.sum(noise_velocity**2, axis=-1)
+                + 1e-12
+            )
+            noise_scale = displacement_norm / noise_norm
+            perturbed_position = position + noise_position * noise_scale[:, None]
+            perturbed_velocity = velocity + noise_velocity * noise_scale[:, None]
+            if hasattr(model, "_bound_state"):
+                perturbed_position = model._bound_state(perturbed_position)
+                perturbed_velocity = model._bound_state(perturbed_velocity)
+            perturbed = model.decode_state(perturbed_position, perturbed_velocity)
+            probe[f"noise_{step:03d}_matched_state_displacement_rms"] = float(
+                jnp.sqrt(jnp.mean(displacement_norm**2))
+            )
+            probe.update(prefixed_metrics(f"noise_{step:03d}", perturbed))
+    return probe
+
+
 def compute_generator_settling_metrics(
     model: eqx.Module,
     *,
@@ -784,6 +1584,8 @@ def compute_generator_settling_metrics(
     labels: Optional[Array] = None,
     prototypes: Optional[Array] = None,
     classifier: Optional[FeatureClassifier] = None,
+    image_shape: Optional[Sequence[int]] = None,
+    initial_state_sampler: Optional[InitialStateSampler] = None,
 ) -> Dict[str, Any]:
     """Score one trained generator at multiple test-time settling depths."""
 
@@ -804,6 +1606,7 @@ def compute_generator_settling_metrics(
             sample_count=count,
             batch_size=batch_size,
             labels=label_slice,
+            initial_state_sampler=initial_state_sampler,
         )
         by_step[f"step_{step:03d}"] = compute_generator_quality_metrics(
             real_images[:count],
@@ -811,6 +1614,7 @@ def compute_generator_settling_metrics(
             labels=label_slice,
             prototypes=prototypes,
             classifier=classifier,
+            image_shape=image_shape,
         )
 
     first_key = f"step_{steps[0]:03d}"
@@ -898,6 +1702,7 @@ def compute_generator_attractor_robustness(
     variants_per_class: int = 4,
     num_classes: Optional[int] = None,
     classifier: Optional[FeatureClassifier] = None,
+    initial_state_sampler: Optional[InitialStateSampler] = None,
 ) -> Dict[str, float]:
     """Probe class-attractor consistency under repeated initial states.
 
@@ -921,6 +1726,7 @@ def compute_generator_attractor_robustness(
         sample_count=int(labels.shape[0]),
         batch_size=batch_size,
         labels=labels,
+        initial_state_sampler=initial_state_sampler,
     )
     clipped = np.clip(np.asarray(generated, dtype=np.float32), 0.0, 1.0)
     flat = clipped.reshape(clipped.shape[0], -1)
@@ -1034,9 +1840,11 @@ def compute_generator_vertical_intervention_audit(
     prototypes: Optional[Array] = None,
     classifier: Optional[FeatureClassifier] = None,
     modes: Sequence[str] = ("normal", "zero", "shuffle", "flip"),
+    image_shape: Optional[Sequence[int]] = None,
     attractor_variants_per_class: int = 0,
     num_classes: Optional[int] = None,
     trace_batch_size: Optional[int] = None,
+    initial_state_sampler: Optional[InitialStateSampler] = None,
 ) -> Dict[str, Dict[str, float]]:
     """Evaluate sample-time vertical interventions on the same initial states."""
 
@@ -1062,6 +1870,7 @@ def compute_generator_vertical_intervention_audit(
             sample_count=count,
             batch_size=batch_size,
             labels=label_slice,
+            initial_state_sampler=initial_state_sampler,
         )
         metrics = compute_generator_quality_metrics(
             real_images[:count],
@@ -1069,6 +1878,7 @@ def compute_generator_vertical_intervention_audit(
             labels=label_slice,
             prototypes=prototypes,
             classifier=classifier,
+            image_shape=image_shape,
         )
         if normal_generated is None:
             normal_generated = generated
@@ -1084,6 +1894,7 @@ def compute_generator_vertical_intervention_audit(
                 variants_per_class=attractor_variants_per_class,
                 num_classes=num_classes,
                 classifier=classifier,
+                initial_state_sampler=initial_state_sampler,
             )
             metrics.update(
                 {
@@ -1162,10 +1973,31 @@ def compute_generator_success_diagnostics(
     if model.resize_conv_output is not None:
         decoder_params += _array_size(model.resize_conv_output.weight)
         decoder_params += _array_size(model.resize_conv_output.bias)
+    state_anchor_encoder = getattr(model, "state_anchor_encoder", None)
+    state_anchor_encoder_params = 0
+    if state_anchor_encoder is not None:
+        state_anchor_encoder_params = _array_size(
+            state_anchor_encoder.weight
+        ) + _array_size(state_anchor_encoder.bias)
+    state_residual_readout_params = _array_size(
+        getattr(model, "state_residual_readout_weight", None)
+    )
+    decoder_params += state_residual_readout_params
+    resonant_readout_params = _array_size(
+        getattr(model, "resonant_readout_weight", None)
+    )
+    decoder_params += resonant_readout_params
     auxiliary_readout_params = _array_size(
         getattr(model, "auxiliary_readout_weight", None)
     ) + _array_size(getattr(model, "auxiliary_readout_bias", None))
     decoder_params += auxiliary_readout_params
+    if getattr(model, "multiscale_readout_gate_mode", "none") == "none":
+        multiscale_readout_gate_params = 0
+    else:
+        multiscale_readout_gate_params = _array_size(
+            getattr(model, "multiscale_readout_gate_weight", None)
+        ) + _array_size(getattr(model, "multiscale_readout_gate_bias", None))
+    decoder_params += multiscale_readout_gate_params
     transition_layers = tuple(getattr(model, "transition_layers", ()))
     transition_params = sum(
         _array_size(layer.weight) + _array_size(layer.bias)
@@ -1218,7 +2050,12 @@ def compute_generator_success_diagnostics(
         + coarse_conditioning_params
         + multiscale_conditioning_params
     )
-    total_params = int(decoder_params + recurrent_params + conditioning_params)
+    total_params = int(
+        decoder_params
+        + recurrent_params
+        + conditioning_params
+        + state_anchor_encoder_params
+    )
     trainable_main_recurrent_params = (
         int(recurrent_params) if model.train_recurrent_dynamics else 0
     )
@@ -1228,7 +2065,9 @@ def compute_generator_success_diagnostics(
     trainable_recurrent_params = (
         trainable_main_recurrent_params + trainable_conditioning_params
     )
-    trainable_total_params = int(decoder_params + trainable_recurrent_params)
+    trainable_total_params = int(
+        decoder_params + trainable_recurrent_params + state_anchor_encoder_params
+    )
     n = int(model.num_oscillators)
     coupling_profile = np.asarray(model.coupling_profile_matrix(), dtype=np.float32)
     effective_coupling = np.asarray(model.coupling, dtype=np.float32) * coupling_profile
@@ -1354,6 +2193,35 @@ def compute_generator_success_diagnostics(
         estimated_decoder_ops_per_sample += _array_size(
             getattr(model, "auxiliary_readout_weight", None)
         )
+    if multiscale_readout_gate_params > 0:
+        estimated_decoder_ops_per_sample += _array_size(
+            getattr(model, "multiscale_readout_gate_weight", None)
+        )
+    if state_residual_readout_params > 0:
+        patch_size = int(getattr(model, "state_residual_readout_patch_size", 1))
+        _, _, residual_channels = _image_hw_channels(tuple(model.image_shape))
+        estimated_decoder_ops_per_sample += int(
+            model.num_oscillators
+            * 2
+            * max(1, int(residual_channels))
+            * patch_size
+            * patch_size
+            + model.num_oscillators * patch_size * patch_size * model.image_dim
+        )
+    if resonant_readout_params > 0:
+        patch_size = int(getattr(model, "resonant_readout_patch_size", 1))
+        _, _, resonant_channels = _image_hw_channels(tuple(model.image_shape))
+        feature_count = int(
+            getattr(model, "_resonant_observable_count", lambda: 0)()
+        )
+        estimated_decoder_ops_per_sample += int(
+            model.num_oscillators
+            * feature_count
+            * max(1, int(resonant_channels))
+            * patch_size
+            * patch_size
+            + model.num_oscillators * patch_size * patch_size * model.image_dim
+        )
     output_feedback_mode = str(getattr(model, "output_feedback_mode", "none"))
     output_feedback_strength = float(getattr(model, "output_feedback_strength", 0.0))
     if output_feedback_strength <= 0.0:
@@ -1388,6 +2256,11 @@ def compute_generator_success_diagnostics(
         "trainable_total_params": trainable_total_params,
         "decoder_params": int(decoder_params),
         "auxiliary_readout_params": int(auxiliary_readout_params),
+        "state_residual_readout_params": int(state_residual_readout_params),
+        "resonant_readout_params": int(resonant_readout_params),
+        "state_anchor_encoder_params": int(state_anchor_encoder_params),
+        "state_anchor_encoder_enabled": bool(state_anchor_encoder is not None),
+        "multiscale_readout_gate_params": int(multiscale_readout_gate_params),
         "recurrent_params": int(recurrent_params),
         "coarse_recurrent_params": int(coarse_recurrent_params),
         "auxiliary_recurrent_params": int(auxiliary_recurrent_params),
@@ -1404,6 +2277,22 @@ def compute_generator_success_diagnostics(
         "trainable_conditioning_params": trainable_conditioning_params,
         "trainable_recurrent_params": trainable_recurrent_params,
         "dynamics_family": dynamics_family,
+        "num_oscillators": int(model.num_oscillators),
+        "num_spatial_sites": int(
+            getattr(model, "num_spatial_sites", model.num_oscillators)
+        ),
+        "num_modes": int(getattr(model, "num_modes", 1)),
+        "mode_frequency_scales": [
+            float(value) for value in getattr(model, "mode_frequency_scales", ())
+        ],
+        "mode_coupling_strength": float(
+            getattr(model, "mode_coupling_strength", 0.0)
+        ),
+        "mode_coupling_profile": getattr(
+            model,
+            "mode_coupling_profile",
+            "none",
+        ),
         "decoder_param_fraction": (
             float(decoder_params / total_params) if total_params > 0 else 0.0
         ),
@@ -1618,6 +2507,17 @@ def compute_generator_success_diagnostics(
         "multiscale_readout_fusion_strength": float(
             getattr(model, "multiscale_readout_fusion_strength", 0.0)
         ),
+        "multiscale_readout_gate_mode": getattr(
+            model,
+            "multiscale_readout_gate_mode",
+            "none",
+        ),
+        "multiscale_readout_gate_strength": float(
+            getattr(model, "multiscale_readout_gate_strength", 0.0)
+        ),
+        "multiscale_readout_gate_init_scale": float(
+            getattr(model, "multiscale_readout_gate_init_scale", 0.0)
+        ),
         "num_auxiliary_layers": int(getattr(model, "num_auxiliary_layers", 0)),
         "num_vertical_couplings": int(getattr(model, "num_vertical_couplings", 0)),
         "vertical_profile_density": float(vertical_nonzero / vertical_possible),
@@ -1633,6 +2533,30 @@ def compute_generator_success_diagnostics(
         "output_feedback_basis_sigma": float(
             getattr(model, "output_feedback_basis_sigma", 0.0)
         ),
+        "state_residual_readout_strength": float(
+            getattr(model, "state_residual_readout_strength", 0.0)
+        ),
+        "state_residual_readout_init_scale": float(
+            getattr(model, "state_residual_readout_init_scale", 0.0)
+        ),
+        "state_residual_readout_patch_size": int(
+            getattr(model, "state_residual_readout_patch_size", 0)
+        ),
+        "state_residual_readout_sigma": float(
+            getattr(model, "state_residual_readout_sigma", 0.0)
+        ),
+        "resonant_readout_strength": float(
+            getattr(model, "resonant_readout_strength", 0.0)
+        ),
+        "resonant_readout_init_scale": float(
+            getattr(model, "resonant_readout_init_scale", 0.0)
+        ),
+        "resonant_readout_patch_size": int(
+            getattr(model, "resonant_readout_patch_size", 0)
+        ),
+        "resonant_readout_sigma": float(
+            getattr(model, "resonant_readout_sigma", 0.0)
+        ),
         "coupling_profile_mean": float(np.mean(off_diagonal_profile)),
         "coupling_profile_std": float(np.std(off_diagonal_profile)),
         "coupling_profile_min": float(np.min(off_diagonal_profile)),
@@ -1642,6 +2566,10 @@ def compute_generator_success_diagnostics(
         "coupling_profile_row_sum_min": float(np.min(coupling_profile_row_sums)),
         "coupling_profile_row_sum_max": float(np.max(coupling_profile_row_sums)),
         "decoder_mode": model.decoder_mode,
+        "resize_conv_seed_layout": getattr(model, "resize_conv_seed_layout", "flat"),
+        "resize_conv_seed_min_channels": int(
+            getattr(model, "resize_conv_seed_min_channels", 0)
+        ),
         "steps": int(model.steps),
         "estimated_recurrent_ops_per_sample": estimated_recurrent_ops_per_sample,
         "estimated_decoder_ops_per_sample": estimated_decoder_ops_per_sample,
@@ -1679,6 +2607,28 @@ def compute_generator_success_diagnostics(
                 "phase_initial_order": float(np.abs(np.mean(np.exp(1j * initial)))),
             }
         )
+        initial_spectrum = _state_spatial_spectrum_diagnostics(
+            initial,
+            prefix="state_initial_spatial",
+        )
+        final_spectrum = _state_spatial_spectrum_diagnostics(
+            final,
+            prefix="state_final_spatial",
+        )
+        diagnostics.update(initial_spectrum)
+        diagnostics.update(final_spectrum)
+        if (
+            "state_initial_spatial_high_power_ratio" in diagnostics
+            and "state_final_spatial_high_power_ratio" in diagnostics
+        ):
+            diagnostics["state_spatial_high_power_ratio_delta"] = float(
+                diagnostics["state_final_spatial_high_power_ratio"]
+                - diagnostics["state_initial_spatial_high_power_ratio"]
+            )
+            diagnostics["state_spatial_spectral_centroid_delta"] = float(
+                diagnostics["state_final_spatial_spectral_centroid"]
+                - diagnostics["state_initial_spatial_spectral_centroid"]
+            )
         if trajectory.shape[0] > 1:
             step_delta = np.angle(
                 np.exp(1j * np.diff(trajectory, axis=0))
@@ -1701,6 +2651,12 @@ def compute_generator_success_diagnostics(
             )
             diagnostics["state_final_energy"] = float(
                 np.mean(final**2 + final_velocity**2)
+            )
+            diagnostics.update(
+                _state_spatial_spectrum_diagnostics(
+                    final_velocity,
+                    prefix="velocity_final_spatial",
+                )
             )
         diagnostics.update(compute_generator_trace_dynamics(model, trace))
 

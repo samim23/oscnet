@@ -349,6 +349,68 @@ SWEEP_CSVS = {
         "outputs/analysis/"
         "modal_mnist_generator_cifar10_rgb_coarse_readout_consistency_probe.csv"
     ),
+    "mnist_generator_cifar10_rgb_readout_gate_probe": Path(
+        "outputs/analysis/"
+        "modal_mnist_generator_cifar10_rgb_readout_gate_probe.csv"
+    ),
+    "mnist_generator_cifar10_rgb_frequency_objective_probe": Path(
+        "outputs/analysis/"
+        "modal_mnist_generator_cifar10_rgb_frequency_objective_probe.csv"
+    ),
+    "mnist_generator_cifar10_rgb_patch_objective_probe": Path(
+        "outputs/analysis/"
+        "modal_mnist_generator_cifar10_rgb_patch_objective_probe.csv"
+    ),
+    "mnist_generator_cifar10_rgb_patch_v2_probe": Path(
+        "outputs/analysis/"
+        "modal_mnist_generator_cifar10_rgb_patch_v2_probe.csv"
+    ),
+    "mnist_generator_cifar10_rgb_state_information_probe": Path(
+        "outputs/analysis/"
+        "modal_mnist_generator_cifar10_rgb_state_information_probe.csv"
+    ),
+    "mnist_generator_cifar10_rgb_state_residual_readout_probe": Path(
+        "outputs/analysis/"
+        "modal_mnist_generator_cifar10_rgb_state_residual_readout_probe.csv"
+    ),
+    "mnist_generator_cifar10_rgb_state_residual_longer_pilot": Path(
+        "outputs/analysis/"
+        "modal_mnist_generator_cifar10_rgb_state_residual_longer_pilot.csv"
+    ),
+    "mnist_generator_cifar10_rgb_resonant_readout_pilot": Path(
+        "outputs/analysis/"
+        "modal_mnist_generator_cifar10_rgb_resonant_readout_pilot.csv"
+    ),
+    "mnist_generator_cifar10_rgb_capacity_probe": Path(
+        "outputs/analysis/modal_mnist_generator_cifar10_rgb_capacity_probe.csv"
+    ),
+    "mnist_generator_cifar10_rgb_multimode_probe": Path(
+        "outputs/analysis/modal_mnist_generator_cifar10_rgb_multimode_probe.csv"
+    ),
+    "mnist_generator_cifar10_rgb_retinotopic_readout_probe": Path(
+        "outputs/analysis/"
+        "modal_mnist_generator_cifar10_rgb_retinotopic_readout_probe.csv"
+    ),
+    "mnist_generator_cifar10_rgb_retinotopic_control_probe": Path(
+        "outputs/analysis/"
+        "modal_mnist_generator_cifar10_rgb_retinotopic_control_probe.csv"
+    ),
+    "mnist_generator_cifar10_rgb_state_anchor_probe": Path(
+        "outputs/analysis/"
+        "modal_mnist_generator_cifar10_rgb_state_anchor_probe.csv"
+    ),
+    "mnist_generator_cifar10_rgb_state_prior_training_probe": Path(
+        "outputs/analysis/"
+        "modal_mnist_generator_cifar10_rgb_state_prior_training_probe.csv"
+    ),
+    "mnist_generator_cifar10_rgb_state_prior_scale_gate_rung1": Path(
+        "outputs/analysis/"
+        "modal_mnist_generator_cifar10_rgb_state_prior_scale_gate_rung1.csv"
+    ),
+    "mnist_generator_cifar10_rgb_state_prior_control_probe": Path(
+        "outputs/analysis/"
+        "modal_mnist_generator_cifar10_rgb_state_prior_control_probe.csv"
+    ),
     "mnist_generator_cifar10_rgb_attribution_probe": Path(
         "outputs/analysis/"
         "modal_mnist_generator_cifar10_rgb_attribution_probe.csv"
@@ -3911,9 +3973,9 @@ def _mnist_generator_cifar10_rgb_vertical_causality_audit() -> list[
 
     entries = []
     audit_args = (
-        "--batch-size 64 "
-        "--vertical-audit-modes normal,zero,shuffle,flip,scale025,scale050 "
-        "--vertical-audit-sample-count 128 "
+        "--batch-size 32 "
+        "--vertical-audit-modes normal,zero "
+        "--vertical-audit-sample-count 64 "
         "--attractor-variants-per-class 8"
     )
     variants = (
@@ -3965,9 +4027,9 @@ def _mnist_generator_cifar10_rgb_vertical_calibration_probe() -> list[
 
     entries = []
     audit_args = (
-        "--batch-size 64 "
-        "--vertical-audit-modes normal,zero,shuffle,flip,scale025,scale050 "
-        "--vertical-audit-sample-count 128 "
+        "--batch-size 32 "
+        "--vertical-audit-modes normal,zero "
+        "--vertical-audit-sample-count 64 "
         "--attractor-variants-per-class 8"
     )
     variants = (
@@ -4921,6 +4983,637 @@ def _mnist_generator_cifar10_rgb_coarse_readout_consistency_probe() -> list[
     return entries
 
 
+def _mnist_generator_cifar10_rgb_readout_gate_probe() -> list[
+    tuple[list[str], str]
+]:
+    """Test learned coarse-to-fine readout modulation without RGB blending."""
+
+    entries = []
+    audit_args = (
+        "--batch-size 64 "
+        "--vertical-audit-modes normal,zero,shuffle,flip,scale025,scale050 "
+        "--vertical-audit-sample-count 128 "
+        "--attractor-variants-per-class 8"
+    )
+    variants = (
+        ("hierarchy_lead", "sparse_horn_cifar10_rgb_hierarchy_lead"),
+        ("gate010", "sparse_horn_cifar10_rgb_hierarchy_gate010"),
+        ("gate025", "sparse_horn_cifar10_rgb_hierarchy_gate025"),
+    )
+    for seed in (11, 23):
+        for variant_name, local_preset in variants:
+            run_name = (
+                "mnist_generator_cifar10_rgb_readout_gate_"
+                f"{variant_name}_n256_resizeconv_train2000_seed{seed}_20e"
+            )
+            args = shlex.split(f"--seed {seed} --preset {local_preset} {audit_args}")
+            output_dir = VOLUME_MOUNT / "mnist_generator" / run_name
+            args = _with_default_arg(args, "--output-dir", output_dir)
+            entries.append((args, run_name))
+    return entries
+
+
+def _mnist_generator_cifar10_rgb_frequency_objective_probe() -> list[
+    tuple[list[str], str]
+]:
+    """Test whether image-spectrum statistics recover missing CIFAR detail."""
+
+    entries = []
+    audit_args = (
+        "--batch-size 64 "
+        "--vertical-audit-modes normal,zero,shuffle,flip,scale025,scale050 "
+        "--vertical-audit-sample-count 128 "
+        "--attractor-variants-per-class 8"
+    )
+    variants = (
+        ("hierarchy_lead", "sparse_horn_cifar10_rgb_hierarchy_lead"),
+        ("freq001", "sparse_horn_cifar10_rgb_hierarchy_freq001"),
+        ("freq003", "sparse_horn_cifar10_rgb_hierarchy_freq003"),
+    )
+    for seed in (11, 23):
+        for variant_name, local_preset in variants:
+            run_name = (
+                "mnist_generator_cifar10_rgb_frequency_objective_"
+                f"{variant_name}_n256_resizeconv_train2000_seed{seed}_20e"
+            )
+            args = shlex.split(f"--seed {seed} --preset {local_preset} {audit_args}")
+            output_dir = VOLUME_MOUNT / "mnist_generator" / run_name
+            args = _with_default_arg(args, "--output-dir", output_dir)
+            entries.append((args, run_name))
+    return entries
+
+
+def _mnist_generator_cifar10_rgb_patch_objective_probe() -> list[
+    tuple[list[str], str]
+]:
+    """Test local patch-detail statistics against global spectrum matching."""
+
+    entries = []
+    audit_args = (
+        "--batch-size 64 "
+        "--vertical-audit-modes normal,zero,shuffle,flip,scale025,scale050 "
+        "--vertical-audit-sample-count 128 "
+        "--attractor-variants-per-class 8"
+    )
+    variants = (
+        ("hierarchy_lead", "sparse_horn_cifar10_rgb_hierarchy_lead"),
+        ("patch005", "sparse_horn_cifar10_rgb_hierarchy_patch005"),
+        ("patch010", "sparse_horn_cifar10_rgb_hierarchy_patch010"),
+    )
+    for seed in (11, 23):
+        for variant_name, local_preset in variants:
+            run_name = (
+                "mnist_generator_cifar10_rgb_patch_objective_"
+                f"{variant_name}_n256_resizeconv_train2000_seed{seed}_20e"
+            )
+            args = shlex.split(f"--seed {seed} --preset {local_preset} {audit_args}")
+            output_dir = VOLUME_MOUNT / "mnist_generator" / run_name
+            args = _with_default_arg(args, "--output-dir", output_dir)
+            entries.append((args, run_name))
+    return entries
+
+
+def _mnist_generator_cifar10_rgb_patch_v2_probe() -> list[
+    tuple[list[str], str]
+]:
+    """Test overlap/multiscale patch objectives for grid-artifact reduction."""
+
+    entries = []
+    audit_args = (
+        "--batch-size 64 "
+        "--vertical-audit-modes normal,zero "
+        "--vertical-audit-sample-count 64 "
+        "--attractor-variants-per-class 8"
+    )
+    variants = (
+        ("hierarchy_lead", "sparse_horn_cifar10_rgb_hierarchy_lead"),
+        ("patch010", "sparse_horn_cifar10_rgb_hierarchy_patch010"),
+        ("patch010_overlap", "sparse_horn_cifar10_rgb_hierarchy_patch010_overlap"),
+        (
+            "patch010_multiscale",
+            "sparse_horn_cifar10_rgb_hierarchy_patch010_multiscale",
+        ),
+        (
+            "patch010_multiscale_overlap",
+            "sparse_horn_cifar10_rgb_hierarchy_patch010_multiscale_overlap",
+        ),
+    )
+    for seed in (11, 23):
+        for variant_name, local_preset in variants:
+            run_name = (
+                "mnist_generator_cifar10_rgb_patch_v2_"
+                f"{variant_name}_n256_resizeconv_train2000_seed{seed}_20e"
+            )
+            args = shlex.split(f"--seed {seed} --preset {local_preset} {audit_args}")
+            output_dir = VOLUME_MOUNT / "mnist_generator" / run_name
+            args = _with_default_arg(args, "--output-dir", output_dir)
+            entries.append((args, run_name))
+    return entries
+
+
+def _mnist_generator_cifar10_rgb_state_information_probe() -> list[
+    tuple[list[str], str]
+]:
+    """Ask whether traced oscillator states expose scaffold/detail information."""
+
+    entries = []
+    probe_args = (
+        "--batch-size 64 "
+        "--state-probe-sample-count 64 "
+        "--state-probe-target-size 8 "
+        "--vertical-audit-modes normal,zero "
+        "--vertical-audit-sample-count 64 "
+        "--attractor-variants-per-class 8"
+    )
+    variants = (
+        ("current", "sparse_horn_cifar10_rgb_current"),
+        ("hierarchy_lead", "sparse_horn_cifar10_rgb_hierarchy_lead"),
+        (
+            "patch010_multiscale",
+            "sparse_horn_cifar10_rgb_hierarchy_patch010_multiscale",
+        ),
+    )
+    for seed in (11, 23):
+        for variant_name, local_preset in variants:
+            run_name = (
+                "mnist_generator_cifar10_rgb_state_information_"
+                f"{variant_name}_n256_resizeconv_train2000_seed{seed}_20e"
+            )
+            args = shlex.split(f"--seed {seed} --preset {local_preset} {probe_args}")
+            output_dir = VOLUME_MOUNT / "mnist_generator" / run_name
+            args = _with_default_arg(args, "--output-dir", output_dir)
+            entries.append((args, run_name))
+    return entries
+
+
+def _mnist_generator_cifar10_rgb_state_residual_readout_probe() -> list[
+    tuple[list[str], str]
+]:
+    """Test direct local final-state residual readout on hierarchy lead."""
+
+    entries = []
+    probe_args = (
+        "--batch-size 64 "
+        "--state-probe-sample-count 64 "
+        "--state-probe-target-size 8 "
+        "--vertical-audit-modes normal,zero "
+        "--vertical-audit-sample-count 64 "
+        "--attractor-variants-per-class 8"
+    )
+    variants = (
+        ("hierarchy_lead", "sparse_horn_cifar10_rgb_hierarchy_lead"),
+        (
+            "state_residual005",
+            "sparse_horn_cifar10_rgb_hierarchy_state_residual005",
+        ),
+        (
+            "state_residual010",
+            "sparse_horn_cifar10_rgb_hierarchy_state_residual010",
+        ),
+    )
+    for seed in (11, 23):
+        for variant_name, local_preset in variants:
+            run_name = (
+                "mnist_generator_cifar10_rgb_state_residual_readout_"
+                f"{variant_name}_n256_resizeconv_train2000_seed{seed}_20e"
+            )
+            args = shlex.split(f"--seed {seed} --preset {local_preset} {probe_args}")
+            output_dir = VOLUME_MOUNT / "mnist_generator" / run_name
+            args = _with_default_arg(args, "--output-dir", output_dir)
+            entries.append((args, run_name))
+    return entries
+
+
+def _mnist_generator_cifar10_rgb_state_residual_longer_pilot() -> list[
+    tuple[list[str], str]
+]:
+    """Run a longer visual-maturation pilot for the residual readout candidate."""
+
+    entries = []
+    pilot_args = (
+        "--epochs 40 "
+        "--checkpoint-every 20 "
+        "--artifact-every 20 "
+        "--batch-size 64 "
+        "--eval-sample-count 256 "
+        "--vertical-audit-modes normal,zero "
+        "--vertical-audit-sample-count 64 "
+        "--attractor-variants-per-class 8"
+    )
+    variants = (
+        ("current", "sparse_horn_cifar10_rgb_current"),
+        ("hierarchy_lead", "sparse_horn_cifar10_rgb_hierarchy_lead"),
+        (
+            "state_residual005",
+            "sparse_horn_cifar10_rgb_hierarchy_state_residual005",
+        ),
+    )
+    seed = 23
+    for variant_name, local_preset in variants:
+        run_name = (
+            "mnist_generator_cifar10_rgb_state_residual_longer_"
+            f"{variant_name}_n256_resizeconv_train2000_seed{seed}_40e"
+        )
+        args = shlex.split(f"--seed {seed} --preset {local_preset} {pilot_args}")
+        output_dir = VOLUME_MOUNT / "mnist_generator" / run_name
+        args = _with_default_arg(args, "--output-dir", output_dir)
+        entries.append((args, run_name))
+    return entries
+
+
+def _mnist_generator_cifar10_rgb_resonant_readout_pilot() -> list[
+    tuple[list[str], str]
+]:
+    """Test shared HORN resonant filter-bank readout on current CIFAR recipe."""
+
+    entries = []
+    pilot_args = (
+        "--epochs 20 "
+        "--checkpoint-every 20 "
+        "--artifact-every 20 "
+        "--batch-size 64 "
+        "--eval-sample-count 256 "
+        "--vertical-audit-modes normal,zero "
+        "--vertical-audit-sample-count 64 "
+        "--attractor-variants-per-class 8"
+    )
+    variants = (
+        ("current", "sparse_horn_cifar10_rgb_current"),
+        ("resonant005", "sparse_horn_cifar10_rgb_current_resonant005"),
+        ("resonant010", "sparse_horn_cifar10_rgb_current_resonant010"),
+    )
+    seed = 23
+    for variant_name, local_preset in variants:
+        run_name = (
+            "mnist_generator_cifar10_rgb_resonant_readout_"
+            f"{variant_name}_n256_resizeconv_train2000_seed{seed}_20e"
+        )
+        args = shlex.split(f"--seed {seed} --preset {local_preset} {pilot_args}")
+        output_dir = VOLUME_MOUNT / "mnist_generator" / run_name
+        args = _with_default_arg(args, "--output-dir", output_dir)
+        entries.append((args, run_name))
+    return entries
+
+
+def _mnist_generator_cifar10_rgb_capacity_probe() -> list[tuple[list[str], str]]:
+    """Test whether CIFAR RGB HORN is bottlenecked by oscillator-site count."""
+
+    entries = []
+    probe_args = (
+        "--epochs 20 "
+        "--checkpoint-every 20 "
+        "--artifact-every 20 "
+        "--batch-size 32 "
+        "--eval-sample-count 256 "
+        "--attractor-variants-per-class 8"
+    )
+    variants = (
+        ("n256_current", "sparse_horn_cifar10_rgb_current"),
+        ("n512_current", "sparse_horn_cifar10_rgb_current_n512"),
+        ("n512_resonant005", "sparse_horn_cifar10_rgb_current_n512_resonant005"),
+    )
+    seed = 23
+    for variant_name, local_preset in variants:
+        run_name = (
+            "mnist_generator_cifar10_rgb_capacity_"
+            f"{variant_name}_resizeconv_train2000_seed{seed}_20e"
+        )
+        args = shlex.split(f"--seed {seed} --preset {local_preset} {probe_args}")
+        output_dir = VOLUME_MOUNT / "mnist_generator" / run_name
+        args = _with_default_arg(args, "--output-dir", output_dir)
+        entries.append((args, run_name))
+    return entries
+
+
+def _mnist_generator_cifar10_rgb_multimode_probe() -> list[tuple[list[str], str]]:
+    """Compare flat site-count scaling with structured frequency modes per site."""
+
+    entries = []
+    probe_args = (
+        "--epochs 20 "
+        "--checkpoint-every 20 "
+        "--artifact-every 20 "
+        "--batch-size 32 "
+        "--eval-sample-count 256 "
+        "--attractor-variants-per-class 8"
+    )
+    variants = (
+        ("n256_current", "sparse_horn_cifar10_rgb_current"),
+        ("n512_flat", "sparse_horn_cifar10_rgb_current_n512"),
+        ("multimode2", "sparse_horn_cifar10_rgb_current_multimode2"),
+    )
+    seed = 23
+    for variant_name, local_preset in variants:
+        run_name = (
+            "mnist_generator_cifar10_rgb_multimode_"
+            f"{variant_name}_resizeconv_train2000_seed{seed}_20e"
+        )
+        args = shlex.split(f"--seed {seed} --preset {local_preset} {probe_args}")
+        output_dir = VOLUME_MOUNT / "mnist_generator" / run_name
+        args = _with_default_arg(args, "--output-dir", output_dir)
+        entries.append((args, run_name))
+    return entries
+
+
+def _mnist_generator_cifar10_rgb_retinotopic_readout_probe() -> list[
+    tuple[list[str], str]
+]:
+    """Compare scrambled resize-conv seeds with retinotopic HORN state seeds."""
+
+    entries = []
+    probe_args = (
+        "--epochs 20 "
+        "--checkpoint-every 20 "
+        "--artifact-every 20 "
+        "--batch-size 32 "
+        "--eval-sample-count 256 "
+        "--attractor-variants-per-class 8 "
+        "--state-fit-sample-count 32 "
+        "--state-fit-steps 80 "
+        "--state-fit-settle-steps 0,8,16,32"
+    )
+    variants = (
+        ("n256_current", "sparse_horn_cifar10_rgb_current"),
+        ("n256_retino", "sparse_horn_cifar10_rgb_current_retinotopic"),
+        ("multimode2", "sparse_horn_cifar10_rgb_current_multimode2"),
+        (
+            "multimode2_retino",
+            "sparse_horn_cifar10_rgb_current_multimode2_retinotopic",
+        ),
+    )
+    seed = 23
+    for variant_name, local_preset in variants:
+        run_name = (
+            "mnist_generator_cifar10_rgb_retinotopic_"
+            f"{variant_name}_train2000_seed{seed}_20e"
+        )
+        args = shlex.split(f"--seed {seed} --preset {local_preset} {probe_args}")
+        output_dir = VOLUME_MOUNT / "mnist_generator" / run_name
+        args = _with_default_arg(args, "--output-dir", output_dir)
+        entries.append((args, run_name))
+    return entries
+
+
+def _mnist_generator_cifar10_rgb_retinotopic_control_probe() -> list[
+    tuple[list[str], str]
+]:
+    """Control retinotopic decoder size, seed width, and fitted-state brittleness."""
+
+    entries = []
+    probe_args = (
+        "--epochs 20 "
+        "--checkpoint-every 20 "
+        "--artifact-every 20 "
+        "--batch-size 32 "
+        "--eval-sample-count 256 "
+        "--attractor-variants-per-class 8 "
+        "--state-fit-sample-count 32 "
+        "--state-fit-steps 80 "
+        "--state-fit-settle-steps 0,1,2,4,8,16,32"
+    )
+    variants = (
+        ("n256_flat", "sparse_horn_cifar10_rgb_current"),
+        ("n256_retino_ch30", "sparse_horn_cifar10_rgb_current_retinotopic_ch30"),
+        (
+            "n256_retino_seed4_ch30",
+            "sparse_horn_cifar10_rgb_current_retinotopic_seed4_ch30",
+        ),
+        ("multimode2_flat", "sparse_horn_cifar10_rgb_current_multimode2"),
+        (
+            "multimode2_retino_ch30",
+            "sparse_horn_cifar10_rgb_current_multimode2_retinotopic_ch30",
+        ),
+    )
+    seed = 23
+    for variant_name, local_preset in variants:
+        run_name = (
+            "mnist_generator_cifar10_rgb_retino_control_"
+            f"{variant_name}_train2000_seed{seed}_20e"
+        )
+        args = shlex.split(f"--seed {seed} --preset {local_preset} {probe_args}")
+        output_dir = VOLUME_MOUNT / "mnist_generator" / run_name
+        args = _with_default_arg(args, "--output-dir", output_dir)
+        entries.append((args, run_name))
+    return entries
+
+
+def _mnist_generator_cifar10_rgb_state_anchor_probe() -> list[
+    tuple[list[str], str]
+]:
+    """Probe whether local image-to-state anchors improve texture survival."""
+
+    entries = []
+    probe_args = (
+        "--epochs 20 "
+        "--checkpoint-every 20 "
+        "--artifact-every 20 "
+        "--batch-size 32 "
+        "--eval-sample-count 256 "
+        "--attractor-variants-per-class 8 "
+        "--state-fit-sample-count 32 "
+        "--state-fit-steps 80 "
+        "--state-fit-settle-steps 0,1,2,4,8,16,32"
+    )
+    variants = (
+        (
+            "no_anchor",
+            "sparse_horn_cifar10_rgb_current_multimode2_retinotopic_ch30",
+        ),
+        (
+            "anchor_reconstruct010",
+            "sparse_horn_cifar10_rgb_current_multimode2_"
+            "retinotopic_anchor_reconstruct010",
+        ),
+        (
+            "anchor_frozen010",
+            "sparse_horn_cifar10_rgb_current_multimode2_"
+            "retinotopic_anchor_frozen010",
+        ),
+        (
+            "anchor010",
+            "sparse_horn_cifar10_rgb_current_multimode2_retinotopic_anchor010",
+        ),
+        (
+            "anchor030",
+            "sparse_horn_cifar10_rgb_current_multimode2_retinotopic_anchor030",
+        ),
+    )
+    for seed in (23, 24):
+        for variant_name, local_preset in variants:
+            run_name = (
+                "mnist_generator_cifar10_rgb_state_anchor_"
+                f"{variant_name}_train2000_seed{seed}_20e"
+            )
+            args = shlex.split(f"--seed {seed} --preset {local_preset} {probe_args}")
+            output_dir = VOLUME_MOUNT / "mnist_generator" / run_name
+            args = _with_default_arg(args, "--output-dir", output_dir)
+            entries.append((args, run_name))
+    return entries
+
+
+def _mnist_generator_cifar10_rgb_state_prior_training_probe() -> list[
+    tuple[list[str], str]
+]:
+    """Train anchor HORN with generated samples drawn from state priors."""
+
+    entries = []
+    probe_args = (
+        "--epochs 20 "
+        "--checkpoint-every 20 "
+        "--artifact-every 20 "
+        "--batch-size 32 "
+        "--eval-sample-count 256 "
+        "--attractor-variants-per-class 8 "
+        "--state-fit-sample-count 32 "
+        "--state-fit-steps 80 "
+        "--state-fit-settle-steps 0,1,2,4,8,16,32"
+    )
+    variants = (
+        (
+            "anchor030",
+            "sparse_horn_cifar10_rgb_current_multimode2_retinotopic_anchor030",
+        ),
+        (
+            "prior_global",
+            "sparse_horn_cifar10_rgb_current_multimode2_"
+            "retinotopic_anchor030_prior_global",
+        ),
+        (
+            "prior_class",
+            "sparse_horn_cifar10_rgb_current_multimode2_"
+            "retinotopic_anchor030_prior_class",
+        ),
+    )
+    for seed in (23, 24):
+        for variant_name, local_preset in variants:
+            run_name = (
+                "mnist_generator_cifar10_rgb_state_prior_training_"
+                f"{variant_name}_train2000_seed{seed}_20e"
+            )
+            args = shlex.split(f"--seed {seed} --preset {local_preset} {probe_args}")
+            output_dir = VOLUME_MOUNT / "mnist_generator" / run_name
+            args = _with_default_arg(args, "--output-dir", output_dir)
+            entries.append((args, run_name))
+    return entries
+
+
+def _mnist_generator_cifar10_rgb_state_prior_scale_gate_rung1() -> list[
+    tuple[list[str], str]
+]:
+    """Diagnostic scale gate for prior-aware CIFAR RGB HORN generators."""
+
+    entries = []
+    probe_args = (
+        "--epochs 40 "
+        "--train-limit 10000 "
+        "--eval-limit 5000 "
+        "--checkpoint-every 40 "
+        "--artifact-every 40 "
+        "--batch-size 32 "
+        "--eval-sample-count 512 "
+        "--quality-classifier-train-limit 20000 "
+        "--quality-classifier-eval-limit 5000 "
+        "--attractor-variants-per-class 8 "
+        "--state-fit-sample-count 32 "
+        "--state-fit-steps 80 "
+        "--state-fit-settle-steps 0,1,2,4,8,16,32"
+    )
+    variants = (
+        (
+            "prior_global_b32",
+            "sparse_horn_cifar10_rgb_current_multimode2_"
+            "retinotopic_anchor030_prior_global",
+            "",
+        ),
+        (
+            "prior_class_b32",
+            "sparse_horn_cifar10_rgb_current_multimode2_"
+            "retinotopic_anchor030_prior_class",
+            "",
+        ),
+        (
+            "prior_class_patch005_offset_b32",
+            "sparse_horn_cifar10_rgb_current_multimode2_"
+            "retinotopic_anchor030_prior_class_patch005",
+            "",
+        ),
+    )
+    for seed in (23, 24):
+        for variant_name, local_preset, extra_args in variants:
+            run_name = (
+                "mnist_generator_cifar10_rgb_state_prior_scale_gate_rung1_"
+                f"{variant_name}_train10000_seed{seed}_40e"
+            )
+            args = shlex.split(
+                f"--seed {seed} --preset {local_preset} {probe_args} {extra_args}"
+            )
+            output_dir = VOLUME_MOUNT / "mnist_generator" / run_name
+            args = _with_default_arg(args, "--output-dir", output_dir)
+            entries.append((args, run_name))
+
+    return entries
+
+
+def _mnist_generator_cifar10_rgb_state_prior_control_probe() -> list[
+    tuple[list[str], str]
+]:
+    """Rung-1 control matrix for state-prior HORN vs StateMLP stacks."""
+
+    entries = []
+    probe_args = (
+        "--epochs 40 "
+        "--train-limit 10000 "
+        "--eval-limit 5000 "
+        "--checkpoint-every 40 "
+        "--artifact-every 40 "
+        "--batch-size 32 "
+        "--eval-sample-count 512 "
+        "--quality-classifier-train-limit 20000 "
+        "--quality-classifier-eval-limit 5000 "
+        "--attractor-variants-per-class 8 "
+        "--state-fit-sample-count 32 "
+        "--state-fit-steps 80 "
+        "--state-fit-settle-steps 0,1,2,4,8,16,32"
+    )
+    variants = (
+        (
+            "prior_global_patch005_b32",
+            "sparse_horn_cifar10_rgb_current_multimode2_"
+            "retinotopic_anchor030_prior_global_patch005",
+            (23, 24),
+            "",
+        ),
+        (
+            "state_mlp_prior_class_patch005_b32",
+            "sparse_horn_cifar10_rgb_current_state_mlp_"
+            "retinotopic_anchor030_prior_class_patch005",
+            (23, 24),
+            "",
+        ),
+        (
+            "prior_class_patch005_queue64_b32",
+            "sparse_horn_cifar10_rgb_current_multimode2_"
+            "retinotopic_anchor030_prior_class_patch005",
+            (23,),
+            "--drift-queue-size 64 --drift-queue-num-pos 64",
+        ),
+    )
+    for variant_name, local_preset, seeds, extra_args in variants:
+        for seed in seeds:
+            run_name = (
+                "mnist_generator_cifar10_rgb_state_prior_control_probe_"
+                f"{variant_name}_train10000_seed{seed}_40e"
+            )
+            args = shlex.split(
+                f"--seed {seed} --preset {local_preset} {probe_args} {extra_args}"
+            )
+            output_dir = VOLUME_MOUNT / "mnist_generator" / run_name
+            args = _with_default_arg(args, "--output-dir", output_dir)
+            entries.append((args, run_name))
+
+    return entries
+
+
 def _sweep_entries(preset: str) -> list[tuple[list[str], str]]:
     if preset == "mnist_generator_core":
         return _mnist_generator_core_sweep()
@@ -5096,6 +5789,38 @@ def _sweep_entries(preset: str) -> list[tuple[list[str], str]]:
         return _mnist_generator_cifar10_rgb_readout_fusion_probe()
     if preset == "mnist_generator_cifar10_rgb_coarse_readout_consistency_probe":
         return _mnist_generator_cifar10_rgb_coarse_readout_consistency_probe()
+    if preset == "mnist_generator_cifar10_rgb_readout_gate_probe":
+        return _mnist_generator_cifar10_rgb_readout_gate_probe()
+    if preset == "mnist_generator_cifar10_rgb_frequency_objective_probe":
+        return _mnist_generator_cifar10_rgb_frequency_objective_probe()
+    if preset == "mnist_generator_cifar10_rgb_patch_objective_probe":
+        return _mnist_generator_cifar10_rgb_patch_objective_probe()
+    if preset == "mnist_generator_cifar10_rgb_patch_v2_probe":
+        return _mnist_generator_cifar10_rgb_patch_v2_probe()
+    if preset == "mnist_generator_cifar10_rgb_state_information_probe":
+        return _mnist_generator_cifar10_rgb_state_information_probe()
+    if preset == "mnist_generator_cifar10_rgb_state_residual_readout_probe":
+        return _mnist_generator_cifar10_rgb_state_residual_readout_probe()
+    if preset == "mnist_generator_cifar10_rgb_state_residual_longer_pilot":
+        return _mnist_generator_cifar10_rgb_state_residual_longer_pilot()
+    if preset == "mnist_generator_cifar10_rgb_resonant_readout_pilot":
+        return _mnist_generator_cifar10_rgb_resonant_readout_pilot()
+    if preset == "mnist_generator_cifar10_rgb_capacity_probe":
+        return _mnist_generator_cifar10_rgb_capacity_probe()
+    if preset == "mnist_generator_cifar10_rgb_multimode_probe":
+        return _mnist_generator_cifar10_rgb_multimode_probe()
+    if preset == "mnist_generator_cifar10_rgb_retinotopic_readout_probe":
+        return _mnist_generator_cifar10_rgb_retinotopic_readout_probe()
+    if preset == "mnist_generator_cifar10_rgb_retinotopic_control_probe":
+        return _mnist_generator_cifar10_rgb_retinotopic_control_probe()
+    if preset == "mnist_generator_cifar10_rgb_state_anchor_probe":
+        return _mnist_generator_cifar10_rgb_state_anchor_probe()
+    if preset == "mnist_generator_cifar10_rgb_state_prior_training_probe":
+        return _mnist_generator_cifar10_rgb_state_prior_training_probe()
+    if preset == "mnist_generator_cifar10_rgb_state_prior_scale_gate_rung1":
+        return _mnist_generator_cifar10_rgb_state_prior_scale_gate_rung1()
+    if preset == "mnist_generator_cifar10_rgb_state_prior_control_probe":
+        return _mnist_generator_cifar10_rgb_state_prior_control_probe()
     if preset == "mnist_generator_cifar10_rgb_attribution_probe":
         return _mnist_generator_cifar10_rgb_attribution_probe_sweep()
     if preset == "mnist_generator_cifar10_rgb_sparse_drive_probe":
@@ -5155,6 +5880,14 @@ def _write_sweep_csv(results: list[dict[str, Any]], path: Path) -> None:
         "final_eval_coarse_auxiliary_loss",
         "final_train_coarse_readout_consistency_loss",
         "final_eval_coarse_readout_consistency_loss",
+        "final_train_frequency_objective_loss",
+        "final_eval_frequency_objective_loss",
+        "final_train_patch_objective_loss",
+        "final_eval_patch_objective_loss",
+        "final_train_state_anchor_loss",
+        "final_eval_state_anchor_loss",
+        "final_train_state_prior_sampling_active",
+        "final_state_prior_refit_seconds",
         "best_loss",
         "best_epoch",
         "final_epoch",
@@ -5162,10 +5895,23 @@ def _write_sweep_csv(results: list[dict[str, Any]], path: Path) -> None:
         "generator.pixel_mean_mse",
         "generator.pixel_std_mse",
         "generator.nearest_real_mse",
+        "generator.nearest_real_mse_min",
+        "generator.nearest_real_mse_p01",
+        "generator.nearest_real_mse_p05",
+        "generator.duplicate_rate_mse_001",
+        "generator.duplicate_rate_mse_0025",
+        "generator.duplicate_rate_mse_005",
+        "generator.duplicate_rate_mse_010",
         "generator.real_nearest_real_mse",
         "generator.prototype_mse",
         "generator.prototype_nearest_accuracy",
         "generator.dynamics_family",
+        "generator.num_oscillators",
+        "generator.num_spatial_sites",
+        "generator.num_modes",
+        "generator.mode_frequency_scales",
+        "generator.mode_coupling_strength",
+        "generator.mode_coupling_profile",
         "generator.horn_frequency",
         "generator.horn_damping",
         "generator.horn_nonlinearity",
@@ -5174,6 +5920,14 @@ def _write_sweep_csv(results: list[dict[str, Any]], path: Path) -> None:
         "generator.output_feedback_strength",
         "generator.output_feedback_init_scale",
         "generator.output_feedback_basis_sigma",
+        "generator.state_residual_readout_strength",
+        "generator.state_residual_readout_init_scale",
+        "generator.state_residual_readout_patch_size",
+        "generator.state_residual_readout_sigma",
+        "generator.resonant_readout_strength",
+        "generator.resonant_readout_init_scale",
+        "generator.resonant_readout_patch_size",
+        "generator.resonant_readout_sigma",
         "generator.state_mlp_hidden_dim",
         "generator.state_mlp_depth",
         "generator.state_mlp_residual_scale",
@@ -5192,10 +5946,48 @@ def _write_sweep_csv(results: list[dict[str, Any]], path: Path) -> None:
         "generator.coarse_auxiliary_loss_mode",
         "generator.coarse_readout_consistency_weight",
         "generator.coarse_readout_consistency_onset_epoch",
+        "generator.frequency_objective_weight",
+        "generator.frequency_objective_edge_weight",
+        "generator.patch_objective_weight",
+        "generator.patch_objective_patch_size",
+        "generator.patch_objective_patch_sizes",
+        "generator.patch_objective_stride",
+        "generator.patch_objective_offsets",
+        "generator.patch_objective_projections",
+        "generator.patch_objective_edge_weight",
+        "generator.state_anchor_weight",
+        "generator.state_anchor_steps",
+        "generator.state_anchor_noise_scale",
+        "generator.state_anchor_mode",
+        "generator.state_anchor_encoder_kernel_size",
+        "generator.state_prior_sampling_mode",
+        "generator.state_prior_rank",
+        "generator.state_prior_noise_scale",
+        "generator.state_prior_refresh_epochs",
+        "generator.state_prior_start_epoch",
+        "generator.sample_initialization",
+        "generator.state_prior_artifacts.json_path",
+        "generator.state_prior_artifacts.npz_path",
+        "generator.state_prior_artifacts.final_refit_seconds",
+        "generator.white_noise_quality.classifier_label_accuracy",
+        "generator.white_noise_quality.classifier_feature_diversity_ratio",
+        "generator.white_noise_quality.classifier_feature_nearest_real_mse",
+        "generator.white_noise_quality.nearest_real_mse",
+        "generator.white_noise_settling.classifier_label_accuracy_best",
+        "generator.white_noise_attractor_robustness.label_accuracy",
+        "generator.shuffled_prior_quality.classifier_label_accuracy",
+        "generator.shuffled_prior_quality.classifier_feature_diversity_ratio",
+        "generator.shuffled_prior_quality.classifier_feature_nearest_real_mse",
+        "generator.shuffled_prior_quality.nearest_real_mse",
+        "generator.shuffled_prior_settling.classifier_label_accuracy_best",
+        "generator.shuffled_prior_attractor_robustness.label_accuracy",
         "generator.multiscale_feedback_signal_mode",
         "generator.multiscale_feedback_source_gate",
         "generator.multiscale_feedback_source_mix",
         "generator.multiscale_readout_fusion_strength",
+        "generator.multiscale_readout_gate_mode",
+        "generator.multiscale_readout_gate_strength",
+        "generator.multiscale_readout_gate_init_scale",
         "generator.conditional",
         "generator.label_phase_scale",
         "generator.conditioning_mode",
@@ -5253,6 +6045,25 @@ def _write_sweep_csv(results: list[dict[str, Any]], path: Path) -> None:
         "generator.classifier_feature_nearest_real_mse",
         "generator.classifier_feature_real_nearest_real_mse",
         "generator.classifier_feature_pairwise_distance_ratio",
+        "generator.classifier_feature_frechet_distance",
+        "generator.classifier_feature_kid_mmd2",
+        "generator.classifier_feature_precision_at_real_median",
+        "generator.classifier_feature_recall_at_real_median",
+        "generator.classifier_feature_real_median_radius",
+        "generator.frequency_real_low_power_ratio",
+        "generator.frequency_generated_low_power_ratio",
+        "generator.frequency_real_mid_power_ratio",
+        "generator.frequency_generated_mid_power_ratio",
+        "generator.frequency_real_high_power_ratio",
+        "generator.frequency_generated_high_power_ratio",
+        "generator.frequency_high_power_ratio_delta",
+        "generator.frequency_high_power_ratio",
+        "generator.frequency_spectral_centroid_real",
+        "generator.frequency_spectral_centroid_generated",
+        "generator.frequency_spectral_centroid_ratio",
+        "generator.edge_laplacian_variance_real",
+        "generator.edge_laplacian_variance_generated",
+        "generator.edge_laplacian_variance_ratio",
         "generator.drift_queue_size",
         "generator.drift_queue_num_pos",
         "generator.distributional_weight",
@@ -5264,13 +6075,93 @@ def _write_sweep_csv(results: list[dict[str, Any]], path: Path) -> None:
         "generator.drift_gamma",
         "generator.train_settling_steps",
         "generator.attractor_variants_per_class",
+        "generator.state_probe_sample_count",
+        "generator.state_probe_target_size",
+        "generator.state_fit_sample_count",
+        "generator.state_fit_steps",
+        "generator.state_fit_learning_rate",
+        "generator.state_fit_init_scale",
+        "generator.state_fit_ridge",
+        "generator.state_fit_settle_steps",
+        "generator.state_information_probe.sample_count",
+        "generator.state_information_probe.fine_final_minus_initial_label_accuracy",
+        "generator.state_information_probe.fine_final_minus_initial_label_r2",
+        "generator.state_information_probe.fine_final_minus_initial_generated_lowres_r2",
+        "generator.state_information_probe.fine_final_minus_initial_generated_highpass_r2",
+        "generator.state_information_probe.fine_final_minus_initial_classifier_features_r2",
+        "generator.state_information_probe.state_sets.fine_initial.label_accuracy",
+        "generator.state_information_probe.state_sets.fine_initial.generated_lowres_r2",
+        "generator.state_information_probe.state_sets.fine_initial.generated_highpass_r2",
+        "generator.state_information_probe.state_sets.fine_final.label_accuracy",
+        "generator.state_information_probe.state_sets.fine_final.generated_lowres_r2",
+        "generator.state_information_probe.state_sets.fine_final.generated_highpass_r2",
+        "generator.state_information_probe.state_sets.fine_final.classifier_features_r2",
+        "generator.state_information_probe.state_sets.combined_final.label_accuracy",
+        "generator.state_information_probe.state_sets.combined_final.generated_lowres_r2",
+        "generator.state_information_probe.state_sets.combined_final.generated_highpass_r2",
+        "generator.state_information_probe.state_sets.combined_final.classifier_features_r2",
+        "generator.state_fitting_probe.sample_count",
+        "generator.state_fitting_probe.fit_steps",
+        "generator.state_fitting_probe.learning_rate",
+        "generator.state_fitting_probe.initial_mse",
+        "generator.state_fitting_probe.final_mse",
+        "generator.state_fitting_probe.mse_delta",
+        "generator.state_fitting_probe.fit_paired_mse",
+        "generator.state_fitting_probe.fit_paired_l1",
+        "generator.state_fitting_probe.fit_generated_std",
+        "generator.state_fitting_probe.fit_frequency_generated_high_power_ratio",
+        "generator.state_fitting_probe.fit_frequency_spectral_centroid_ratio",
+        "generator.state_fitting_probe.fit_edge_laplacian_variance_ratio",
+        "generator.state_fitting_probe.settle_000_paired_mse",
+        "generator.state_fitting_probe.settle_001_paired_mse",
+        "generator.state_fitting_probe.settle_002_paired_mse",
+        "generator.state_fitting_probe.settle_004_paired_mse",
+        "generator.state_fitting_probe.settle_008_paired_mse",
+        "generator.state_fitting_probe.settle_016_paired_mse",
+        "generator.state_fitting_probe.settle_032_paired_mse",
+        "generator.state_fitting_probe.settle_001_frequency_generated_high_power_ratio",
+        "generator.state_fitting_probe.settle_002_frequency_generated_high_power_ratio",
+        "generator.state_fitting_probe.settle_004_frequency_generated_high_power_ratio",
+        "generator.state_fitting_probe.settle_008_frequency_generated_high_power_ratio",
+        "generator.state_fitting_probe.settle_016_frequency_generated_high_power_ratio",
+        "generator.state_fitting_probe.settle_032_frequency_generated_high_power_ratio",
+        "generator.state_fitting_probe.settle_001_edge_laplacian_variance_ratio",
+        "generator.state_fitting_probe.settle_002_edge_laplacian_variance_ratio",
+        "generator.state_fitting_probe.settle_004_edge_laplacian_variance_ratio",
+        "generator.state_fitting_probe.settle_008_edge_laplacian_variance_ratio",
+        "generator.state_fitting_probe.settle_016_edge_laplacian_variance_ratio",
+        "generator.state_fitting_probe.settle_032_edge_laplacian_variance_ratio",
+        "generator.state_fitting_probe.noise_001_paired_mse",
+        "generator.state_fitting_probe.noise_002_paired_mse",
+        "generator.state_fitting_probe.noise_004_paired_mse",
+        "generator.state_fitting_probe.noise_008_paired_mse",
+        "generator.state_fitting_probe.noise_001_frequency_generated_high_power_ratio",
+        "generator.state_fitting_probe.noise_002_frequency_generated_high_power_ratio",
+        "generator.state_fitting_probe.noise_004_frequency_generated_high_power_ratio",
+        "generator.state_fitting_probe.noise_008_frequency_generated_high_power_ratio",
+        "generator.state_fitting_probe.noise_001_edge_laplacian_variance_ratio",
+        "generator.state_fitting_probe.noise_002_edge_laplacian_variance_ratio",
+        "generator.state_fitting_probe.noise_004_edge_laplacian_variance_ratio",
+        "generator.state_fitting_probe.noise_008_edge_laplacian_variance_ratio",
+        "generator.state_fitting_probe.fresh_readout.real_full_r2",
+        "generator.state_fitting_probe.fresh_readout.real_lowres_r2",
+        "generator.state_fitting_probe.fresh_readout.real_highpass_r2",
         "generator.resize_conv_seed_size",
         "generator.resize_conv_upsamples",
         "generator.resize_conv_min_channels",
+        "generator.resize_conv_seed_layout",
+        "generator.resize_conv_seed_min_channels",
         "generator.success_diagnostics.total_params",
+        "generator.success_diagnostics.recurrent_params",
+        "generator.success_diagnostics.decoder_params",
+        "generator.success_diagnostics.estimated_ops_per_sample",
+        "generator.success_diagnostics.estimated_recurrent_ops_per_sample",
+        "generator.success_diagnostics.estimated_decoder_ops_per_sample",
         "generator.success_diagnostics.dynamics_family",
         "generator.success_diagnostics.decoder_mode",
         "generator.success_diagnostics.decoder_param_fraction",
+        "generator.success_diagnostics.resize_conv_seed_layout",
+        "generator.success_diagnostics.resize_conv_seed_min_channels",
         "generator.success_diagnostics.trainable_recurrent_param_fraction",
         "generator.success_diagnostics.train_recurrent_dynamics",
         "generator.success_diagnostics.train_conditioning_dynamics",
@@ -5318,6 +6209,7 @@ def _write_sweep_csv(results: list[dict[str, Any]], path: Path) -> None:
         "generator.success_diagnostics.coarse_to_fine_profile_row_sum_max",
         "generator.success_diagnostics.coarse_conditioning_strength",
         "generator.success_diagnostics.auxiliary_readout_params",
+        "generator.success_diagnostics.multiscale_readout_gate_params",
         "generator.success_diagnostics.multiscale_layer_sizes",
         "generator.success_diagnostics.multiscale_frequency_scales",
         "generator.success_diagnostics.multiscale_coupling_profile",
@@ -5349,6 +6241,9 @@ def _write_sweep_csv(results: list[dict[str, Any]], path: Path) -> None:
         "generator.success_diagnostics.multiscale_auxiliary_readout_layer",
         "generator.success_diagnostics.multiscale_auxiliary_readout_size",
         "generator.success_diagnostics.multiscale_readout_fusion_strength",
+        "generator.success_diagnostics.multiscale_readout_gate_mode",
+        "generator.success_diagnostics.multiscale_readout_gate_strength",
+        "generator.success_diagnostics.multiscale_readout_gate_init_scale",
         "generator.success_diagnostics.num_auxiliary_layers",
         "generator.success_diagnostics.num_vertical_couplings",
         "generator.success_diagnostics.vertical_profile_density",
@@ -5366,10 +6261,35 @@ def _write_sweep_csv(results: list[dict[str, Any]], path: Path) -> None:
         "generator.success_diagnostics.vertical_gain_target_minus_non_target_mean",
         "generator.success_diagnostics.vertical_modulation_mean",
         "generator.success_diagnostics.vertical_modulation_negative_fraction",
+        "generator.success_diagnostics.state_initial_spatial_high_power_ratio",
+        "generator.success_diagnostics.state_final_spatial_high_power_ratio",
+        "generator.success_diagnostics.state_spatial_high_power_ratio_delta",
+        "generator.success_diagnostics.state_initial_spatial_spectral_centroid",
+        "generator.success_diagnostics.state_final_spatial_spectral_centroid",
+        "generator.success_diagnostics.state_spatial_spectral_centroid_delta",
+        "generator.success_diagnostics.velocity_final_spatial_high_power_ratio",
         "generator.success_diagnostics.output_feedback_mode",
         "generator.success_diagnostics.output_feedback_strength",
         "generator.success_diagnostics.output_feedback_init_scale",
         "generator.success_diagnostics.output_feedback_basis_sigma",
+        "generator.success_diagnostics.state_residual_readout_params",
+        "generator.success_diagnostics.state_residual_readout_strength",
+        "generator.success_diagnostics.state_residual_readout_init_scale",
+        "generator.success_diagnostics.state_residual_readout_patch_size",
+        "generator.success_diagnostics.state_residual_readout_sigma",
+        "generator.success_diagnostics.resonant_readout_params",
+        "generator.success_diagnostics.state_anchor_encoder_params",
+        "generator.success_diagnostics.state_anchor_encoder_enabled",
+        "generator.success_diagnostics.resonant_readout_strength",
+        "generator.success_diagnostics.resonant_readout_init_scale",
+        "generator.success_diagnostics.resonant_readout_patch_size",
+        "generator.success_diagnostics.resonant_readout_sigma",
+        "generator.success_diagnostics.num_oscillators",
+        "generator.success_diagnostics.num_spatial_sites",
+        "generator.success_diagnostics.num_modes",
+        "generator.success_diagnostics.mode_frequency_scales",
+        "generator.success_diagnostics.mode_coupling_strength",
+        "generator.success_diagnostics.mode_coupling_profile",
         "generator.success_diagnostics.output_feedback_params",
         "generator.success_diagnostics.estimated_output_feedback_ops_per_sample",
         "generator.success_diagnostics.estimated_output_feedback_op_fraction",

@@ -73,6 +73,8 @@ class KuramotoImageGenerator(eqx.Module):
     resize_conv_seed_shape: Tuple[int, int, int] = eqx.field(static=True)
     resize_conv_upsamples: int = eqx.field(static=True)
     resize_conv_min_channels: int = eqx.field(static=True)
+    resize_conv_seed_layout: str = eqx.field(static=True)
+    resize_conv_seed_min_channels: int = eqx.field(static=True)
     output_activation: str = eqx.field(static=True)
 
     def __init__(
@@ -110,6 +112,8 @@ class KuramotoImageGenerator(eqx.Module):
         resize_conv_seed_shape: Tuple[int, int] = (7, 7),
         resize_conv_upsamples: int = 2,
         resize_conv_min_channels: int = 8,
+        resize_conv_seed_layout: str = "flat",
+        resize_conv_seed_min_channels: int = 0,
         output_activation: str = "sigmoid",
         output_bias_init: Optional[float] = None,
         key: Optional[jax.random.PRNGKey] = None,
@@ -163,6 +167,10 @@ class KuramotoImageGenerator(eqx.Module):
             raise ValueError("resize_conv_upsamples must be non-negative")
         if resize_conv_min_channels < 1:
             raise ValueError("resize_conv_min_channels must be positive")
+        if resize_conv_seed_layout not in ("flat", "retinotopic"):
+            raise ValueError("resize_conv_seed_layout must be 'flat' or 'retinotopic'")
+        if resize_conv_seed_min_channels < 0:
+            raise ValueError("resize_conv_seed_min_channels must be non-negative")
         if coupling_profile not in ("dense", "distance_decay", "local_radius"):
             raise ValueError(
                 "coupling_profile must be 'dense', 'distance_decay', or "
@@ -226,6 +234,8 @@ class KuramotoImageGenerator(eqx.Module):
         self.local_patch_size = int(local_patch_size)
         self.resize_conv_upsamples = int(resize_conv_upsamples)
         self.resize_conv_min_channels = int(resize_conv_min_channels)
+        self.resize_conv_seed_layout = resize_conv_seed_layout
+        self.resize_conv_seed_min_channels = int(resize_conv_seed_min_channels)
         self.output_activation = output_activation
 
         resize_conv_feature_dim = 2 * self.num_oscillators
@@ -244,10 +254,21 @@ class KuramotoImageGenerator(eqx.Module):
                     f"by seed_h * seed_w={resize_conv_seed_pixels}; got "
                     f"{resize_conv_feature_dim}"
                 )
-        resize_conv_seed_channels = max(
+        base_resize_conv_seed_channels = max(
             1,
             resize_conv_feature_dim // resize_conv_seed_pixels,
         )
+        resize_conv_seed_channels = base_resize_conv_seed_channels
+        if self.resize_conv_seed_layout == "retinotopic":
+            resize_conv_seed_channels = max(
+                resize_conv_seed_channels,
+                self.resize_conv_seed_min_channels,
+            )
+        elif self.resize_conv_seed_min_channels > base_resize_conv_seed_channels:
+            raise ValueError(
+                "resize_conv_seed_min_channels above the natural flat seed "
+                "channel count is only supported with retinotopic layout"
+            )
         self.resize_conv_seed_shape = (
             int(resize_conv_seed_channels),
             int(seed_h),
@@ -929,9 +950,43 @@ class KuramotoImageGenerator(eqx.Module):
         if self.decoder_mode == "resize_conv":
             if self.resize_conv_output is None:
                 raise ValueError("resize_conv decoder is missing output convolution")
-            features = phase_features(theta).reshape(theta.shape[0], -1)
             channels, seed_h, seed_w = self.resize_conv_seed_shape
-            hidden = features.reshape(theta.shape[0], channels, seed_h, seed_w)
+            if self.resize_conv_seed_layout == "retinotopic":
+                if seed_h * seed_w != self.num_oscillators:
+                    raise ValueError(
+                        "retinotopic resize_conv requires seed_h * seed_w "
+                        "to equal num_oscillators"
+                    )
+                phase_site_features = phase_features(theta).reshape(
+                    theta.shape[0],
+                    self.num_oscillators,
+                    2,
+                )
+                hidden = jnp.transpose(phase_site_features, (0, 2, 1))
+                if channels > hidden.shape[1]:
+                    sin_feature = hidden[:, 0:1, :]
+                    cos_feature = hidden[:, 1:2, :]
+                    derived = (
+                        sin_feature * cos_feature,
+                        sin_feature**2 - cos_feature**2,
+                        sin_feature**2,
+                        cos_feature**2,
+                    )
+                    hidden = jnp.concatenate((hidden, *derived), axis=1)
+                    while hidden.shape[1] < channels:
+                        hidden = jnp.concatenate((hidden, hidden), axis=1)
+                    hidden = hidden[:, :channels, :]
+                elif channels < hidden.shape[1]:
+                    hidden = hidden[:, :channels, :]
+                hidden = hidden.reshape(
+                    theta.shape[0],
+                    channels,
+                    seed_h,
+                    seed_w,
+                )
+            else:
+                features = phase_features(theta).reshape(theta.shape[0], -1)
+                hidden = features.reshape(theta.shape[0], channels, seed_h, seed_w)
             for layer_index in range(0, len(self.resize_conv_layers), 2):
                 hidden = jnp.repeat(hidden, 2, axis=2)
                 hidden = jnp.repeat(hidden, 2, axis=3)

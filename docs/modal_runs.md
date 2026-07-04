@@ -3069,3 +3069,770 @@ Coarse readout consistency improves nearest-real MSE and output-settling, but
 it strongly reduces diversity, generated-label accuracy, attractor accuracy,
 and basin score. Treat it as a diagnostic/control showing that pixel-level
 coarse agreement is too prototype-biased for the generator objective.
+
+## CIFAR RGB Readout Gate Probe
+
+Run the learned coarse-to-fine seed modulation probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=6 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_readout_gate_probe
+```
+
+This compares the current hierarchy lead against `gate010` and `gate025`, where
+the selected auxiliary oscillator layer applies a FiLM-style scale/shift to the
+fine resize-conv seed tensor. Unlike readout fusion, this does not blend coarse
+RGB pixels into the output.
+
+This writes:
+
+```text
+outputs/analysis/modal_mnist_generator_cifar10_rgb_readout_gate_probe.csv
+outputs/analysis/modal_mnist_generator_cifar10_rgb_readout_gate_probe.json
+```
+
+Analyze it with:
+
+```bash
+python scripts/analyze_mnist_generator_frontier.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_readout_gate_probe.csv \
+  --output-dir outputs/analysis/cifar10_rgb_readout_gate_probe \
+  --title "CIFAR-10 RGB readout gate frontier" \
+  --accuracy-floor 0 \
+  --no-plot
+
+python scripts/analyze_generator_paired_deltas.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_readout_gate_probe.csv \
+  --output-dir outputs/analysis/cifar10_rgb_readout_gate_probe \
+  --variant-regex 'readout_gate_(.+?)_n256' \
+  --pair hierarchy_lead:gate010 \
+  --pair hierarchy_lead:gate025 \
+  --title "CIFAR-10 RGB readout gate paired deltas"
+```
+
+Current read: `gate010` improves diversity and basin score but hurts feature
+Frechet and attractor accuracy. `gate025` improves nearest-real MSE, generated
+accuracy, basin score, and output settling, but loses diversity and
+feature-distribution quality. The readout gate is stable and useful, but it is
+not the new rendered-image default.
+
+## CIFAR RGB Frequency Objective Probe
+
+Run the frequency/edge-statistics probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=6 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_frequency_objective_probe
+```
+
+This compares the current hierarchy lead against `freq001` and `freq003`. The
+new loss is deliberately light: it asks whether the measured high-frequency and
+edge-energy deficit is an objective/readout problem before changing the
+oscillator architecture again.
+
+This writes:
+
+```text
+outputs/analysis/modal_mnist_generator_cifar10_rgb_frequency_objective_probe.csv
+outputs/analysis/modal_mnist_generator_cifar10_rgb_frequency_objective_probe.json
+```
+
+Analyze it with:
+
+```bash
+python scripts/analyze_mnist_generator_frontier.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_frequency_objective_probe.csv \
+  --output-dir outputs/analysis/cifar10_rgb_frequency_objective_probe \
+  --title "CIFAR-10 RGB frequency objective frontier" \
+  --accuracy-floor 0 \
+  --no-plot
+
+python scripts/analyze_generator_paired_deltas.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_frequency_objective_probe.csv \
+  --output-dir outputs/analysis/cifar10_rgb_frequency_objective_probe \
+  --variant-regex 'frequency_objective_(.+?)_n256' \
+  --pair hierarchy_lead:freq001 \
+  --pair hierarchy_lead:freq003 \
+  --title "CIFAR-10 RGB frequency objective paired deltas"
+```
+
+Current read: the objective fixes the measured frequency gap but not the
+rendering problem. `freq001`/`freq003` move generated high-frequency and edge
+ratios close to real-image levels, and the oscillator state retains more
+spatial high-frequency power after settling. Samples show much of that new
+energy as color-channel ringing and borders rather than object-aligned detail,
+so these presets are diagnostics, not new defaults.
+
+## CIFAR RGB Patch Objective Probe
+
+Run the local patch-detail probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=6 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_patch_objective_probe
+```
+
+This compares the current hierarchy lead against `patch005` and `patch010`.
+Unlike global frequency matching, the patch objective compares local raw and
+Laplacian patch distributions. The test asks whether local detail can improve
+without rewarding image-border or color-channel ringing.
+
+This writes:
+
+```text
+outputs/analysis/modal_mnist_generator_cifar10_rgb_patch_objective_probe.csv
+outputs/analysis/modal_mnist_generator_cifar10_rgb_patch_objective_probe.json
+```
+
+Analyze it with:
+
+```bash
+python scripts/analyze_mnist_generator_frontier.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_patch_objective_probe.csv \
+  --output-dir outputs/analysis/cifar10_rgb_patch_objective_probe \
+  --title "CIFAR-10 RGB patch objective frontier" \
+  --accuracy-floor 0 \
+  --no-plot
+
+python scripts/analyze_generator_paired_deltas.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_patch_objective_probe.csv \
+  --output-dir outputs/analysis/cifar10_rgb_patch_objective_probe \
+  --variant-regex 'patch_objective_(.+?)_n256' \
+  --pair hierarchy_lead:patch005 \
+  --pair hierarchy_lead:patch010 \
+  --title "CIFAR-10 RGB patch objective paired deltas"
+```
+
+Current read: `patch010` is a stronger local-detail contender than global
+frequency matching. It improves generated-label accuracy, diversity,
+classifier-feature Frechet/KID, attractor accuracy, and basin score versus the
+matched hierarchy baseline. The cost is worse nearest-real pixel MSE, lower
+sample/sec, and visible local striping/chunky detail. Treat it as the next
+rendering-objective lead, not a stable default.
+
+## CIFAR RGB Patch V2 Probe
+
+Run the shifted-grid/multiscale patch-detail probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=6 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_patch_v2_probe
+```
+
+This compares the hierarchy lead, plain `patch010`, shifted-grid
+`patch010_overlap`, multiscale `patch010_multiscale`, and the combined
+`patch010_multiscale_overlap`. The goal is narrower than "make CIFAR solved":
+keep the local-detail/semantic gains from `patch010` while reducing fixed-grid
+chunking and striping. This sweep uses a lighter `normal,zero` vertical audit
+because the patch-v2 question is rendering/objective quality, not full
+hierarchy-causality attribution.
+
+This writes:
+
+```text
+outputs/analysis/modal_mnist_generator_cifar10_rgb_patch_v2_probe.csv
+outputs/analysis/modal_mnist_generator_cifar10_rgb_patch_v2_probe.json
+```
+
+Analyze it with:
+
+```bash
+python scripts/analyze_mnist_generator_frontier.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_patch_v2_probe.csv \
+  --output-dir outputs/analysis/cifar10_rgb_patch_v2_probe \
+  --title "CIFAR-10 RGB patch v2 frontier" \
+  --accuracy-floor 0 \
+  --no-plot
+
+python scripts/analyze_generator_paired_deltas.py \
+  --csv outputs/analysis/modal_mnist_generator_cifar10_rgb_patch_v2_probe.csv \
+  --output-dir outputs/analysis/cifar10_rgb_patch_v2_probe \
+  --variant-regex 'patch_v2_(.+?)_n256' \
+  --pair hierarchy_lead:patch010 \
+  --pair patch010:patch010_overlap \
+  --pair patch010:patch010_multiscale \
+  --pair patch010:patch010_multiscale_overlap \
+  --title "CIFAR-10 RGB patch v2 paired deltas"
+```
+
+Current read: overlap and multiscale patch scoring improve several metrics
+over plain `patch010` (especially attractor/basin and feature-distribution
+metrics), but the samples still show dark blobs, halos, horizontal bands, and
+grid-like texture. `patch010_multiscale` has the best completed feature
+Frechet/basin tradeoff, while `patch010_overlap` is the better low-cost repair.
+Neither is a stable default. Treat patch-v2 as evidence that local detail
+pressure helps diagnostics but still needs a better readout/objective interface.
+
+## CIFAR RGB State Information Probe
+
+Run the compact state-readout attribution audit:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=6 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_state_information_probe
+```
+
+This compares `current`, `hierarchy_lead`, and `patch010_multiscale` with
+`--state-probe-sample-count 64`. The probe fits small ridge readouts from traced
+oscillator states to labels, generated low-res scaffold, generated high-pass
+residual, and classifier features. It is meant to answer whether information is
+present in the state before adding more renderer or objective machinery.
+
+This writes:
+
+```text
+outputs/analysis/modal_mnist_generator_cifar10_rgb_state_information_probe.csv
+outputs/analysis/modal_mnist_generator_cifar10_rgb_state_information_probe.json
+```
+
+Current read: final HORN states decode class, scaffold, high-pass residual, and
+classifier features substantially better after settling than at initialization.
+The state is therefore not dead; the remaining bottleneck is converting the
+settled state into clean object-aligned RGB detail.
+
+## CIFAR RGB State Residual Readout Probe
+
+Run the compact state-to-image interface probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=6 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_state_residual_readout_probe
+```
+
+This compares the hierarchy lead against two local residual HORN-state readout
+strengths, `0.05` and `0.10`. The residual branch lets each final oscillator
+write a small learned local RGB patch from its final position/velocity state,
+on top of the normal resize-conv renderer.
+
+This writes:
+
+```text
+outputs/analysis/modal_mnist_generator_cifar10_rgb_state_residual_readout_probe.csv
+outputs/analysis/modal_mnist_generator_cifar10_rgb_state_residual_readout_probe.json
+```
+
+Current read: `state_residual005` is the useful candidate. In the two-seed
+probe it improves generated-label accuracy, attractor robustness,
+nearest-real MSE, feature Frechet, and final-state high-pass decodability
+against `hierarchy_lead`. `state_residual010` is more mixed, so this should be
+treated as a calibrated state-to-image interface, not a knob to turn upward.
+
+## CIFAR RGB State Residual Longer Pilot
+
+Run the 40-epoch visual-maturation pilot:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=3 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_state_residual_longer_pilot
+```
+
+This compares the stable CIFAR RGB default, the hierarchy lead, and
+`state_residual005` on seed `23`, with artifacts saved at epochs `20` and `40`.
+It is a visual/quality sanity check, not a broad seed-confirmation sweep.
+
+This writes:
+
+```text
+outputs/analysis/modal_mnist_generator_cifar10_rgb_state_residual_longer_pilot.csv
+outputs/analysis/modal_mnist_generator_cifar10_rgb_state_residual_longer_pilot.json
+```
+
+Pull sample grids from the Modal volume:
+
+```bash
+modal volume get oscnet-runs \
+  mnist_generator/<run>/plots/mnist_generator_samples_epoch_020.png \
+  outputs/modal_samples/state_residual_longer/<run>_epoch020.png --force
+
+modal volume get oscnet-runs \
+  mnist_generator/<run>/plots/mnist_generator_samples_epoch_040.png \
+  outputs/modal_samples/state_residual_longer/<run>_epoch040.png --force
+```
+
+Current read: longer training improves saturation/structure but does not
+produce a sudden visual breakthrough by epoch `40`. `state_residual005`
+continues to beat `hierarchy_lead` on several metrics, but the stable
+normalized-local CIFAR default remains the stronger overall model in this
+pilot.
+
+## CIFAR RGB Resonant Filter-Bank Readout Pilot
+
+Run the compact ONN-native readout pilot:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=3 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_resonant_readout_pilot
+```
+
+This compares the stable CIFAR RGB default against two small shared HORN
+resonant filter-bank readout strengths, `0.05` and `0.10`. The branch adds
+only `675` CIFAR RGB parameters: shared local filters over HORN position,
+velocity, local order, phase-alignment, velocity contrast, and energy
+observables.
+
+This writes:
+
+```text
+outputs/analysis/modal_mnist_generator_cifar10_rgb_resonant_readout_pilot.csv
+outputs/analysis/modal_mnist_generator_cifar10_rgb_resonant_readout_pilot.json
+```
+
+Pull sample grids from the Modal volume:
+
+```bash
+modal volume get oscnet-runs \
+  mnist_generator/<run>/plots/mnist_generator_samples_epoch_020.png \
+  outputs/modal_samples/resonant_readout/<run>_epoch020.png --force
+```
+
+Current read: `resonant005` improves generated-label accuracy, diversity,
+feature Frechet, and attractor diversity over the stable CIFAR default in the
+seed-23 pilot, but worsens nearest-real MSE and does not solve visible
+sharpness. `resonant010` is already more mixed/muddy, so the next step is not
+turning strength upward.
+
+## CIFAR RGB Oscillator Capacity Probe
+
+Run the compact oscillator-site capacity probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=3 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_capacity_probe
+```
+
+This compares:
+
+- `sparse_horn_cifar10_rgb_current`
+- `sparse_horn_cifar10_rgb_current_n512`
+- `sparse_horn_cifar10_rgb_current_n512_resonant005`
+
+This writes:
+
+```text
+outputs/analysis/modal_mnist_generator_cifar10_rgb_capacity_probe.csv
+outputs/analysis/modal_mnist_generator_cifar10_rgb_capacity_probe.json
+```
+
+Pull sample grids from the Modal volume:
+
+```bash
+modal volume get oscnet-runs \
+  mnist_generator/<run>/plots/mnist_generator_samples_epoch_020.png \
+  outputs/modal_samples/capacity_probe/<run>_epoch020.png --force
+```
+
+Current read: doubling oscillator sites to `512` makes CIFAR samples more
+active/diverse and increases edge energy, but it does not improve the main
+quality frontier. It hurts class consistency, attractor accuracy, nearest-real
+MSE, and throughput. The first conclusion is that raw site count is not enough;
+larger HORN fields need stronger organization or multimode/frequency-band
+structure before a 1024-site run is worth the cost.
+
+## CIFAR RGB Multimode HORN Probe
+
+Run the compact frequency-band capacity probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=3 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_multimode_probe
+```
+
+This compares:
+
+- `sparse_horn_cifar10_rgb_current`
+- `sparse_horn_cifar10_rgb_current_n512`
+- `sparse_horn_cifar10_rgb_current_multimode2`
+
+This writes:
+
+```text
+outputs/analysis/modal_mnist_generator_cifar10_rgb_multimode_probe.csv
+outputs/analysis/modal_mnist_generator_cifar10_rgb_multimode_probe.json
+```
+
+Pull sample grids from the Modal volume:
+
+```bash
+modal volume get oscnet-runs \
+  mnist_generator/<run>/plots/mnist_generator_samples_epoch_020.png \
+  outputs/modal_samples/multimode_probe/<run>_epoch020.png --force
+```
+
+Current read: two HORN frequency modes per spatial site are much better than a
+flat 512-site field on class consistency and attractor metrics, and they beat
+the 256-site default on generated-label and attractor accuracy. They do not yet
+solve visual sharpness or high-frequency detail, and they are slower than the
+compact 256 default. Treat multimode HORN as the next structured-capacity lead,
+not as the stable CIFAR default yet.
+
+## CIFAR RGB Retinotopic Readout and State-Fitting Probe
+
+Run the geometry/readout diagnostic:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=4 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_retinotopic_readout_probe
+```
+
+This compares:
+
+- `sparse_horn_cifar10_rgb_current`
+- `sparse_horn_cifar10_rgb_current_retinotopic`
+- `sparse_horn_cifar10_rgb_current_multimode2`
+- `sparse_horn_cifar10_rgb_current_multimode2_retinotopic`
+
+It also enables the frozen-decoder state-fitting probe:
+
+```text
+--state-fit-sample-count 32 --state-fit-steps 80 --state-fit-settle-steps 0,8,16,32
+```
+
+This writes:
+
+```text
+outputs/analysis/modal_mnist_generator_cifar10_rgb_retinotopic_readout_probe.csv
+outputs/analysis/modal_mnist_generator_cifar10_rgb_retinotopic_readout_probe.json
+```
+
+Pull sample grids from the Modal volume:
+
+```bash
+modal volume get oscnet-runs \
+  mnist_generator/<run>/artifacts/mnist_generator_samples_epoch_020.npz \
+  outputs/modal_samples/retinotopic_probe/<run>.npz --force
+```
+
+Current read: retinotopic layout fixes a real state-to-seed geometry mismatch
+and greatly improves frozen-state reconstruction, especially for multimode
+HORN. It does not yet improve direct generated CIFAR samples at 20 epochs.
+Fitted detail is partly destroyed by extra HORN settling, so the next issue is
+not only readout layout; the training objective or trajectory must learn to
+steer samples into detail-carrying states and preserve them.
+
+## CIFAR RGB Retinotopic Control Probe
+
+Run the param-matched retinotopic control:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=5 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_retinotopic_control_probe
+```
+
+This compares:
+
+- `sparse_horn_cifar10_rgb_current`
+- `sparse_horn_cifar10_rgb_current_retinotopic_ch30`
+- `sparse_horn_cifar10_rgb_current_retinotopic_seed4_ch30`
+- `sparse_horn_cifar10_rgb_current_multimode2`
+- `sparse_horn_cifar10_rgb_current_multimode2_retinotopic_ch30`
+
+It enables:
+
+```text
+--state-fit-settle-steps 0,1,2,4,8,16,32
+```
+
+and reports matched-norm random perturbation controls as
+`state_fitting_probe.noise_*`.
+
+This writes:
+
+```text
+outputs/analysis/modal_mnist_generator_cifar10_rgb_retinotopic_control_probe.csv
+outputs/analysis/modal_mnist_generator_cifar10_rgb_retinotopic_control_probe.json
+```
+
+Current read: matching decoder capacity does not make retinotopic direct
+generation beat the flat seed. The flat multimode branch still wins class
+accuracy/feature diversity, while retinotopic branches win nearest-real MSE,
+high-frequency ratio, and frozen-state reconstruction. Four seed channels do
+not rescue single-mode retinotopic class accuracy. Matched-norm random noise is
+less destructive than HORN settling at later steps, supporting the contraction
+interpretation: fitted detail states exist, but the current dynamics/objective
+do not preserve them as texture-bearing attractors.
+
+## CIFAR RGB State Anchor Probe
+
+Run the two-seed state-space anchor probe:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=5 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_state_anchor_probe
+```
+
+This compares:
+
+- `sparse_horn_cifar10_rgb_current_multimode2_retinotopic_ch30`
+- `sparse_horn_cifar10_rgb_current_multimode2_retinotopic_anchor_reconstruct010`
+- `sparse_horn_cifar10_rgb_current_multimode2_retinotopic_anchor_frozen010`
+- `sparse_horn_cifar10_rgb_current_multimode2_retinotopic_anchor010`
+- `sparse_horn_cifar10_rgb_current_multimode2_retinotopic_anchor030`
+
+It writes:
+
+```text
+outputs/analysis/modal_mnist_generator_cifar10_rgb_state_anchor_probe.csv
+outputs/analysis/modal_mnist_generator_cifar10_rgb_state_anchor_probe.json
+outputs/modal_samples/state_anchor_probe/state_anchor_probe_contact_sheet.png
+```
+
+Current read: the anchor is a real settle-survival win, not a free-sample
+quality win yet. `anchor030` brings settle-8 fitted-state MSE close to the
+matched-noise control and beats both k=0 and frozen-dynamics controls. Free
+samples gain high-frequency energy and lower nearest-real MSE, but diversity
+drops and visuals remain blurry, so the next question is how random
+class-conditioned trajectories enter the anchor-trained detail basin.
+
+## CIFAR RGB State Prior Sampling Probe
+
+Pull the trained `anchor030` checkpoint from the Modal volume:
+
+```bash
+mkdir -p outputs/checkpoints/state_anchor_probe
+modal volume get oscnet-runs \
+  /mnist_generator/mnist_generator_cifar10_rgb_state_anchor_anchor030_train2000_seed23_20e/checkpoints/checkpoint_epoch_020.eqx \
+  outputs/checkpoints/state_anchor_probe/seed23_anchor030_checkpoint_epoch_020.eqx
+```
+
+Run the eval-only state-prior diagnostic locally:
+
+```bash
+python scripts/analyze_generator_state_prior.py \
+  --checkpoint outputs/checkpoints/state_anchor_probe/seed23_anchor030_checkpoint_epoch_020.eqx \
+  --preset sparse_horn_cifar10_rgb_current_multimode2_retinotopic_anchor030 \
+  --seed 23 \
+  --train-limit 2000 \
+  --eval-limit 1000 \
+  --sample-count 256 \
+  --prior-rank 32 \
+  --settle-steps 8 \
+  --batch-size 64 \
+  --classifier-epochs 0 \
+  --output-dir outputs/analysis/state_prior_probe \
+  --output-prefix seed23_anchor030_rank32_samples256
+```
+
+This writes:
+
+```text
+outputs/analysis/state_prior_probe/seed23_anchor030_rank32_samples256.csv
+outputs/analysis/state_prior_probe/seed23_anchor030_rank32_samples256.json
+outputs/analysis/state_prior_probe/seed23_anchor030_rank32_samples256_samples.npz
+outputs/analysis/state_prior_probe/seed23_anchor030_rank32_samples256_contact_sheet.png
+```
+
+Current read: the transparent per-class PCA state prior reaches a different
+basin than white-noise initialization. It improves diversity and avoids tight
+duplicates, but it does not yet produce sharp CIFAR samples. The shuffled-prior
+control shows that the initial state prior carries class information, so future
+training integration needs a control that keeps class semantics attributable to
+the HORN conditioning path.
+
+## CIFAR RGB State Prior Training Probe
+
+Run the two-seed training intervention:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=3 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_state_prior_training_probe
+```
+
+This compares:
+
+- `sparse_horn_cifar10_rgb_current_multimode2_retinotopic_anchor030`
+- `sparse_horn_cifar10_rgb_current_multimode2_retinotopic_anchor030_prior_global`
+- `sparse_horn_cifar10_rgb_current_multimode2_retinotopic_anchor030_prior_class`
+
+The new prior arms keep the anchor loss active, refit a host-side low-rank PCA
+state prior from anchor-encoder outputs each epoch, and draw the drift
+objective's generated samples from that prior instead of isotropic white-noise
+HORN states. `prior_global` is the stronger attribution arm because class
+identity can only enter through oscillator conditioning; `prior_class` is the
+pragmatic arm and should be checked with shuffled-prior evaluation after
+training.
+
+Important scoring rule: for prior arms, the generator is formally
+`state prior + HORN field + decoder`. Final eval, settling metrics, attractor
+metrics, and contact sheets must therefore sample from the fitted final prior.
+White-noise sampling is still logged as a secondary diagnostic, not as the
+primary score for prior-trained arms. The final fitted prior is saved beside
+the checkpoint as `state_prior_final.json` and `state_prior_final.npz`.
+
+Current prediction: prior training should reduce the mode-collapse pressure
+seen in `anchor030` white-noise samples. If it improves diversity/class
+consistency but not sharpness, treat the HORN field as a scaffold generator and
+move to a two-stage renderer.
+
+Completed two-seed result:
+
+```text
+outputs/analysis/modal_mnist_generator_cifar10_rgb_state_prior_training_probe.csv
+```
+
+```text
+Arm           Init         Acc     Feature div  Near MSE  Best settle acc  Dup<0.010  Edge ratio
+anchor030     white noise  0.2910  0.7512       0.0178    0.3164           0.1367     0.2512
+prior_global  prior        0.4316  0.8581       0.0293    0.4551           0.0039     0.4539
+prior_class   prior        0.4941  0.8715       0.0369    0.5371           0.0000     0.4825
+```
+
+Pull the contact sheets:
+
+```bash
+mkdir -p outputs/analysis/state_prior_training_probe/contact_sheets
+modal volume get oscnet-runs \
+  /mnist_generator/mnist_generator_cifar10_rgb_state_prior_training_anchor030_train2000_seed23_20e/plots/mnist_generator_samples_epoch_020.png \
+  outputs/analysis/state_prior_training_probe/contact_sheets/anchor030_seed23_epoch020.png
+modal volume get oscnet-runs \
+  /mnist_generator/mnist_generator_cifar10_rgb_state_prior_training_prior_global_train2000_seed23_20e/plots/mnist_generator_samples_epoch_020.png \
+  outputs/analysis/state_prior_training_probe/contact_sheets/prior_global_seed23_epoch020.png
+modal volume get oscnet-runs \
+  /mnist_generator/mnist_generator_cifar10_rgb_state_prior_training_prior_class_train2000_seed23_20e/plots/mnist_generator_samples_epoch_020.png \
+  outputs/analysis/state_prior_training_probe/contact_sheets/prior_class_seed23_epoch020.png
+modal volume get oscnet-runs \
+  /mnist_generator/mnist_generator_cifar10_rgb_state_prior_training_anchor030_train2000_seed24_20e/plots/mnist_generator_samples_epoch_020.png \
+  outputs/analysis/state_prior_training_probe/contact_sheets/anchor030_seed24_epoch020.png
+modal volume get oscnet-runs \
+  /mnist_generator/mnist_generator_cifar10_rgb_state_prior_training_prior_global_train2000_seed24_20e/plots/mnist_generator_samples_epoch_020.png \
+  outputs/analysis/state_prior_training_probe/contact_sheets/prior_global_seed24_epoch020.png
+modal volume get oscnet-runs \
+  /mnist_generator/mnist_generator_cifar10_rgb_state_prior_training_prior_class_train2000_seed24_20e/plots/mnist_generator_samples_epoch_020.png \
+  outputs/analysis/state_prior_training_probe/contact_sheets/prior_class_seed24_epoch020.png
+```
+
+Current operational read at this stage: `prior_global` is the clean reference
+because the state prior is class-agnostic; `prior_class` is the stronger HORN
+prior arm. Do not rank this branch by nearest-real MSE alone. The prior arms
+intentionally escape the duplicate/collapse basin that made nearest-MSE look
+good for `anchor030`. The later same-stack StateMLP control below supersedes
+any HORN-vs-control claim from this probe.
+
+## CIFAR RGB State Prior Scale Gate Rung 1
+
+Run:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=3 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_state_prior_scale_gate_rung1
+```
+
+The initial batch-128 and batch-64 versions exceeded A10G memory for this
+objective stack. The completed rung used batch 32, train-limit 10k, 40 epochs,
+two seeds, 512 eval samples, and a quality-classifier train limit of 20k.
+
+```text
+outputs/analysis/modal_mnist_generator_cifar10_rgb_state_prior_scale_gate_rung1.csv
+outputs/analysis/state_prior_scale_gate_rung1/contact_sheets/rung1_comparison.png
+```
+
+```text
+Arm                   Acc     Feature div  Feature near  Near MSE  Dup<0.010  Edge ratio  High freq  Best settle acc
+prior_global_b32      0.5547  0.9434       0.2699        0.0336    0.0088     0.5690      0.7964     0.6084
+prior_class_b32       0.4531  0.9081       0.3118        0.0392    0.0029     0.6335      0.7015     0.4629
+prior_class_patch005  0.7129  0.9894       0.2025        0.0361    0.0000     0.9270      1.2599     0.7373
+```
+
+Pull the contact sheets:
+
+```bash
+mkdir -p outputs/analysis/state_prior_scale_gate_rung1/contact_sheets
+modal volume get oscnet-runs \
+  /mnist_generator/mnist_generator_cifar10_rgb_state_prior_scale_gate_rung1_prior_global_b32_train10000_seed23_40e/plots/mnist_generator_samples_epoch_040.png \
+  outputs/analysis/state_prior_scale_gate_rung1/contact_sheets/prior_global_seed23_epoch040.png
+modal volume get oscnet-runs \
+  /mnist_generator/mnist_generator_cifar10_rgb_state_prior_scale_gate_rung1_prior_global_b32_train10000_seed24_40e/plots/mnist_generator_samples_epoch_040.png \
+  outputs/analysis/state_prior_scale_gate_rung1/contact_sheets/prior_global_seed24_epoch040.png
+modal volume get oscnet-runs \
+  /mnist_generator/mnist_generator_cifar10_rgb_state_prior_scale_gate_rung1_prior_class_b32_train10000_seed23_40e/plots/mnist_generator_samples_epoch_040.png \
+  outputs/analysis/state_prior_scale_gate_rung1/contact_sheets/prior_class_seed23_epoch040.png
+modal volume get oscnet-runs \
+  /mnist_generator/mnist_generator_cifar10_rgb_state_prior_scale_gate_rung1_prior_class_b32_train10000_seed24_40e/plots/mnist_generator_samples_epoch_040.png \
+  outputs/analysis/state_prior_scale_gate_rung1/contact_sheets/prior_class_seed24_epoch040.png
+modal volume get oscnet-runs \
+  /mnist_generator/mnist_generator_cifar10_rgb_state_prior_scale_gate_rung1_prior_class_patch005_offset_b32_train10000_seed23_40e/plots/mnist_generator_samples_epoch_040.png \
+  outputs/analysis/state_prior_scale_gate_rung1/contact_sheets/prior_class_patch005_seed23_epoch040.png
+modal volume get oscnet-runs \
+  /mnist_generator/mnist_generator_cifar10_rgb_state_prior_scale_gate_rung1_prior_class_patch005_offset_b32_train10000_seed24_40e/plots/mnist_generator_samples_epoch_040.png \
+  outputs/analysis/state_prior_scale_gate_rung1/contact_sheets/prior_class_patch005_seed24_epoch040.png
+```
+
+Visual read: `prior_class_patch005` is still soft, but it is the first CIFAR
+RGB arm that improves semantic accuracy, diversity, edge/high-frequency
+diagnostics, and visual texture together without returning to duplicate
+collapse. Treat it as the HORN state-prior reference and keep `prior_global` as
+the attribution-clean reference; the same-stack StateMLP control below
+supersedes any HORN-vs-control claim from this rung alone.
+
+## CIFAR RGB State Prior Same-Stack Control Probe
+
+Run:
+
+```bash
+OSCNET_MODAL_MAX_CONTAINERS=3 modal run scripts/modal_mnist_generator.py \
+  --sweep-preset mnist_generator_cifar10_rgb_state_prior_control_probe
+```
+
+This probe checks whether the rung-1 HORN reference survives a matched
+non-oscillatory transition. The `StateMLPImageGenerator` receives the same
+retinotopic/multimode state layout, state-anchor encoder path, state-prior
+sampling, anchor loss, and patch005 objective as the HORN recipe.
+
+```text
+outputs/analysis/modal_mnist_generator_cifar10_rgb_state_prior_control_probe.csv
+outputs/analysis/state_prior_control_probe/contact_sheets/control_probe_comparison.png
+```
+
+```text
+Arm                         n  Acc     Feature div  Feature near  Near MSE  Dup<0.010  Edge ratio  High freq  Attractor  Best settle acc
+prior_class_patch005*       2  0.7129  0.9894       0.2025        0.0361    0.0000     0.9270      1.2599     0.6875     0.7373
+state_mlp_prior_class_p005  2  0.6533  0.9261       0.1889        0.0362    0.0000     0.8592      0.9469     0.6875     0.6855
+prior_global_patch005       2  0.4365  0.8862       0.2791        0.0347    0.0000     0.8934      1.1327     0.4375     0.4678
+prior_class_p005_queue64    1  0.5664  0.9447       0.2955        0.0377    0.0000     0.9430      1.2843     0.5750     0.6348
+```
+
+`prior_class_patch005*` is the previous rung-1 HORN result included as the
+reference row.
+
+Read:
+
+- StateMLP is a strong same-stack control. It wins eval loss, feature-nearest
+  distance, and throughput, so this branch should not claim broad CIFAR
+  competitiveness from internal metrics alone.
+- Pairing by seed removes the apparent HORN mean lead. Seed 23 favors StateMLP
+  on accuracy, attractor accuracy, settling gain, and feature diversity; seed
+  24 favors HORN on the same metrics. With `n=2`, this is a null result, not a
+  supported HORN advantage.
+- HORN is consistently closer on edge-Laplacian ratio, while StateMLP is
+  consistently closer to the ideal high-frequency ratio of `1.0` and is faster.
+- `prior_global_patch005` does not replace the HORN reference recipe. It is useful
+  as a class-agnostic-prior diagnostic, but its class/attractor metrics are
+  too weak.
+- Queue64 is not promoted from this first probe. It preserves edge/frequency
+  energy but hurts semantic/feature metrics.
+
+Pull/check contact sheets:
+
+```bash
+mkdir -p outputs/analysis/state_prior_control_probe/contact_sheets
+modal volume get oscnet-runs \
+  /mnist_generator/mnist_generator_cifar10_rgb_state_prior_control_probe_prior_global_patch005_b32_train10000_seed23_40e/plots/mnist_generator_samples_epoch_040.png \
+  outputs/analysis/state_prior_control_probe/contact_sheets/prior_global_patch005_seed23_epoch040.png
+modal volume get oscnet-runs \
+  /mnist_generator/mnist_generator_cifar10_rgb_state_prior_control_probe_prior_global_patch005_b32_train10000_seed24_40e/plots/mnist_generator_samples_epoch_040.png \
+  outputs/analysis/state_prior_control_probe/contact_sheets/prior_global_patch005_seed24_epoch040.png
+modal volume get oscnet-runs \
+  /mnist_generator/mnist_generator_cifar10_rgb_state_prior_control_probe_state_mlp_prior_class_patch005_b32_train10000_seed23_40e/plots/mnist_generator_samples_epoch_040.png \
+  outputs/analysis/state_prior_control_probe/contact_sheets/state_mlp_prior_class_patch005_seed23_epoch040.png
+modal volume get oscnet-runs \
+  /mnist_generator/mnist_generator_cifar10_rgb_state_prior_control_probe_state_mlp_prior_class_patch005_b32_train10000_seed24_40e/plots/mnist_generator_samples_epoch_040.png \
+  outputs/analysis/state_prior_control_probe/contact_sheets/state_mlp_prior_class_patch005_seed24_epoch040.png
+modal volume get oscnet-runs \
+  /mnist_generator/mnist_generator_cifar10_rgb_state_prior_control_probe_prior_class_patch005_queue64_b32_train10000_seed23_40e/plots/mnist_generator_samples_epoch_040.png \
+  outputs/analysis/state_prior_control_probe/contact_sheets/prior_class_patch005_queue64_seed23_epoch040.png
+```
+
+Operational decision: keep `prior_class_patch005` as the HORN CIFAR RGB
+reference recipe and keep the same-stack StateMLP beside it as the co-equal
+control. Do not launch a full 50k/80-epoch quality rung from this result; the
+current branch is a useful mechanism audit plus a null HORN-vs-StateMLP result
+for CIFAR image generation at this scale.

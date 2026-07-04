@@ -36,14 +36,64 @@ python examples/image_mnist_generator.py
 The example defaults to `sparse_horn_mnist_recommended`, a strict
 class-coupled HORN recipe with sparse local coupling and higher HORN damping.
 
-The current CIFAR-10 RGB frontier recipe is:
+The current CIFAR-10 RGB mechanism benchmark uses multimode sparse HORN with a
+state-anchor encoder and prior-aware sampling. The attribution-clean reference
+is:
+
+```bash
+python examples/image_mnist_generator.py --preset sparse_horn_cifar10_rgb_current_multimode2_retinotopic_anchor030_prior_global
+```
+
+`prior_global` samples from one class-agnostic low-rank HORN-state prior, so
+class identity still has to enter through oscillator conditioning. The stronger
+HORN class-prior recipe is:
+
+```bash
+python examples/image_mnist_generator.py --preset sparse_horn_cifar10_rgb_current_multimode2_retinotopic_anchor030_prior_class
+```
+
+`prior_class` uses one fitted state prior per class. It is less attribution-clean
+than `prior_global`, but it is a strong class-consistency/diversity recipe and
+includes shuffled-prior controls in the Modal sweep.
+
+The current HORN CIFAR RGB reference adds a low-weight random-offset patch
+Sliced-Wasserstein term on top of `prior_class`:
+
+```bash
+python examples/image_mnist_generator.py --preset sparse_horn_cifar10_rgb_current_multimode2_retinotopic_anchor030_prior_class_patch005
+```
+
+In the 10k/40-epoch scale-gate probe this arm improved generated-label
+accuracy, feature diversity, edge ratio, and duplicate behavior relative to
+the earlier collapsed white-noise branch. It is the HORN recipe to try first
+when the goal is the current CIFAR RGB mechanism benchmark.
+
+A matched `StateMLPImageGenerator` control with the same state-prior, anchor,
+retinotopic readout, and patch005 objective is competitive and faster. Paired
+same-seed deltas flip sign between seeds, so this is currently a null
+HORN-vs-StateMLP result, not a demonstrated oscillator advantage. HORN is
+slightly better on edge statistics in both seeds; StateMLP is closer on
+high-frequency calibration and throughput. Treat this as a mechanism benchmark
+and negative control result, not a claim of literature-grade CIFAR image
+quality.
+
+The older white-noise `anchor030` configuration remains useful as a collapse
+control, but should not be treated as the frontier baseline. In the two-seed
+state-prior probe, prior-aware sampling raised generated-label accuracy and
+feature diversity while sharply reducing duplicate/collapse behavior. For this
+branch, nearest-pixel MSE is a secondary diagnostic because it rewards
+regression-to-the-mean; prefer duplicate rates, classifier-feature nearest
+distance, feature diversity, generated-label accuracy, and visual sheets.
+
+Use the older stable RGB preset when you want a smaller non-prior comparison:
 
 ```bash
 python examples/image_mnist_generator.py --preset sparse_horn_cifar10_rgb_current
 ```
 
-Use it when you care less about a quick demo and more about natural-image
-transfer, diversity, attractor behavior, and the HORN-vs-control frontier.
+Use the CIFAR recipes when you care less about a quick demo and more about
+natural-image transfer, diversity, attractor behavior, and the HORN-vs-control
+frontier.
 The active hierarchy lead is:
 
 ```bash
@@ -53,6 +103,42 @@ python examples/image_mnist_generator.py --preset sparse_horn_cifar10_rgb_hierar
 That preset is for multiscale mechanism work. It has improved key
 basin/diversity/attractor metrics in paired probes, but it is not yet the
 stable rendered-image default.
+For readout-conversion probes, use:
+
+```bash
+python examples/image_mnist_generator.py --preset sparse_horn_cifar10_rgb_hierarchy_gate010
+```
+
+The `gate010`/`gate025` presets keep the same hierarchy lead but add a learned
+coarse-to-fine FiLM gate on the resize-conv seed features. This is the
+preferred next probe over direct RGB fusion because it lets the coarse field
+modulate rendering without pasting low-resolution pixels into the final image.
+Generator summaries now also include classifier-feature Frechet/KID-style
+distances and frequency/edge diagnostics, so CIFAR runs can separate semantic
+quality, diversity, pixel proximity, and high-frequency sharpness.
+For the specific blur question, use:
+
+```bash
+python examples/image_mnist_generator.py --preset sparse_horn_cifar10_rgb_hierarchy_freq001
+```
+
+The `freq001`/`freq003` presets add a light frequency/edge-statistics
+objective. They are diagnostic probes for the measured high-frequency deficit,
+not replacements for the stable RGB or hierarchy defaults yet.
+If global frequency matching adds ringing instead of object detail, use:
+
+```bash
+python examples/image_mnist_generator.py --preset sparse_horn_cifar10_rgb_hierarchy_patch005
+```
+
+The `patch005`/`patch010` presets compare local patch and edge-patch
+distributions. They test whether sharper local details can be encouraged
+without the global-spectrum shortcut. `patch010_overlap`,
+`patch010_multiscale`, and `patch010_multiscale_overlap` are artifact-control
+follow-ups: they score shifted patch grids and/or multiple patch sizes when the
+plain patch objective improves detail but leaves tiled local structure. They
+are not defaults yet; early probes improved several semantic/basin metrics but
+did not remove visual texture artifacts.
 
 Why it is first in the queue:
 
@@ -218,13 +304,13 @@ What to keep honest:
     --sweep-preset mnist_generator_cifar10_rgb_frontier_probe
   ```
 
-  Current result: `sparse_horn_cifar10_rgb_current` is the stable CIFAR RGB
-  HORN default. It aliases the normalized-local HORN recipe, keeps sparse local
-  coupling density, row-sum normalizes recurrent gain, and improves
+  Historical read: `sparse_horn_cifar10_rgb_current` was the first stable CIFAR
+  RGB HORN default. It aliases the normalized-local HORN recipe, keeps sparse
+  local coupling density, row-sum normalizes recurrent gain, and improves
   semantic/attractor metrics over the older unnormalized local-radius runs.
-  StateMLP remains the raw nearest-pixel and throughput control. Samples are
-  still blurry, so this is a transfer-frontier result, not a solved CIFAR
-  generator. `sparse_horn_cifar10_rgb_hierarchy_lead` is the current short
+  StateMLP remains the raw nearest-pixel and throughput control. The newer
+  state-prior recipes near the top of this README supersede it for frontier
+  rendering work. `sparse_horn_cifar10_rgb_hierarchy_lead` is the current short
   alias for the active multiscale mechanism lead; use it for hierarchy work,
   not as the stable rendering default. That caution is about the final RGB
   readout, not about whether hierarchy had signal: paired probes show gains in
@@ -313,6 +399,45 @@ What to keep honest:
   default CIFAR rendering recipe. A source-gate follow-up found that hard
   gating the feedback source to class-conditioned or non-conditioned fine
   columns does not beat listening to the full fine field.
+  The newest state-readout probe adds
+  `sparse_horn_cifar10_rgb_hierarchy_state_residual005` and
+  `sparse_horn_cifar10_rgb_hierarchy_state_residual010`. These let each final
+  oscillator write a small local RGB residual patch from its settled
+  position/velocity state. The `005` setting is the current renderer candidate:
+  it improves several compact-probe metrics over `hierarchy_lead`, while `010`
+  is already more mixed.
+  The resonant readout probe adds
+  `sparse_horn_cifar10_rgb_current_resonant005` and
+  `sparse_horn_cifar10_rgb_current_resonant010` on top of the stable CIFAR
+  default. These use a tiny shared HORN filter bank over local phase,
+  velocity, order, phase-alignment, and energy observables. The first pilot
+  found `005` improves semantic/diversity frontier metrics but not visual
+  sharpness or nearest-real MSE, so it remains a candidate readout mechanism
+  rather than the default.
+  The capacity probe adds `sparse_horn_cifar10_rgb_current_n512` and
+  `sparse_horn_cifar10_rgb_current_n512_resonant005`. Doubling the fine HORN
+  site count increased activity/diversity and edge energy, but hurt class
+  consistency, attractor accuracy, nearest-real MSE, and throughput. Treat
+  these as diagnostics for whether raw state capacity is enough; current
+  evidence says larger fields need better organization, not just more sites.
+  The multimode capacity probe adds
+  `sparse_horn_cifar10_rgb_current_multimode2`: 256 spatial sites with two
+  frequency-band HORN modes per site. In the first CIFAR RGB pilot it beat the
+  flat 512-site field on generated-label accuracy, feature diversity,
+  nearest-real MSE, attractor accuracy, and attractor diversity. It also beat
+  the compact 256-site default on class and attractor metrics, but not on
+  nearest-feature proximity, high-frequency/edge energy, or speed. Treat it as
+  the next structured-capacity lead, not a rendering default yet.
+  The retinotopic readout probe adds
+  `sparse_horn_cifar10_rgb_current_retinotopic` and
+  `sparse_horn_cifar10_rgb_current_multimode2_retinotopic`. These preserve the
+  HORN spatial grid in the resize-conv seed and improve frozen-state
+  reconstruction diagnostics, but direct generated samples are not better yet.
+  Treat them as geometry/readout diagnostics rather than stable defaults. The
+  param-matched follow-up adds `*_retinotopic_ch30` and
+  `*_retinotopic_seed4_ch30` controls; matching decoder size confirms that
+  retinotopy improves detail/proximity diagnostics while flat multimode remains
+  stronger for direct class-consistent generation at 20 epochs.
 - Detailed results and caveats live in `docs/experiment_report.md`.
 
 ## Harness Menu

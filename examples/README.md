@@ -44,11 +44,27 @@ This is equivalent to:
 python examples/image_mnist_generator.py --preset sparse_horn_mnist_recommended
 ```
 
-Run the current CIFAR-10 RGB frontier recipe:
+Run the current CIFAR-10 RGB attribution-clean reference:
 
 ```bash
-python examples/image_mnist_generator.py --preset sparse_horn_cifar10_rgb_current
+python examples/image_mnist_generator.py --preset sparse_horn_cifar10_rgb_current_multimode2_retinotopic_anchor030_prior_global
 ```
+
+Run the current HORN CIFAR-10 RGB reference recipe:
+
+```bash
+python examples/image_mnist_generator.py --preset sparse_horn_cifar10_rgb_current_multimode2_retinotopic_anchor030_prior_class_patch005
+```
+
+This is the `prior_class` state-prior HORN recipe plus a low-weight
+random-offset patch objective. Use the plain `prior_class` preset when you want
+the same class-prior mechanism without the patch/detail term.
+
+The matched StateMLP control with the same prior/anchor/patch stack is strong
+and faster. In the current two-seed control probe, paired deltas flip sign
+between seeds, so the fair read is no measurable HORN advantage over the
+same-stack non-oscillatory control. These CIFAR RGB samples are still soft; use
+them as an OscNet mechanism benchmark, not as a polished image generator.
 
 Run the active multiscale hierarchy lead:
 
@@ -58,7 +74,10 @@ python examples/image_mnist_generator.py --preset sparse_horn_cifar10_rgb_hierar
 
 MNIST is the friendlier default. CIFAR RGB is the more interesting natural-image
 gate and should be the first stop when testing whether a generator change
-survives beyond handwritten digits.
+survives beyond handwritten digits. For the prior-aware CIFAR branch, do not
+rank by nearest-pixel MSE alone; the useful frontier criteria are duplicate
+rate, classifier-feature distance/diversity, generated-label accuracy,
+frequency/edge diagnostics, and visual contact sheets.
 
 For a short local probe, keep the recommended preset and lower the budget:
 
@@ -222,6 +241,9 @@ resize-conv readout:
 ```bash
 python examples/image_mnist_generator.py --preset sparse_horn_cifar10_rgb_current
 python examples/image_mnist_generator.py --preset sparse_horn_cifar10_rgb_hierarchy_lead
+python examples/image_mnist_generator.py --preset sparse_horn_cifar10_rgb_hierarchy_gate010
+python examples/image_mnist_generator.py --preset sparse_horn_cifar10_rgb_hierarchy_freq001
+python examples/image_mnist_generator.py --preset sparse_horn_cifar10_rgb_hierarchy_patch005
 python examples/image_mnist_generator.py --preset sparse_horn_cifar10_rgb_recommended_normlocal
 python examples/image_mnist_generator.py --preset sparse_horn_cifar10_rgb_coarse16_normlocal_gentle_local050
 python examples/image_mnist_generator.py --preset sparse_horn_cifar10_rgb_recommended
@@ -231,12 +253,14 @@ python examples/image_mnist_generator.py --preset sparse_horn_cifar10_rgb_state_
 
 These presets use `--dataset-name cifar10_rgb`, infer `--image-shape 32,32,3`,
 and default generated-label diagnostics to the convolutional judge. The
-`sparse_horn_cifar10_rgb_current` alias is the stable RGB default: sparse
-local-radius recurrent coupling with row-sum gain normalization, 25% sparse
-class drive, learned residual feature drift, and a stricter residual-conv
-judge. It currently points to `sparse_horn_cifar10_rgb_recommended_normlocal`.
-Current read: HORN keeps the semantic/diversity and attractor advantage in RGB,
-while StateMLP remains closer by nearest-real pixel MSE and faster.
+`sparse_horn_cifar10_rgb_current` is the older stable RGB default. The current
+HORN reference is the prior-aware multimode recipe:
+`sparse_horn_cifar10_rgb_current_multimode2_retinotopic_anchor030_prior_class_patch005`.
+Current read: the prior/anchor/patch pipeline fixes collapse and improves
+texture, but its gains transfer to the matched StateMLP control. HORN and
+StateMLP are co-equal on current two-seed CIFAR RGB frontier metrics, with
+different small biases: HORN closer on edge ratio, StateMLP closer on spectral
+calibration and faster.
 `sparse_horn_cifar10_rgb_hierarchy_lead` is the short alias for the active
 multiscale mechanism lead. It is useful for hierarchy work, but it is not the
 stable rendering default yet.
@@ -244,6 +268,61 @@ That separation is about rendering quality, not lack of signal: hierarchy
 probes have improved generated-label accuracy, diversity, feature diversity,
 attractor accuracy, and basin score in several paired comparisons. The remaining
 problem is converting those stronger dynamical basins into sharper RGB samples.
+`sparse_horn_cifar10_rgb_hierarchy_gate010` and
+`sparse_horn_cifar10_rgb_hierarchy_gate025` test that conversion path with a
+learned coarse-to-fine readout gate. The auxiliary field modulates the fine
+resize-conv seed features instead of directly blending coarse RGB pixels.
+`sparse_horn_cifar10_rgb_hierarchy_freq001` and
+`sparse_horn_cifar10_rgb_hierarchy_freq003` test whether a light
+frequency/edge-statistics objective can recover the high-frequency energy that
+the current CIFAR diagnostics show is missing from generated samples.
+`sparse_horn_cifar10_rgb_hierarchy_patch005` and
+`sparse_horn_cifar10_rgb_hierarchy_patch010` are the local-detail follow-up:
+they compare small patch and edge-patch distributions, so they are less likely
+to reward global color ringing than plain frequency matching.
+`sparse_horn_cifar10_rgb_hierarchy_patch010_overlap`,
+`sparse_horn_cifar10_rgb_hierarchy_patch010_multiscale`, and
+`sparse_horn_cifar10_rgb_hierarchy_patch010_multiscale_overlap` keep that
+objective but shift the patch grid and/or score several patch sizes to test
+whether the extra local detail can be kept without fixed-grid striping. They
+are diagnostics, not recommended defaults: early probes improved some
+semantic/basin metrics but still produced visible local texture artifacts.
+`sparse_horn_cifar10_rgb_hierarchy_state_residual005` and
+`sparse_horn_cifar10_rgb_hierarchy_state_residual010` test a more direct
+state-to-image interface: each final oscillator can add a small learned local
+RGB residual patch from its final position/velocity state. The `005` setting is
+the current readout candidate; it improved class consistency, attractor
+robustness, feature Frechet, nearest-real MSE, and final-state high-pass
+decodability in the compact two-seed probe. Treat it as an experimental
+renderer lead, not the stable default yet.
+`sparse_horn_cifar10_rgb_current_resonant005` and
+`sparse_horn_cifar10_rgb_current_resonant010` test an ONN-native resonant
+filter-bank readout on the stable CIFAR default. The branch uses shared local
+filters over phase, velocity, local order, and phase-alignment observables.
+The first pilot says `005` improves class consistency, diversity, feature
+Frechet, and attractor diversity over the stable default, but it worsens
+nearest-real MSE and does not solve visual sharpness. Treat it as a promising
+readout probe, not the new default.
+`sparse_horn_cifar10_rgb_current_n512` doubles the fine HORN oscillator sites
+from `256` to `512`, and
+`sparse_horn_cifar10_rgb_current_n512_resonant005` combines that larger field
+with the resonant readout candidate. These are capacity diagnostics, not
+defaults: the first probe made samples more active/diverse but hurt class
+consistency, attractor accuracy, nearest-real MSE, and throughput.
+`sparse_horn_cifar10_rgb_current_multimode2` keeps `256` spatial sites but
+gives each site two HORN frequency modes. The first pilot made this a better
+structured-capacity lead than flat `512`: stronger class consistency and
+attractor behavior, but still not sharper CIFAR rendering.
+`sparse_horn_cifar10_rgb_current_retinotopic` and
+`sparse_horn_cifar10_rgb_current_multimode2_retinotopic` preserve the HORN grid
+inside the resize-conv seed. They are useful for readout and state-fitting
+diagnostics because they repair a real spatial-layout mismatch, but they are
+not yet better direct-generation defaults. The param-matched controls
+`sparse_horn_cifar10_rgb_current_retinotopic_ch30`,
+`sparse_horn_cifar10_rgb_current_retinotopic_seed4_ch30`, and
+`sparse_horn_cifar10_rgb_current_multimode2_retinotopic_ch30` confirm the same
+tradeoff: better detail/proximity diagnostics, weaker direct class-consistent
+generation than the flat multimode seed at 20 epochs.
 The `coarse16_normlocal_gentle_local050` preset is the multiscale HORN probe:
 a small coarse oscillator bank sends weak local-radius drive into the fine
 field. It is useful for testing coarse-to-fine coordination, but it is not the

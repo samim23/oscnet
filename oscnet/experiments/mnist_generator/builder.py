@@ -10,6 +10,7 @@ from oscnet.models import (
     HORNImageGenerator,
     KuramotoImageGenerator,
     MultiscaleHORNImageGenerator,
+    MultiModeHORNImageGenerator,
     StateMLPImageGenerator,
 )
 
@@ -26,6 +27,7 @@ def build_mnist_generator_model(
         "horn",
         "coarse_horn",
         "multiscale_horn",
+        "multimode_horn",
         "state_mlp",
     ):
         steps = config.steps
@@ -35,6 +37,7 @@ def build_mnist_generator_model(
         "horn_decoder_only",
         "coarse_horn_decoder_only",
         "multiscale_horn_decoder_only",
+        "multimode_horn_decoder_only",
         "state_mlp_decoder_only",
     ):
         steps = 0
@@ -44,6 +47,7 @@ def build_mnist_generator_model(
         "frozen_horn",
         "frozen_coarse_horn",
         "frozen_multiscale_horn",
+        "frozen_multimode_horn",
         "frozen_state_mlp",
     ):
         steps = config.steps
@@ -54,7 +58,8 @@ def build_mnist_generator_model(
             "'frozen_kuramoto', 'horn', 'horn_decoder_only', 'frozen_horn', "
             "'coarse_horn', 'coarse_horn_decoder_only', 'frozen_coarse_horn', "
             "'multiscale_horn', 'multiscale_horn_decoder_only', "
-            "'frozen_multiscale_horn', "
+            "'frozen_multiscale_horn', 'multimode_horn', "
+            "'multimode_horn_decoder_only', 'frozen_multimode_horn', "
             "'state_mlp', 'state_mlp_decoder_only', or 'frozen_state_mlp'"
         )
     train_recurrent_dynamics = (
@@ -80,6 +85,12 @@ def build_mnist_generator_model(
         "frozen_multiscale_horn",
     ):
         model_class = MultiscaleHORNImageGenerator
+    elif config.model_family in (
+        "multimode_horn",
+        "multimode_horn_decoder_only",
+        "frozen_multimode_horn",
+    ):
+        model_class = MultiModeHORNImageGenerator
     elif config.model_family in ("horn", "horn_decoder_only", "frozen_horn"):
         model_class = HORNImageGenerator
     elif config.model_family in (
@@ -128,6 +139,8 @@ def build_mnist_generator_model(
         ),
         "resize_conv_upsamples": config.resize_conv_upsamples,
         "resize_conv_min_channels": config.resize_conv_min_channels,
+        "resize_conv_seed_layout": config.resize_conv_seed_layout,
+        "resize_conv_seed_min_channels": config.resize_conv_seed_min_channels,
         "output_activation": config.output_activation,
         "output_bias_init": config.output_bias_init,
         "key": key,
@@ -136,6 +149,7 @@ def build_mnist_generator_model(
         HORNImageGenerator,
         CoarseToFineHORNImageGenerator,
         MultiscaleHORNImageGenerator,
+        MultiModeHORNImageGenerator,
     ):
         model_kwargs.update(
             {
@@ -147,6 +161,38 @@ def build_mnist_generator_model(
                 "output_feedback_strength": config.output_feedback_strength,
                 "output_feedback_init_scale": config.output_feedback_init_scale,
                 "output_feedback_basis_sigma": config.output_feedback_basis_sigma,
+                "state_residual_readout_strength": (
+                    config.state_residual_readout_strength
+                ),
+                "state_residual_readout_init_scale": (
+                    config.state_residual_readout_init_scale
+                ),
+                "state_residual_readout_patch_size": (
+                    config.state_residual_readout_patch_size
+                ),
+                "state_residual_readout_sigma": config.state_residual_readout_sigma,
+                "resonant_readout_strength": config.resonant_readout_strength,
+                "resonant_readout_init_scale": config.resonant_readout_init_scale,
+                "resonant_readout_patch_size": config.resonant_readout_patch_size,
+                "resonant_readout_sigma": config.resonant_readout_sigma,
+                "state_anchor_encoder_enabled": (
+                    config.state_anchor_weight > 0.0
+                    and config.state_anchor_mode != "none"
+                ),
+                "state_anchor_encoder_kernel_size": (
+                    config.state_anchor_encoder_kernel_size
+                ),
+            }
+        )
+    if model_class is MultiModeHORNImageGenerator:
+        model_kwargs.update(
+            {
+                "num_modes": config.multimode_num_modes,
+                "mode_frequency_scales": config.multimode_frequency_scales,
+                "mode_coupling_strength": (
+                    config.multimode_mode_coupling_strength
+                ),
+                "mode_coupling_profile": config.multimode_mode_coupling_profile,
             }
         )
     if model_class is CoarseToFineHORNImageGenerator:
@@ -250,15 +296,66 @@ def build_mnist_generator_model(
                 "multiscale_readout_fusion_strength": (
                     config.multiscale_readout_fusion_strength
                 ),
+                "multiscale_readout_gate_mode": (
+                    config.multiscale_readout_gate_mode
+                ),
+                "multiscale_readout_gate_strength": (
+                    config.multiscale_readout_gate_strength
+                ),
+                "multiscale_readout_gate_init_scale": (
+                    config.multiscale_readout_gate_init_scale
+                ),
             }
         )
     if model_class is StateMLPImageGenerator:
+        state_mlp_kwargs = {
+            "state_mlp_hidden_dim": config.state_mlp_hidden_dim,
+            "state_mlp_depth": config.state_mlp_depth,
+            "state_mlp_residual_scale": config.state_mlp_residual_scale,
+            "horn_state_bound": config.horn_state_bound,
+            "output_feedback_mode": config.output_feedback_mode,
+            "output_feedback_strength": config.output_feedback_strength,
+            "output_feedback_init_scale": config.output_feedback_init_scale,
+            "output_feedback_basis_sigma": config.output_feedback_basis_sigma,
+            "state_residual_readout_strength": (
+                config.state_residual_readout_strength
+            ),
+            "state_residual_readout_init_scale": (
+                config.state_residual_readout_init_scale
+            ),
+            "state_residual_readout_patch_size": (
+                config.state_residual_readout_patch_size
+            ),
+            "state_residual_readout_sigma": config.state_residual_readout_sigma,
+            "resonant_readout_strength": config.resonant_readout_strength,
+            "resonant_readout_init_scale": config.resonant_readout_init_scale,
+            "resonant_readout_patch_size": config.resonant_readout_patch_size,
+            "resonant_readout_sigma": config.resonant_readout_sigma,
+            "state_anchor_encoder_enabled": (
+                config.state_anchor_weight > 0.0
+                and config.state_anchor_mode != "none"
+            ),
+            "state_anchor_encoder_kernel_size": (
+                config.state_anchor_encoder_kernel_size
+            ),
+        }
+        if (
+            config.decoder_mode == "resize_conv"
+            and config.resize_conv_seed_layout == "retinotopic"
+        ):
+            seed_sites = int(config.resize_conv_seed_size) ** 2
+            if config.num_oscillators % seed_sites != 0:
+                raise ValueError(
+                    "retinotopic StateMLP requires num_oscillators to be "
+                    "a multiple of resize_conv_seed_size ** 2"
+                )
+            state_mlp_kwargs.update(
+                {
+                    "num_spatial_sites": seed_sites,
+                    "num_modes": config.num_oscillators // seed_sites,
+                }
+            )
         model_kwargs.update(
-            {
-                "state_mlp_hidden_dim": config.state_mlp_hidden_dim,
-                "state_mlp_depth": config.state_mlp_depth,
-                "state_mlp_residual_scale": config.state_mlp_residual_scale,
-                "horn_state_bound": config.horn_state_bound,
-            }
+            state_mlp_kwargs
         )
     return model_class(**model_kwargs)

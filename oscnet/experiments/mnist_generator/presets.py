@@ -2499,11 +2499,404 @@ GENERATOR_PRESETS[CURRENT_CIFAR10_RGB_GENERATOR_PRESET] = {
     "output_dir": "outputs/reference/mnist_generator_sparse_horn_cifar10_rgb_current",
 }
 
+GENERATOR_PRESETS["sparse_horn_cifar10_rgb_current_resonant005"] = {
+    **GENERATOR_PRESETS[CURRENT_CIFAR10_RGB_GENERATOR_PRESET],
+    "resonant_readout_strength": 0.05,
+    "resonant_readout_init_scale": 0.02,
+    "resonant_readout_patch_size": 5,
+    "resonant_readout_sigma": 0.0,
+    "output_dir": (
+        "outputs/reference/"
+        "mnist_generator_sparse_horn_cifar10_rgb_current_resonant005"
+    ),
+}
+
+GENERATOR_PRESETS["sparse_horn_cifar10_rgb_current_resonant010"] = {
+    **GENERATOR_PRESETS[CURRENT_CIFAR10_RGB_GENERATOR_PRESET],
+    "resonant_readout_strength": 0.10,
+    "resonant_readout_init_scale": 0.02,
+    "resonant_readout_patch_size": 5,
+    "resonant_readout_sigma": 0.0,
+    "output_dir": (
+        "outputs/reference/"
+        "mnist_generator_sparse_horn_cifar10_rgb_current_resonant010"
+    ),
+}
+
+GENERATOR_PRESETS["sparse_horn_cifar10_rgb_current_n512"] = {
+    **GENERATOR_PRESETS[CURRENT_CIFAR10_RGB_GENERATOR_PRESET],
+    "num_oscillators": 512,
+    "output_dir": (
+        "outputs/reference/"
+        "mnist_generator_sparse_horn_cifar10_rgb_current_n512"
+    ),
+}
+
+GENERATOR_PRESETS["sparse_horn_cifar10_rgb_current_n512_resonant005"] = {
+    **GENERATOR_PRESETS["sparse_horn_cifar10_rgb_current_n512"],
+    "resonant_readout_strength": 0.05,
+    "resonant_readout_init_scale": 0.02,
+    "resonant_readout_patch_size": 5,
+    "resonant_readout_sigma": 0.0,
+    "output_dir": (
+        "outputs/reference/"
+        "mnist_generator_sparse_horn_cifar10_rgb_current_n512_resonant005"
+    ),
+}
+
+GENERATOR_PRESETS["sparse_horn_cifar10_rgb_current_multimode2"] = {
+    **GENERATOR_PRESETS[CURRENT_CIFAR10_RGB_GENERATOR_PRESET],
+    "model_family": "multimode_horn",
+    "num_oscillators": 256,
+    "multimode_num_modes": 2,
+    "multimode_frequency_scales": (0.75, 1.35),
+    "multimode_mode_coupling_strength": 0.25,
+    "multimode_mode_coupling_profile": "dense",
+    "output_dir": (
+        "outputs/reference/"
+        "mnist_generator_sparse_horn_cifar10_rgb_current_multimode2"
+    ),
+}
+
+GENERATOR_PRESETS["sparse_horn_cifar10_rgb_current_multimode2_weak"] = {
+    **GENERATOR_PRESETS["sparse_horn_cifar10_rgb_current_multimode2"],
+    "multimode_mode_coupling_strength": 0.10,
+    "output_dir": (
+        "outputs/reference/"
+        "mnist_generator_sparse_horn_cifar10_rgb_current_multimode2_weak"
+    ),
+}
+
+GENERATOR_PRESETS["sparse_horn_cifar10_rgb_current_retinotopic"] = {
+    **GENERATOR_PRESETS[CURRENT_CIFAR10_RGB_GENERATOR_PRESET],
+    "resize_conv_seed_size": 16,
+    "resize_conv_upsamples": 1,
+    "resize_conv_seed_layout": "retinotopic",
+    "output_dir": (
+        "outputs/reference/"
+        "mnist_generator_sparse_horn_cifar10_rgb_current_retinotopic"
+    ),
+}
+
+GENERATOR_PRESETS["sparse_horn_cifar10_rgb_current_retinotopic_ch30"] = {
+    **GENERATOR_PRESETS["sparse_horn_cifar10_rgb_current_retinotopic"],
+    "resize_conv_min_channels": 30,
+    "output_dir": (
+        "outputs/reference/"
+        "mnist_generator_sparse_horn_cifar10_rgb_current_retinotopic_ch30"
+    ),
+}
+
+GENERATOR_PRESETS["sparse_horn_cifar10_rgb_current_retinotopic_seed4_ch30"] = {
+    **GENERATOR_PRESETS["sparse_horn_cifar10_rgb_current_retinotopic_ch30"],
+    "resize_conv_seed_min_channels": 4,
+    "output_dir": (
+        "outputs/reference/"
+        "mnist_generator_sparse_horn_cifar10_rgb_current_retinotopic_seed4_ch30"
+    ),
+}
+
+GENERATOR_PRESETS["sparse_horn_cifar10_rgb_current_multimode2_retinotopic"] = {
+    **GENERATOR_PRESETS["sparse_horn_cifar10_rgb_current_multimode2"],
+    "resize_conv_seed_size": 16,
+    "resize_conv_upsamples": 1,
+    "resize_conv_seed_layout": "retinotopic",
+    "output_dir": (
+        "outputs/reference/"
+        "mnist_generator_sparse_horn_cifar10_rgb_current_multimode2_retinotopic"
+    ),
+}
+
+GENERATOR_PRESETS["sparse_horn_cifar10_rgb_current_multimode2_retinotopic_ch30"] = {
+    **GENERATOR_PRESETS["sparse_horn_cifar10_rgb_current_multimode2_retinotopic"],
+    "resize_conv_min_channels": 30,
+    "output_dir": (
+        "outputs/reference/"
+        "mnist_generator_sparse_horn_cifar10_rgb_current_multimode2_retinotopic_ch30"
+    ),
+}
+
+GENERATOR_PRESETS[
+    "sparse_horn_cifar10_rgb_current_multimode2_retinotopic_anchor_reconstruct010"
+] = {
+    **GENERATOR_PRESETS["sparse_horn_cifar10_rgb_current_multimode2_retinotopic_ch30"],
+    "state_anchor_weight": 0.10,
+    "state_anchor_mode": "reconstruct",
+    "state_anchor_noise_scale": 0.0,
+    "state_anchor_steps": (0,),
+    "state_anchor_encoder_kernel_size": 3,
+    "output_dir": (
+        "outputs/reference/"
+        "mnist_generator_sparse_horn_cifar10_rgb_current_multimode2_"
+        "retinotopic_anchor_reconstruct010"
+    ),
+}
+
+GENERATOR_PRESETS[
+    "sparse_horn_cifar10_rgb_current_multimode2_retinotopic_anchor010"
+] = {
+    **GENERATOR_PRESETS["sparse_horn_cifar10_rgb_current_multimode2_retinotopic_ch30"],
+    "state_anchor_weight": 0.10,
+    "state_anchor_mode": "settle",
+    "state_anchor_steps": (4, 8, 16),
+    "state_anchor_noise_scale": 0.05,
+    "state_anchor_encoder_kernel_size": 3,
+    "output_dir": (
+        "outputs/reference/"
+        "mnist_generator_sparse_horn_cifar10_rgb_current_multimode2_"
+        "retinotopic_anchor010"
+    ),
+}
+
+GENERATOR_PRESETS[
+    "sparse_horn_cifar10_rgb_current_multimode2_retinotopic_anchor030"
+] = {
+    **GENERATOR_PRESETS[
+        "sparse_horn_cifar10_rgb_current_multimode2_retinotopic_anchor010"
+    ],
+    "state_anchor_weight": 0.30,
+    "output_dir": (
+        "outputs/reference/"
+        "mnist_generator_sparse_horn_cifar10_rgb_current_multimode2_"
+        "retinotopic_anchor030"
+    ),
+}
+
+GENERATOR_PRESETS[
+    "sparse_horn_cifar10_rgb_current_multimode2_retinotopic_anchor030_prior_global"
+] = {
+    **GENERATOR_PRESETS[
+        "sparse_horn_cifar10_rgb_current_multimode2_retinotopic_anchor030"
+    ],
+    "state_prior_sampling_mode": "global",
+    "state_prior_rank": 32,
+    "state_prior_noise_scale": 1.0,
+    "state_prior_refresh_epochs": 1,
+    "state_prior_start_epoch": 2,
+    "output_dir": (
+        "outputs/reference/"
+        "mnist_generator_sparse_horn_cifar10_rgb_current_multimode2_"
+        "retinotopic_anchor030_prior_global"
+    ),
+}
+
+GENERATOR_PRESETS[
+    "sparse_horn_cifar10_rgb_current_multimode2_retinotopic_anchor030_prior_global_patch005"
+] = {
+    **GENERATOR_PRESETS[
+        "sparse_horn_cifar10_rgb_current_multimode2_retinotopic_anchor030_prior_global"
+    ],
+    "patch_objective_weight": 0.05,
+    "patch_objective_patch_size": 5,
+    "patch_objective_stride": 4,
+    "patch_objective_offsets": (0, 2),
+    "patch_objective_projections": 32,
+    "patch_objective_edge_weight": 0.25,
+    "output_dir": (
+        "outputs/reference/"
+        "mnist_generator_sparse_horn_cifar10_rgb_current_multimode2_"
+        "retinotopic_anchor030_prior_global_patch005"
+    ),
+}
+
+GENERATOR_PRESETS[
+    "sparse_horn_cifar10_rgb_current_multimode2_retinotopic_anchor030_prior_class"
+] = {
+    **GENERATOR_PRESETS[
+        "sparse_horn_cifar10_rgb_current_multimode2_retinotopic_anchor030"
+    ],
+    "state_prior_sampling_mode": "class",
+    "state_prior_rank": 32,
+    "state_prior_noise_scale": 1.0,
+    "state_prior_refresh_epochs": 1,
+    "state_prior_start_epoch": 2,
+    "output_dir": (
+        "outputs/reference/"
+        "mnist_generator_sparse_horn_cifar10_rgb_current_multimode2_"
+        "retinotopic_anchor030_prior_class"
+    ),
+}
+
+GENERATOR_PRESETS[
+    "sparse_horn_cifar10_rgb_current_multimode2_retinotopic_anchor030_prior_class_patch005"
+] = {
+    **GENERATOR_PRESETS[
+        "sparse_horn_cifar10_rgb_current_multimode2_retinotopic_anchor030_prior_class"
+    ],
+    "patch_objective_weight": 0.05,
+    "patch_objective_patch_size": 5,
+    "patch_objective_stride": 4,
+    "patch_objective_offsets": (0, 2),
+    "patch_objective_projections": 32,
+    "patch_objective_edge_weight": 0.25,
+    "output_dir": (
+        "outputs/reference/"
+        "mnist_generator_sparse_horn_cifar10_rgb_current_multimode2_"
+        "retinotopic_anchor030_prior_class_patch005"
+    ),
+}
+
+GENERATOR_PRESETS[
+    "sparse_horn_cifar10_rgb_current_state_mlp_retinotopic_anchor030_prior_class_patch005"
+] = {
+    **GENERATOR_PRESETS[
+        "sparse_horn_cifar10_rgb_current_multimode2_retinotopic_anchor030_prior_class_patch005"
+    ],
+    "model_family": "state_mlp",
+    "num_oscillators": 512,
+    "state_mlp_hidden_dim": 128,
+    "state_mlp_depth": 1,
+    "state_mlp_residual_scale": 0.1,
+    "output_dir": (
+        "outputs/reference/"
+        "mnist_generator_sparse_horn_cifar10_rgb_current_state_mlp_"
+        "retinotopic_anchor030_prior_class_patch005"
+    ),
+}
+
+GENERATOR_PRESETS[
+    "sparse_horn_cifar10_rgb_current_multimode2_retinotopic_anchor_frozen010"
+] = {
+    **GENERATOR_PRESETS[
+        "sparse_horn_cifar10_rgb_current_multimode2_retinotopic_anchor010"
+    ],
+    "state_anchor_mode": "frozen_dynamics",
+    "output_dir": (
+        "outputs/reference/"
+        "mnist_generator_sparse_horn_cifar10_rgb_current_multimode2_"
+        "retinotopic_anchor_frozen010"
+    ),
+}
+
 GENERATOR_PRESETS[CURRENT_CIFAR10_RGB_HIERARCHY_PRESET] = {
     **GENERATOR_PRESETS[_CIFAR10_RGB_HIERARCHY_LEAD_PRESET],
     "output_dir": (
         "outputs/reference/"
         "mnist_generator_sparse_horn_cifar10_rgb_hierarchy_lead"
+    ),
+}
+
+GENERATOR_PRESETS["sparse_horn_cifar10_rgb_hierarchy_gate010"] = {
+    **GENERATOR_PRESETS[CURRENT_CIFAR10_RGB_HIERARCHY_PRESET],
+    "multiscale_readout_gate_mode": "seed_film",
+    "multiscale_readout_gate_strength": 0.10,
+    "multiscale_readout_gate_init_scale": 0.0,
+    "output_dir": (
+        "outputs/reference/"
+        "mnist_generator_sparse_horn_cifar10_rgb_hierarchy_gate010"
+    ),
+}
+
+GENERATOR_PRESETS["sparse_horn_cifar10_rgb_hierarchy_gate025"] = {
+    **GENERATOR_PRESETS[CURRENT_CIFAR10_RGB_HIERARCHY_PRESET],
+    "multiscale_readout_gate_mode": "seed_film",
+    "multiscale_readout_gate_strength": 0.25,
+    "multiscale_readout_gate_init_scale": 0.0,
+    "output_dir": (
+        "outputs/reference/"
+        "mnist_generator_sparse_horn_cifar10_rgb_hierarchy_gate025"
+    ),
+}
+
+GENERATOR_PRESETS["sparse_horn_cifar10_rgb_hierarchy_freq001"] = {
+    **GENERATOR_PRESETS[CURRENT_CIFAR10_RGB_HIERARCHY_PRESET],
+    "frequency_objective_weight": 0.01,
+    "frequency_objective_edge_weight": 1.0,
+    "output_dir": (
+        "outputs/reference/"
+        "mnist_generator_sparse_horn_cifar10_rgb_hierarchy_freq001"
+    ),
+}
+
+GENERATOR_PRESETS["sparse_horn_cifar10_rgb_hierarchy_freq003"] = {
+    **GENERATOR_PRESETS[CURRENT_CIFAR10_RGB_HIERARCHY_PRESET],
+    "frequency_objective_weight": 0.03,
+    "frequency_objective_edge_weight": 1.0,
+    "output_dir": (
+        "outputs/reference/"
+        "mnist_generator_sparse_horn_cifar10_rgb_hierarchy_freq003"
+    ),
+}
+
+GENERATOR_PRESETS["sparse_horn_cifar10_rgb_hierarchy_patch005"] = {
+    **GENERATOR_PRESETS[CURRENT_CIFAR10_RGB_HIERARCHY_PRESET],
+    "patch_objective_weight": 0.05,
+    "patch_objective_patch_size": 5,
+    "patch_objective_stride": 4,
+    "patch_objective_projections": 32,
+    "patch_objective_edge_weight": 0.25,
+    "output_dir": (
+        "outputs/reference/"
+        "mnist_generator_sparse_horn_cifar10_rgb_hierarchy_patch005"
+    ),
+}
+
+GENERATOR_PRESETS["sparse_horn_cifar10_rgb_hierarchy_patch010"] = {
+    **GENERATOR_PRESETS[CURRENT_CIFAR10_RGB_HIERARCHY_PRESET],
+    "patch_objective_weight": 0.10,
+    "patch_objective_patch_size": 5,
+    "patch_objective_stride": 4,
+    "patch_objective_projections": 32,
+    "patch_objective_edge_weight": 0.25,
+    "output_dir": (
+        "outputs/reference/"
+        "mnist_generator_sparse_horn_cifar10_rgb_hierarchy_patch010"
+    ),
+}
+
+GENERATOR_PRESETS["sparse_horn_cifar10_rgb_hierarchy_patch010_overlap"] = {
+    **GENERATOR_PRESETS["sparse_horn_cifar10_rgb_hierarchy_patch010"],
+    "patch_objective_offsets": (0, 2),
+    "output_dir": (
+        "outputs/reference/"
+        "mnist_generator_sparse_horn_cifar10_rgb_hierarchy_patch010_overlap"
+    ),
+}
+
+GENERATOR_PRESETS["sparse_horn_cifar10_rgb_hierarchy_patch010_multiscale"] = {
+    **GENERATOR_PRESETS["sparse_horn_cifar10_rgb_hierarchy_patch010"],
+    "patch_objective_patch_sizes": (3, 5, 7),
+    "patch_objective_projections": 48,
+    "output_dir": (
+        "outputs/reference/"
+        "mnist_generator_sparse_horn_cifar10_rgb_hierarchy_patch010_multiscale"
+    ),
+}
+
+GENERATOR_PRESETS["sparse_horn_cifar10_rgb_hierarchy_state_residual005"] = {
+    **GENERATOR_PRESETS[CURRENT_CIFAR10_RGB_HIERARCHY_PRESET],
+    "state_residual_readout_strength": 0.05,
+    "state_residual_readout_init_scale": 0.01,
+    "state_residual_readout_patch_size": 5,
+    "state_residual_readout_sigma": 0.0,
+    "output_dir": (
+        "outputs/reference/"
+        "mnist_generator_sparse_horn_cifar10_rgb_hierarchy_state_residual005"
+    ),
+}
+
+GENERATOR_PRESETS["sparse_horn_cifar10_rgb_hierarchy_state_residual010"] = {
+    **GENERATOR_PRESETS[CURRENT_CIFAR10_RGB_HIERARCHY_PRESET],
+    "state_residual_readout_strength": 0.10,
+    "state_residual_readout_init_scale": 0.01,
+    "state_residual_readout_patch_size": 5,
+    "state_residual_readout_sigma": 0.0,
+    "output_dir": (
+        "outputs/reference/"
+        "mnist_generator_sparse_horn_cifar10_rgb_hierarchy_state_residual010"
+    ),
+}
+
+GENERATOR_PRESETS[
+    "sparse_horn_cifar10_rgb_hierarchy_patch010_multiscale_overlap"
+] = {
+    **GENERATOR_PRESETS["sparse_horn_cifar10_rgb_hierarchy_patch010_multiscale"],
+    "patch_objective_offsets": (0, 2),
+    "patch_objective_weight": 0.07,
+    "output_dir": (
+        "outputs/reference/"
+        "mnist_generator_sparse_horn_cifar10_rgb_hierarchy_"
+        "patch010_multiscale_overlap"
     ),
 }
 

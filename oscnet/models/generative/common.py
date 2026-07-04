@@ -135,6 +135,57 @@ def _local_basis_tensor(
     return basis / jnp.maximum(jnp.max(basis, axis=-1, keepdims=True), 1e-8)
 
 
+def _local_spatial_basis_tensor(
+    *,
+    num_oscillators: int,
+    image_shape: Tuple[int, ...],
+    patch_size: int,
+    sigma: float,
+) -> Array:
+    """Build local patch bases over spatial pixels, without channel expansion."""
+
+    height, width, _ = _image_hw_channels(image_shape)
+    grid_rows = max(1, int(math.floor(math.sqrt(num_oscillators))))
+    grid_cols = max(1, int(math.ceil(num_oscillators / grid_rows)))
+    pixel_y, pixel_x = jnp.meshgrid(
+        jnp.linspace(-1.0, 1.0, height),
+        jnp.linspace(-1.0, 1.0, width),
+        indexing="ij",
+    )
+    centers_y, centers_x = jnp.meshgrid(
+        jnp.linspace(-1.0, 1.0, grid_rows),
+        jnp.linspace(-1.0, 1.0, grid_cols),
+        indexing="ij",
+    )
+    centers = jnp.stack([centers_y.reshape(-1), centers_x.reshape(-1)], axis=-1)
+    centers = centers[:num_oscillators]
+    pixels = jnp.stack([pixel_y.reshape(-1), pixel_x.reshape(-1)], axis=-1)
+
+    patch_radius = patch_size // 2
+    spacing = 2.0 / float(max(grid_rows, grid_cols, 2) - 1)
+    offset_scale = 0.5 * spacing
+    offsets_y, offsets_x = jnp.meshgrid(
+        jnp.arange(-patch_radius, patch_radius + 1, dtype=jnp.float32),
+        jnp.arange(-patch_radius, patch_radius + 1, dtype=jnp.float32),
+        indexing="ij",
+    )
+    offsets = jnp.stack(
+        [offsets_y.reshape(-1), offsets_x.reshape(-1)],
+        axis=-1,
+    ) * offset_scale
+
+    sigma = float(sigma)
+    if sigma <= 0.0:
+        sigma = 0.4 * spacing
+    local_centers = centers[:, None, :] + offsets[None, :, :]
+    squared_distance = jnp.sum(
+        (local_centers[:, :, None, :] - pixels[None, None, :, :]) ** 2,
+        axis=-1,
+    )
+    basis = jnp.exp(-squared_distance / (2.0 * sigma**2))
+    return basis / jnp.maximum(jnp.max(basis, axis=-1, keepdims=True), 1e-8)
+
+
 def _oscillator_grid_coordinates(num_oscillators: int) -> Array:
     """Place oscillators on a near-square normalized grid."""
 

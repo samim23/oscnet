@@ -82,6 +82,10 @@ class GeneratorFrontierSummary:
     feature_diversity_ratio_mean: float
     feature_nearest_real_mse_mean: float
     feature_pairwise_distance_ratio_mean: float
+    feature_frechet_distance_mean: float
+    feature_kid_mmd2_mean: float
+    frequency_high_power_ratio_mean: float
+    edge_laplacian_variance_ratio_mean: float
     pixel_mean_mse_mean: float
     pixel_std_mse_mean: float
     state_energy_mean: float
@@ -157,6 +161,12 @@ DEFAULT_PAIRED_METRICS = (
         "feature nearest-real",
         False,
     ),
+    PairedMetricSpec(
+        "generator.classifier_feature_frechet_distance",
+        "feature Frechet",
+        False,
+    ),
+    PairedMetricSpec("generator.classifier_feature_kid_mmd2", "feature KID", False),
     PairedMetricSpec(
         "generator.attractor_robustness.label_accuracy",
         "attractor acc",
@@ -362,6 +372,18 @@ def _summarize_variant(variant: str, rows: Sequence[dict[str, str]]) -> Generato
         ),
         feature_pairwise_distance_ratio_mean=_mean(
             column("generator.classifier_feature_pairwise_distance_ratio")
+        ),
+        feature_frechet_distance_mean=_mean(
+            column("generator.classifier_feature_frechet_distance")
+        ),
+        feature_kid_mmd2_mean=_mean(
+            column("generator.classifier_feature_kid_mmd2")
+        ),
+        frequency_high_power_ratio_mean=_mean(
+            column("generator.frequency_high_power_ratio")
+        ),
+        edge_laplacian_variance_ratio_mean=_mean(
+            column("generator.edge_laplacian_variance_ratio")
         ),
         pixel_mean_mse_mean=_mean(column("generator.pixel_mean_mse")),
         pixel_std_mse_mean=_mean(column("generator.pixel_std_mse")),
@@ -573,11 +595,18 @@ def write_frontier_markdown(
         == summary.coarse_to_fine_potential_delta_mean
         for summary in summaries
     )
+    include_frequency_metrics = any(
+        summary.frequency_high_power_ratio_mean
+        == summary.frequency_high_power_ratio_mean
+        or summary.edge_laplacian_variance_ratio_mean
+        == summary.edge_laplacian_variance_ratio_mean
+        for summary in summaries
+    )
     header = "| Variant | Runs | Frontier | Acc | Diversity | Nearest-real MSE | "
     separator = "| --- | ---: | :---: | ---: | ---: | ---: | "
     if include_feature_metrics:
-        header += "Feature diversity | Feature nearest-real | "
-        separator += "---: | ---: | "
+        header += "Feature diversity | Feature nearest-real | Feature Frechet | Feature KID | "
+        separator += "---: | ---: | ---: | ---: | "
     if include_attractor_metrics:
         header += "Attractor acc | Basin score | Attractor within | Attractor sep | "
         separator += "---: | ---: | ---: | ---: | "
@@ -586,6 +615,9 @@ def write_frontier_markdown(
         "Coupling density | "
     )
     separator += "---: | ---: | ---: | ---: | ---: | "
+    if include_frequency_metrics:
+        header += "High-freq ratio | Edge ratio | "
+        separator += "---: | ---: | "
     if include_coarse_metrics:
         header += (
             "Coarse energy | Coarse update settle | Coarse coupling delta | "
@@ -614,6 +646,8 @@ def write_frontier_markdown(
                 [
                     _fmt(summary.feature_diversity_ratio_mean),
                     _fmt(summary.feature_nearest_real_mse_mean),
+                    _fmt(summary.feature_frechet_distance_mean),
+                    _fmt(summary.feature_kid_mmd2_mean),
                 ]
             )
         if include_attractor_metrics:
@@ -634,6 +668,13 @@ def write_frontier_markdown(
                 _fmt(summary.coupling_density_mean),
             ]
         )
+        if include_frequency_metrics:
+            row.extend(
+                [
+                    _fmt(summary.frequency_high_power_ratio_mean),
+                    _fmt(summary.edge_laplacian_variance_ratio_mean),
+                ]
+            )
         if include_coarse_metrics:
             row.extend(
                 [

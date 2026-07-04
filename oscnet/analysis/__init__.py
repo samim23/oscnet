@@ -21,6 +21,18 @@ from .generator_frontier import (
     write_frontier_csv,
     write_frontier_markdown,
 )
+from .generator_state_prior import (
+    ClassStatePrior,
+    encode_anchor_state_distribution,
+    evaluate_state_prior_sampling_probe,
+    fit_class_state_prior,
+    generate_from_initial_states,
+    nearest_reference_mse_summary,
+    sample_class_state_prior,
+    save_state_prior_contact_sheet,
+    state_prior_to_json,
+    write_state_prior_probe_csv,
+)
 from .reconstruction_diagnostics import (
     ReconstructionArtifactSummary,
     RunDiagnosticSummary,
@@ -33,6 +45,11 @@ from .reconstruction_diagnostics import (
 
 __all__ = [
     "circular_difference",
+    "ClassStatePrior",
+    "encode_anchor_state_distribution",
+    "evaluate_state_prior_sampling_probe",
+    "fit_class_state_prior",
+    "generate_from_initial_states",
     "GeneratorFrontierSummary",
     "ReconstructionArtifactSummary",
     "RunDiagnosticSummary",
@@ -41,15 +58,20 @@ __all__ = [
     "latest_reconstruction_artifact",
     "local_group_order",
     "mean_neighbor_phase_difference",
+    "nearest_reference_mse_summary",
     "phase_order_parameter",
     "plot_frontier",
     "read_generator_sweep_csv",
+    "sample_class_state_prior",
+    "save_state_prior_contact_sheet",
+    "state_prior_to_json",
     "summarize_reconstruction_artifact",
     "summarize_generator_frontier",
     "summarize_run_diagnostics",
     "trace_phase_summary",
     "write_frontier_csv",
     "write_frontier_markdown",
+    "write_state_prior_probe_csv",
     "write_run_diagnostics_csv",
 ]
 

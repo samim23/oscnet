@@ -19,6 +19,8 @@ class StateMLPImageGenerator(HORNImageGenerator):
     state_mlp_hidden_dim: int = eqx.field(static=True)
     state_mlp_depth: int = eqx.field(static=True)
     state_mlp_residual_scale: float = eqx.field(static=True)
+    num_spatial_sites: int = eqx.field(static=True)
+    num_modes: int = eqx.field(static=True)
     transition_layers: Tuple[eqx.nn.Linear, ...]
 
     def __init__(
@@ -27,6 +29,8 @@ class StateMLPImageGenerator(HORNImageGenerator):
         state_mlp_hidden_dim: int = 48,
         state_mlp_depth: int = 1,
         state_mlp_residual_scale: float = 0.1,
+        num_spatial_sites: Optional[int] = None,
+        num_modes: int = 1,
         **kwargs,
     ):
         if state_mlp_hidden_dim < 1:
@@ -35,12 +39,27 @@ class StateMLPImageGenerator(HORNImageGenerator):
             raise ValueError("state_mlp_depth must be non-negative")
         if state_mlp_residual_scale <= 0.0:
             raise ValueError("state_mlp_residual_scale must be positive")
+        if num_modes < 1:
+            raise ValueError("num_modes must be positive")
+        total_sites = int(kwargs.get("num_oscillators", 64))
+        if num_spatial_sites is None:
+            num_spatial_sites = total_sites
+        num_spatial_sites = int(num_spatial_sites)
+        num_modes = int(num_modes)
+        if num_spatial_sites < 1:
+            raise ValueError("num_spatial_sites must be positive")
+        if num_spatial_sites * num_modes != total_sites:
+            raise ValueError(
+                "num_spatial_sites times num_modes must equal num_oscillators"
+            )
 
         key = kwargs.get("key", None)
         if key is None:
             key = jax.random.PRNGKey(42)
         base_key, transition_key = jax.random.split(key)
         kwargs["key"] = base_key
+        kwargs.setdefault("state_anchor_num_spatial_sites", num_spatial_sites)
+        kwargs.setdefault("state_anchor_num_modes", num_modes)
         super().__init__(
             horn_frequency=1.0,
             horn_damping=0.0,
@@ -53,6 +72,8 @@ class StateMLPImageGenerator(HORNImageGenerator):
         self.state_mlp_hidden_dim = int(state_mlp_hidden_dim)
         self.state_mlp_depth = int(state_mlp_depth)
         self.state_mlp_residual_scale = float(state_mlp_residual_scale)
+        self.num_spatial_sites = num_spatial_sites
+        self.num_modes = num_modes
 
         feature_dim = 2 * self.num_oscillators
         layer_dims = [feature_dim]

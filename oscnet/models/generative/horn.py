@@ -10,6 +10,7 @@ from .common import (
     _activation,
     _image_hw_channels,
     _local_basis_tensor,
+    _local_spatial_basis_tensor,
     _oscillator_grid_coordinates,
     _softplus_inverse,
     _spatial_basis_matrix,
@@ -19,6 +20,7 @@ from .common import (
     math,
 )
 from .kuramoto import KuramotoImageGenerator
+
 
 class HORNImageGenerator(KuramotoImageGenerator):
     """Implicit image generator with second-order HORN-style dynamics.
@@ -38,8 +40,23 @@ class HORNImageGenerator(KuramotoImageGenerator):
     output_feedback_strength: float = eqx.field(static=True)
     output_feedback_init_scale: float = eqx.field(static=True)
     output_feedback_basis_sigma: float = eqx.field(static=True)
+    state_residual_readout_strength: float = eqx.field(static=True)
+    state_residual_readout_init_scale: float = eqx.field(static=True)
+    state_residual_readout_patch_size: int = eqx.field(static=True)
+    state_residual_readout_sigma: float = eqx.field(static=True)
+    resonant_readout_strength: float = eqx.field(static=True)
+    resonant_readout_init_scale: float = eqx.field(static=True)
+    resonant_readout_patch_size: int = eqx.field(static=True)
+    resonant_readout_sigma: float = eqx.field(static=True)
+    state_anchor_encoder_enabled: bool = eqx.field(static=True)
+    state_anchor_encoder_kernel_size: int = eqx.field(static=True)
+    state_anchor_num_spatial_sites: int = eqx.field(static=True)
+    state_anchor_num_modes: int = eqx.field(static=True)
     dynamics_family: str = eqx.field(static=True)
     output_feedback_gain: Array
+    state_residual_readout_weight: Array
+    resonant_readout_weight: Array
+    state_anchor_encoder: Optional[eqx.nn.Conv2d]
 
     def __init__(
         self,
@@ -52,6 +69,18 @@ class HORNImageGenerator(KuramotoImageGenerator):
         output_feedback_strength: float = 0.0,
         output_feedback_init_scale: float = 0.02,
         output_feedback_basis_sigma: float = 0.0,
+        state_residual_readout_strength: float = 0.0,
+        state_residual_readout_init_scale: float = 0.01,
+        state_residual_readout_patch_size: int = 5,
+        state_residual_readout_sigma: float = 0.0,
+        resonant_readout_strength: float = 0.0,
+        resonant_readout_init_scale: float = 0.02,
+        resonant_readout_patch_size: int = 5,
+        resonant_readout_sigma: float = 0.0,
+        state_anchor_encoder_enabled: bool = False,
+        state_anchor_encoder_kernel_size: int = 3,
+        state_anchor_num_spatial_sites: Optional[int] = None,
+        state_anchor_num_modes: int = 1,
         **kwargs,
     ):
         key = kwargs.get("key", None)
@@ -74,6 +103,41 @@ class HORNImageGenerator(KuramotoImageGenerator):
             raise ValueError("output_feedback_init_scale must be non-negative")
         if output_feedback_basis_sigma < 0.0:
             raise ValueError("output_feedback_basis_sigma must be non-negative")
+        if state_residual_readout_strength < 0.0:
+            raise ValueError("state_residual_readout_strength must be non-negative")
+        if state_residual_readout_init_scale < 0.0:
+            raise ValueError("state_residual_readout_init_scale must be non-negative")
+        if (
+            state_residual_readout_patch_size < 1
+            or state_residual_readout_patch_size % 2 != 1
+        ):
+            raise ValueError(
+                "state_residual_readout_patch_size must be a positive odd integer"
+            )
+        if state_residual_readout_sigma < 0.0:
+            raise ValueError("state_residual_readout_sigma must be non-negative")
+        if resonant_readout_strength < 0.0:
+            raise ValueError("resonant_readout_strength must be non-negative")
+        if resonant_readout_init_scale < 0.0:
+            raise ValueError("resonant_readout_init_scale must be non-negative")
+        if (
+            resonant_readout_patch_size < 1
+            or resonant_readout_patch_size % 2 != 1
+        ):
+            raise ValueError(
+                "resonant_readout_patch_size must be a positive odd integer"
+            )
+        if resonant_readout_sigma < 0.0:
+            raise ValueError("resonant_readout_sigma must be non-negative")
+        if (
+            state_anchor_encoder_kernel_size < 1
+            or state_anchor_encoder_kernel_size % 2 != 1
+        ):
+            raise ValueError(
+                "state_anchor_encoder_kernel_size must be a positive odd integer"
+            )
+        if state_anchor_num_modes < 1:
+            raise ValueError("state_anchor_num_modes must be positive")
         self.horn_frequency = float(horn_frequency)
         self.horn_damping = float(horn_damping)
         self.horn_nonlinearity = float(horn_nonlinearity)
@@ -82,6 +146,24 @@ class HORNImageGenerator(KuramotoImageGenerator):
         self.output_feedback_strength = float(output_feedback_strength)
         self.output_feedback_init_scale = float(output_feedback_init_scale)
         self.output_feedback_basis_sigma = float(output_feedback_basis_sigma)
+        self.state_residual_readout_strength = float(state_residual_readout_strength)
+        self.state_residual_readout_init_scale = float(
+            state_residual_readout_init_scale
+        )
+        self.state_residual_readout_patch_size = int(state_residual_readout_patch_size)
+        self.state_residual_readout_sigma = float(state_residual_readout_sigma)
+        self.resonant_readout_strength = float(resonant_readout_strength)
+        self.resonant_readout_init_scale = float(resonant_readout_init_scale)
+        self.resonant_readout_patch_size = int(resonant_readout_patch_size)
+        self.resonant_readout_sigma = float(resonant_readout_sigma)
+        self.state_anchor_encoder_enabled = bool(state_anchor_encoder_enabled)
+        self.state_anchor_encoder_kernel_size = int(state_anchor_encoder_kernel_size)
+        self.state_anchor_num_spatial_sites = int(
+            self.num_oscillators
+            if state_anchor_num_spatial_sites is None
+            else state_anchor_num_spatial_sites
+        )
+        self.state_anchor_num_modes = int(state_anchor_num_modes)
         self.dynamics_family = "horn"
         if self.output_feedback_strength > 0.0:
             feedback_key = jax.random.fold_in(key, 30091)
@@ -91,6 +173,76 @@ class HORNImageGenerator(KuramotoImageGenerator):
             )
         else:
             self.output_feedback_gain = jnp.zeros((0,), dtype=jnp.float32)
+        if self.state_residual_readout_strength > 0.0:
+            residual_key = jax.random.fold_in(key, 30103)
+            _, _, channels = _image_hw_channels(self.image_shape)
+            patch_area = self.state_residual_readout_patch_size**2
+            self.state_residual_readout_weight = (
+                jax.random.normal(
+                    residual_key,
+                    (self.num_oscillators, 2, channels, patch_area),
+                )
+                * self.state_residual_readout_init_scale
+                / jnp.sqrt(float(max(patch_area, 1)))
+            )
+        else:
+            self.state_residual_readout_weight = jnp.zeros(
+                (0, 0, 0, 0),
+                dtype=jnp.float32,
+            )
+        if self.resonant_readout_strength > 0.0:
+            resonant_key = jax.random.fold_in(key, 30117)
+            _, _, channels = _image_hw_channels(self.image_shape)
+            feature_count = self._resonant_observable_count()
+            patch_area = self.resonant_readout_patch_size**2
+            self.resonant_readout_weight = (
+                jax.random.normal(
+                    resonant_key,
+                    (feature_count, channels, patch_area),
+                )
+                * self.resonant_readout_init_scale
+                / jnp.sqrt(float(max(feature_count * patch_area, 1)))
+            )
+        else:
+            self.resonant_readout_weight = jnp.zeros(
+                (0, 0, 0),
+                dtype=jnp.float32,
+            )
+        if self.state_anchor_encoder_enabled:
+            if self.resize_conv_seed_layout != "retinotopic":
+                raise ValueError(
+                    "state anchor encoder requires retinotopic resize_conv seed layout"
+                )
+            if self.state_anchor_num_spatial_sites * self.state_anchor_num_modes != (
+                self.num_oscillators
+            ):
+                raise ValueError(
+                    "state anchor spatial sites times modes must equal "
+                    "num_oscillators"
+                )
+            _, seed_h, seed_w = self.resize_conv_seed_shape
+            if seed_h * seed_w != self.state_anchor_num_spatial_sites:
+                raise ValueError(
+                    "state anchor encoder expects seed_h * seed_w to equal "
+                    "state_anchor_num_spatial_sites"
+                )
+            height, width, channels = _image_hw_channels(self.image_shape)
+            if height % seed_h != 0 or width % seed_w != 0:
+                raise ValueError(
+                    "state anchor encoder requires image dimensions divisible "
+                    "by the retinotopic seed dimensions"
+                )
+            anchor_key = jax.random.fold_in(key, 30131)
+            self.state_anchor_encoder = eqx.nn.Conv2d(
+                channels,
+                2 * self.state_anchor_num_modes,
+                kernel_size=self.state_anchor_encoder_kernel_size,
+                stride=(height // seed_h, width // seed_w),
+                padding=self.state_anchor_encoder_kernel_size // 2,
+                key=anchor_key,
+            )
+        else:
+            self.state_anchor_encoder = None
 
     def initial_state(
         self,
@@ -138,6 +290,38 @@ class HORNImageGenerator(KuramotoImageGenerator):
             )
             * scale,
         )
+
+    def encode_image_state(self, images: Array) -> Tuple[Array, Array]:
+        """Encode real images into retinotopic HORN position/velocity state.
+
+        This is a training-time anchor path. It is deliberately local: a small
+        strided convolution maps image pixels to the retinotopic oscillator
+        grid, then channels are split into per-mode position and velocity.
+        """
+
+        if self.state_anchor_encoder is None:
+            raise ValueError("state anchor encoder is not enabled")
+        height, width, channels = _image_hw_channels(self.image_shape)
+        images_chw = images.reshape(images.shape[0], channels, height, width)
+        seed = jax.vmap(self.state_anchor_encoder)(images_chw)
+        _, seed_h, seed_w = self.resize_conv_seed_shape
+        if int(seed.shape[-2]) != int(seed_h) or int(seed.shape[-1]) != int(seed_w):
+            raise ValueError("state anchor encoder produced an unexpected grid size")
+        seed = jnp.tanh(seed)
+        seed = jnp.transpose(seed, (0, 2, 3, 1)).reshape(
+            images.shape[0],
+            self.state_anchor_num_spatial_sites,
+            2 * self.state_anchor_num_modes,
+        )
+        position = seed[:, :, : self.state_anchor_num_modes].reshape(
+            images.shape[0],
+            self.num_oscillators,
+        )
+        velocity = seed[:, :, self.state_anchor_num_modes :].reshape(
+            images.shape[0],
+            self.num_oscillators,
+        )
+        return self._bound_state(position), self._bound_state(velocity)
 
     def _horn_frequency(self, omega: Array) -> Array:
         base = _softplus_inverse(self.horn_frequency)
@@ -482,6 +666,114 @@ class HORNImageGenerator(KuramotoImageGenerator):
             velocity = velocity - jnp.mean(velocity, axis=-1, keepdims=True)
         return jnp.concatenate([jnp.tanh(position), jnp.tanh(velocity)], axis=-1)
 
+    @staticmethod
+    def _resonant_observable_count() -> int:
+        """Number of per-oscillator field observables used by the filter bank."""
+
+        return 9
+
+    def _center_state_for_readout(
+        self,
+        position: Array,
+        velocity: Array,
+    ) -> Tuple[Array, Array]:
+        """Apply the same relative-state convention used by ordinary readout."""
+
+        if self.readout_mode in ("relative", "ref_oscillator"):
+            return position - position[:, :1], velocity - velocity[:, :1]
+        if self.readout_mode == "mean_relative":
+            return (
+                position - jnp.mean(position, axis=-1, keepdims=True),
+                velocity - jnp.mean(velocity, axis=-1, keepdims=True),
+            )
+        return position, velocity
+
+    def _resonant_observables(self, position: Array, velocity: Array) -> Array:
+        """Return ONN-native local field observables for resonant readout."""
+
+        position, velocity = self._center_state_for_readout(position, velocity)
+        sin_position = jnp.sin(position)
+        cos_position = jnp.cos(position)
+        profile = self.coupling_profile_matrix()
+        row_sum = jnp.sum(profile, axis=-1, keepdims=True)
+        local_weight = profile / jnp.maximum(row_sum, 1e-6)
+        local_sin = jnp.einsum("ij,bj->bi", local_weight, sin_position)
+        local_cos = jnp.einsum("ij,bj->bi", local_weight, cos_position)
+        local_velocity = jnp.einsum("ij,bj->bi", local_weight, velocity)
+        local_order = jnp.sqrt(local_sin**2 + local_cos**2 + 1e-8)
+        alignment_sin = local_sin * cos_position - local_cos * sin_position
+        alignment_cos = local_cos * cos_position + local_sin * sin_position
+        velocity_contrast = local_velocity - velocity
+        energy = position**2 + velocity**2
+        return jnp.stack(
+            [
+                jnp.tanh(position),
+                jnp.tanh(velocity),
+                sin_position,
+                cos_position,
+                alignment_sin,
+                alignment_cos,
+                local_order,
+                jnp.tanh(velocity_contrast),
+                jnp.tanh(energy),
+            ],
+            axis=-1,
+        )
+
+    def _resonant_readout_logits(self, position: Array, velocity: Array) -> Array:
+        """Decode local phase/coherence observables through a shared filter bank."""
+
+        if (
+            self.resonant_readout_strength <= 0.0
+            or self.resonant_readout_weight.size == 0
+        ):
+            return jnp.zeros((position.shape[0], self.image_dim), dtype=position.dtype)
+        height, width, channels = _image_hw_channels(self.image_shape)
+        basis = _local_spatial_basis_tensor(
+            num_oscillators=self.num_oscillators,
+            image_shape=self.image_shape,
+            patch_size=self.resonant_readout_patch_size,
+            sigma=self.resonant_readout_sigma,
+        )
+        observables = self._resonant_observables(position, velocity)
+        local_drive = jnp.einsum(
+            "bnf,fcp->bncp",
+            observables,
+            self.resonant_readout_weight,
+        )
+        channel_pixels = jnp.einsum("bncp,npi->bci", local_drive, basis)
+        logits = channel_pixels.reshape(position.shape[0], channels * height * width)
+        return float(self.resonant_readout_strength) * logits
+
+    def _state_residual_logits(self, position: Array, velocity: Array) -> Array:
+        """Project final oscillator state directly into local image residuals."""
+
+        if (
+            self.state_residual_readout_strength <= 0.0
+            or self.state_residual_readout_weight.size == 0
+        ):
+            return jnp.zeros((position.shape[0], self.image_dim), dtype=position.dtype)
+        height, width, channels = _image_hw_channels(self.image_shape)
+        basis = _local_spatial_basis_tensor(
+            num_oscillators=self.num_oscillators,
+            image_shape=self.image_shape,
+            patch_size=self.state_residual_readout_patch_size,
+            sigma=self.state_residual_readout_sigma,
+        )
+        oscillator_features = self.state_features(position, velocity).reshape(
+            position.shape[0],
+            self.num_oscillators,
+            2,
+        )
+        local_drive = jnp.einsum(
+            "bnf,nfcp->bncp",
+            oscillator_features,
+            self.state_residual_readout_weight,
+        )
+        channel_pixels = jnp.einsum("bncp,npi->bci", local_drive, basis)
+        logits = channel_pixels.reshape(position.shape[0], channels * height * width)
+        return float(self.state_residual_readout_strength) * logits
+
     def decode_state(self, position: Array, velocity: Array) -> Array:
         """Decode final HORN state features into flat images."""
 
@@ -531,12 +823,60 @@ class HORNImageGenerator(KuramotoImageGenerator):
         if self.decoder_mode == "resize_conv":
             if self.resize_conv_output is None:
                 raise ValueError("resize_conv decoder is missing output convolution")
-            features = self.state_features(position, velocity).reshape(
-                position.shape[0],
-                -1,
-            )
             channels, seed_h, seed_w = self.resize_conv_seed_shape
-            hidden = features.reshape(position.shape[0], channels, seed_h, seed_w)
+            if self.resize_conv_seed_layout == "retinotopic":
+                num_spatial_sites = int(
+                    getattr(self, "num_spatial_sites", self.num_oscillators)
+                )
+                num_modes = int(getattr(self, "num_modes", 1))
+                if seed_h * seed_w != num_spatial_sites:
+                    raise ValueError(
+                        "retinotopic resize_conv requires seed_h * seed_w "
+                        "to equal the number of spatial oscillator sites"
+                    )
+                position_readout, velocity_readout = self._center_state_for_readout(
+                    position,
+                    velocity,
+                )
+                position_modes = jnp.tanh(position_readout).reshape(
+                    position.shape[0],
+                    num_spatial_sites,
+                    num_modes,
+                )
+                velocity_modes = jnp.tanh(velocity_readout).reshape(
+                    velocity.shape[0],
+                    num_spatial_sites,
+                    num_modes,
+                )
+                hidden = jnp.concatenate(
+                    [position_modes, velocity_modes],
+                    axis=-1,
+                )
+                if channels > hidden.shape[-1]:
+                    derived = (
+                        position_modes * velocity_modes,
+                        position_modes**2 - velocity_modes**2,
+                        position_modes**2,
+                        velocity_modes**2,
+                    )
+                    hidden = jnp.concatenate((hidden, *derived), axis=-1)
+                    while hidden.shape[-1] < channels:
+                        hidden = jnp.concatenate((hidden, hidden), axis=-1)
+                    hidden = hidden[:, :, :channels]
+                elif channels < hidden.shape[-1]:
+                    hidden = hidden[:, :, :channels]
+                hidden = jnp.transpose(hidden, (0, 2, 1)).reshape(
+                    position.shape[0],
+                    channels,
+                    seed_h,
+                    seed_w,
+                )
+            else:
+                features = self.state_features(position, velocity).reshape(
+                    position.shape[0],
+                    -1,
+                )
+                hidden = features.reshape(position.shape[0], channels, seed_h, seed_w)
             for layer_index in range(0, len(self.resize_conv_layers), 2):
                 hidden = jnp.repeat(hidden, 2, axis=2)
                 hidden = jnp.repeat(hidden, 2, axis=3)
@@ -545,8 +885,11 @@ class HORNImageGenerator(KuramotoImageGenerator):
                 hidden = jax.vmap(self.resize_conv_layers[layer_index + 1])(hidden)
                 hidden = jax.nn.leaky_relu(hidden, negative_slope=0.2)
             pixels = jax.vmap(self.resize_conv_output)(hidden)
+            pixels = pixels.reshape(position.shape[0], self.image_dim)
+            pixels = pixels + self._state_residual_logits(position, velocity)
+            pixels = pixels + self._resonant_readout_logits(position, velocity)
             return _activation(self.output_activation)(
-                pixels.reshape(position.shape[0], self.image_dim)
+                pixels
             )
 
         hidden = self.state_features(position, velocity).reshape(position.shape[0], -1)

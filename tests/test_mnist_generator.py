@@ -2,8 +2,14 @@ import json
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 import pytest
 
+from oscnet.analysis.generator_state_prior import (
+    fit_class_state_prior,
+    generate_from_initial_states,
+    sample_class_state_prior,
+)
 from oscnet.experiments.harness import AutoencoderExperimentConfig
 from oscnet.experiments.mnist_autoencoder import load_mnist_data
 from oscnet.experiments.mnist_generator import (
@@ -25,18 +31,23 @@ from oscnet.experiments.mnist_generator import (
     compute_generator_attractor_robustness,
     compute_generator_quality_metrics,
     compute_generator_settling_metrics,
+    compute_generator_state_fitting_probe,
+    compute_generator_state_information_probe,
     compute_generator_success_diagnostics,
     compute_generator_trace_dynamics,
     compute_generator_vertical_intervention_audit,
     coarse_auxiliary_image_loss,
     coarse_readout_consistency_loss,
     downsample_image_batch,
+    frequency_statistics_loss,
     generator_distribution_loss,
     generator_loss,
     make_projection_matrix,
     mnist_structural_features,
+    patch_sliced_wasserstein_loss,
     parse_args,
     run_mnist_generator_experiment,
+    sample_generator_images,
     sliced_wasserstein_loss,
     train_mnist_feature_classifier,
 )
@@ -77,6 +88,289 @@ def test_downsample_image_batch_preserves_channel_first_rgb_layout():
     assert jnp.allclose(downsampled, expected)
 
 
+def test_frequency_statistics_loss_rewards_matching_frequency_statistics():
+    checker = jnp.asarray(
+        [
+            [0.0, 1.0, 0.0, 1.0],
+            [1.0, 0.0, 1.0, 0.0],
+            [0.0, 1.0, 0.0, 1.0],
+            [1.0, 0.0, 1.0, 0.0],
+        ],
+        dtype=jnp.float32,
+    ).reshape(1, -1)
+    smooth = jnp.ones((1, 16), dtype=jnp.float32) * 0.5
+
+    matched = frequency_statistics_loss(
+        checker,
+        checker,
+        image_shape=(4, 4),
+    )
+    mismatched = frequency_statistics_loss(
+        checker,
+        smooth,
+        image_shape=(4, 4),
+    )
+
+    assert matched < 1e-7
+    assert mismatched > 1.0
+
+
+def test_patch_sliced_wasserstein_loss_rewards_matching_local_patches():
+    checker = jnp.asarray(
+        [
+            [0.0, 1.0, 0.0, 1.0],
+            [1.0, 0.0, 1.0, 0.0],
+            [0.0, 1.0, 0.0, 1.0],
+            [1.0, 0.0, 1.0, 0.0],
+        ],
+        dtype=jnp.float32,
+    ).reshape(1, -1)
+    smooth = jnp.ones((1, 16), dtype=jnp.float32) * 0.5
+    projections = make_projection_matrix(
+        jax.random.PRNGKey(123),
+        image_dim=4,
+        num_projections=8,
+    )
+
+    matched = patch_sliced_wasserstein_loss(
+        checker,
+        checker,
+        projections,
+        image_shape=(4, 4),
+        patch_size=2,
+        patch_sizes=(2,),
+        stride=2,
+        offsets=(0, 1),
+        edge_weight=0.5,
+    )
+    mismatched = patch_sliced_wasserstein_loss(
+        checker,
+        smooth,
+        projections,
+        image_shape=(4, 4),
+        patch_size=2,
+        patch_sizes=(2,),
+        stride=2,
+        offsets=(0, 1),
+        edge_weight=0.5,
+    )
+
+    assert matched < 1e-7
+    assert mismatched > matched
+
+
+def test_generator_quality_metrics_duplicate_rates_use_full_reference_set():
+    real = jnp.asarray(
+        [
+            [0.0, 0.0],
+            [1.0, 1.0],
+            [0.25, 0.25],
+        ],
+        dtype=jnp.float32,
+    )
+    generated = jnp.asarray([[0.25, 0.25]], dtype=jnp.float32)
+
+    metrics = compute_generator_quality_metrics(real, generated)
+
+    assert metrics["nearest_real_mse_min"] < 1e-8
+    assert metrics["duplicate_rate_mse_001"] == 1.0
+
+
+def test_class_state_prior_samples_means_and_drives_horn_states():
+    from oscnet.models import HORNImageGenerator
+
+    labels = jnp.asarray([0, 0, 1, 1], dtype=jnp.int32)
+    position = jnp.asarray(
+        [
+            [0.1, 0.2, 0.3, 0.4],
+            [0.2, 0.3, 0.4, 0.5],
+            [-0.1, -0.2, -0.3, -0.4],
+            [-0.2, -0.3, -0.4, -0.5],
+        ],
+        dtype=jnp.float32,
+    )
+    velocity = position * 0.5
+    states = jnp.concatenate([position, velocity], axis=-1)
+
+    prior = fit_class_state_prior(
+        states,
+        labels,
+        num_classes=2,
+        rank=2,
+    )
+    mean_position, mean_velocity = sample_class_state_prior(
+        prior,
+        np.asarray([0, 1], dtype=np.int32),
+        rng=np.random.default_rng(123),
+        mean_only=True,
+    )
+
+    assert mean_position.shape == (2, 4)
+    assert mean_velocity.shape == (2, 4)
+    assert np.allclose(mean_position[0], np.asarray(position[:2]).mean(axis=0))
+    assert np.allclose(mean_position[1], np.asarray(position[2:]).mean(axis=0))
+
+    model = HORNImageGenerator(
+        num_oscillators=4,
+        image_shape=(4, 4),
+        decoder_mode="resize_conv",
+        resize_conv_seed_shape=(2, 2),
+        resize_conv_upsamples=1,
+        resize_conv_min_channels=2,
+        steps=1,
+        num_classes=2,
+        conditioning_mode="class_coupling",
+        num_condition_oscillators=2,
+        key=jax.random.PRNGKey(715),
+    )
+    generated = generate_from_initial_states(
+        model,
+        mean_position,
+        mean_velocity,
+        labels=np.asarray([0, 1], dtype=np.int32),
+        settle_steps=1,
+        batch_size=2,
+    )
+
+    assert generated.shape == (2, 16)
+
+
+def test_sample_generator_images_uses_initial_state_sampler():
+    from oscnet.models import HORNImageGenerator
+
+    model = HORNImageGenerator(
+        num_oscillators=4,
+        image_shape=(4, 4),
+        decoder_mode="resize_conv",
+        resize_conv_seed_shape=(2, 2),
+        resize_conv_upsamples=1,
+        resize_conv_min_channels=2,
+        steps=1,
+        num_classes=2,
+        conditioning_mode="class_coupling",
+        num_condition_oscillators=2,
+        key=jax.random.PRNGKey(716),
+    )
+    calls = []
+
+    def sampler(key, batch_size, labels):
+        del key
+        calls.append((int(batch_size), None if labels is None else labels.shape[0]))
+        return (
+            jnp.ones((batch_size, 4), dtype=jnp.float32) * 0.1,
+            jnp.zeros((batch_size, 4), dtype=jnp.float32),
+        )
+
+    labels = jnp.asarray([0, 1, 0], dtype=jnp.int32)
+    generated = sample_generator_images(
+        model,
+        key=jax.random.PRNGKey(717),
+        sample_count=3,
+        batch_size=2,
+        labels=labels,
+        initial_state_sampler=sampler,
+    )
+
+    assert generated.shape == (3, 16)
+    assert calls == [(2, 2), (1, 1)]
+
+
+def test_generator_state_information_probe_decodes_synthetic_state_signals():
+    class DummyModel:
+        num_classes = 2
+
+    labels = jnp.asarray([0, 1] * 8, dtype=jnp.int32)
+    label_values = labels.astype(jnp.float32)
+    alternating = jnp.asarray(
+        [
+            [1.0, -1.0, 1.0, -1.0],
+            [-1.0, 1.0, -1.0, 1.0],
+            [1.0, -1.0, 1.0, -1.0],
+            [-1.0, 1.0, -1.0, 1.0],
+        ],
+        dtype=jnp.float32,
+    )
+    generated = []
+    for label in label_values:
+        base = jnp.ones((4, 4), dtype=jnp.float32) * (0.25 + 0.5 * label)
+        generated.append((base + 0.1 * label * alternating).reshape(-1))
+    generated = jnp.stack(generated)
+    final_theta = jnp.stack(
+        [
+            label_values,
+            1.0 - label_values,
+            2.0 * label_values - 1.0,
+            jnp.linspace(-0.5, 0.5, labels.shape[0]),
+        ],
+        axis=-1,
+    )
+    trace = {
+        "initial_theta": jnp.zeros_like(final_theta),
+        "initial_velocity": jnp.zeros_like(final_theta),
+        "final_theta": final_theta,
+        "final_velocity": final_theta * 0.1,
+        "generated": generated,
+    }
+
+    probe = compute_generator_state_information_probe(
+        DummyModel(),
+        trace,
+        labels=labels,
+        image_shape=(4, 4),
+        target_size=2,
+        ridge=1e-3,
+    )
+
+    assert probe["sample_count"] == 16
+    assert probe["state_sets"]["fine_final"]["label_accuracy"] >= 0.75
+    assert "generated_lowres_r2" in probe["state_sets"]["fine_final"]
+    assert "generated_highpass_r2" in probe["state_sets"]["fine_final"]
+    assert (
+        probe["fine_final_minus_initial_label_accuracy"]
+        >= 0.25
+    )
+
+
+def test_generator_state_fitting_probe_scores_frozen_decoder_states():
+    from oscnet.models import HORNImageGenerator
+
+    model = HORNImageGenerator(
+        num_oscillators=4,
+        image_shape=(4, 4),
+        decoder_mode="resize_conv",
+        resize_conv_seed_shape=(2, 2),
+        resize_conv_upsamples=1,
+        resize_conv_min_channels=2,
+        steps=1,
+        num_classes=2,
+        conditioning_mode="class_coupling",
+        num_condition_oscillators=2,
+        key=jax.random.PRNGKey(390),
+    )
+    labels = jnp.asarray([0, 1, 0, 1], dtype=jnp.int32)
+    real_images = model(jax.random.PRNGKey(391), 4, labels)
+
+    probe = compute_generator_state_fitting_probe(
+        model,
+        real_images,
+        key=jax.random.PRNGKey(392),
+        labels=labels,
+        image_shape=(4, 4),
+        sample_count=4,
+        fit_steps=3,
+        learning_rate=1e-2,
+        settle_steps=(0, 1),
+    )
+
+    assert probe["sample_count"] == 4
+    assert probe["fit_steps"] == 3
+    assert probe["final_mse"] >= 0.0
+    assert probe["fit_paired_mse"] >= 0.0
+    assert "settle_001_paired_mse" in probe
+    assert "fresh_readout" in probe
+    assert probe["fresh_readout"]["feature_dim"] == 16
+
+
 def test_sparse_horn_mnist_preset_sets_current_recipe():
     args = parse_args(
         [
@@ -98,6 +392,22 @@ def test_sparse_horn_mnist_preset_sets_current_recipe():
     assert parsed.train_settling_steps == (8, 16, 32)
     assert parsed.run.epochs == 1
     assert parsed.train_limit == 8
+
+    probe_args = config_from_args(
+        parse_args(
+            [
+                "--state-probe-sample-count",
+                "24",
+                "--state-probe-target-size",
+                "4",
+                "--state-probe-ridge",
+                "0.01",
+            ]
+        )
+    )
+    assert probe_args.state_probe_sample_count == 24
+    assert probe_args.state_probe_target_size == 4
+    assert probe_args.state_probe_ridge == 0.01
 
 
 def test_generator_recommended_preset_is_opt_in_default():
@@ -151,6 +461,316 @@ def test_current_generator_aliases_are_stable_winners():
     assert hierarchy.multiscale_feedback_source_mix == (0.5, 0.5)
     assert hierarchy.coarse_readout_consistency_weight == 0.0
     assert hierarchy.run.output_dir.name.endswith("cifar10_rgb_hierarchy_lead")
+
+
+def test_cifar_hierarchy_state_residual_readout_preset_builds_rgb_model():
+    config = config_from_args(
+        parse_args(
+            [
+                "--preset",
+                "sparse_horn_cifar10_rgb_hierarchy_state_residual005",
+                "--train-limit",
+                "8",
+                "--eval-limit",
+                "4",
+                "--batch-size",
+                "4",
+            ]
+        )
+    )
+    model = build_mnist_generator_model(config, jax.random.PRNGKey(123))
+    labels = jnp.asarray([0, 1, 2, 3], dtype=jnp.int32)
+    generated = model(jax.random.PRNGKey(124), 4, labels)
+    diagnostics = compute_generator_success_diagnostics(model)
+
+    assert generated.shape == (4, 32 * 32 * 3)
+    assert model.state_residual_readout_strength == 0.05
+    assert model.state_residual_readout_weight.shape[2] == 3
+    assert diagnostics["state_residual_readout_params"] > 0
+    assert diagnostics["state_residual_readout_strength"] == 0.05
+
+
+def test_cifar_current_resonant_readout_preset_builds_rgb_model():
+    config = config_from_args(
+        parse_args(
+            [
+                "--preset",
+                "sparse_horn_cifar10_rgb_current_resonant005",
+                "--train-limit",
+                "8",
+                "--eval-limit",
+                "4",
+                "--batch-size",
+                "4",
+            ]
+        )
+    )
+    model = build_mnist_generator_model(config, jax.random.PRNGKey(125))
+    labels = jnp.asarray([0, 1, 2, 3], dtype=jnp.int32)
+    generated = model(jax.random.PRNGKey(126), 4, labels)
+    diagnostics = compute_generator_success_diagnostics(model)
+
+    assert generated.shape == (4, 32 * 32 * 3)
+    assert model.resonant_readout_strength == 0.05
+    assert model.resonant_readout_weight.shape == (9, 3, 25)
+    assert diagnostics["resonant_readout_params"] > 0
+    assert diagnostics["resonant_readout_strength"] == 0.05
+
+
+def test_cifar_current_n512_preset_builds_rgb_model():
+    config = config_from_args(
+        parse_args(
+            [
+                "--preset",
+                "sparse_horn_cifar10_rgb_current_n512_resonant005",
+                "--train-limit",
+                "8",
+                "--eval-limit",
+                "4",
+                "--batch-size",
+                "2",
+                "--steps",
+                "1",
+            ]
+        )
+    )
+    model = build_mnist_generator_model(config, jax.random.PRNGKey(127))
+    labels = jnp.asarray([0, 1], dtype=jnp.int32)
+    generated = model(jax.random.PRNGKey(128), 2, labels)
+    diagnostics = compute_generator_success_diagnostics(model)
+
+    assert generated.shape == (2, 32 * 32 * 3)
+    assert model.num_oscillators == 512
+    assert model.resize_conv_seed_shape == (16, 8, 8)
+    assert model.resonant_readout_strength == 0.05
+    assert diagnostics["resonant_readout_params"] == 675
+    assert diagnostics["recurrent_params"] > 256 * 256
+
+
+def test_cifar_current_multimode_preset_builds_rgb_model():
+    config = config_from_args(
+        parse_args(
+            [
+                "--preset",
+                "sparse_horn_cifar10_rgb_current_multimode2",
+                "--train-limit",
+                "8",
+                "--eval-limit",
+                "4",
+                "--batch-size",
+                "2",
+                "--steps",
+                "1",
+            ]
+        )
+    )
+    model = build_mnist_generator_model(config, jax.random.PRNGKey(129))
+    labels = jnp.asarray([0, 1], dtype=jnp.int32)
+    generated = model(jax.random.PRNGKey(130), 2, labels)
+    diagnostics = compute_generator_success_diagnostics(model)
+    profile = model.coupling_profile_matrix()
+
+    assert generated.shape == (2, 32 * 32 * 3)
+    assert model.dynamics_family == "multimode_horn"
+    assert model.num_spatial_sites == 256
+    assert model.num_modes == 2
+    assert model.num_oscillators == 512
+    assert model.mode_frequency_scales == (0.75, 1.35)
+    assert profile.shape == (512, 512)
+    assert diagnostics["dynamics_family"] == "multimode_horn"
+    assert diagnostics["num_spatial_sites"] == 256
+    assert diagnostics["num_modes"] == 2
+    assert diagnostics["mode_coupling_strength"] == 0.25
+    assert diagnostics["recurrent_params"] > 256 * 256
+
+
+def test_cifar_current_multimode_retinotopic_preset_builds_rgb_model():
+    config = config_from_args(
+        parse_args(
+            [
+                "--preset",
+                "sparse_horn_cifar10_rgb_current_multimode2_retinotopic",
+                "--train-limit",
+                "8",
+                "--eval-limit",
+                "4",
+                "--batch-size",
+                "2",
+                "--steps",
+                "1",
+            ]
+        )
+    )
+    model = build_mnist_generator_model(config, jax.random.PRNGKey(131))
+    labels = jnp.asarray([0, 1], dtype=jnp.int32)
+    generated = model(jax.random.PRNGKey(132), 2, labels)
+    diagnostics = compute_generator_success_diagnostics(model)
+
+    assert generated.shape == (2, 32 * 32 * 3)
+    assert model.dynamics_family == "multimode_horn"
+    assert model.resize_conv_seed_layout == "retinotopic"
+    assert model.resize_conv_seed_shape == (4, 16, 16)
+    assert model.resize_conv_upsamples == 1
+    assert diagnostics["resize_conv_seed_layout"] == "retinotopic"
+
+
+def test_cifar_current_multimode_retinotopic_anchor_preset_builds_encoder():
+    config = config_from_args(
+        parse_args(
+            [
+                "--preset",
+                "sparse_horn_cifar10_rgb_current_multimode2_retinotopic_anchor010",
+                "--train-limit",
+                "8",
+                "--eval-limit",
+                "4",
+                "--batch-size",
+                "2",
+                "--steps",
+                "1",
+                "--state-anchor-steps",
+                "1",
+            ]
+        )
+    )
+    model = build_mnist_generator_model(config, jax.random.PRNGKey(135))
+    images = jnp.zeros((2, 32 * 32 * 3), dtype=jnp.float32)
+    position, velocity = model.encode_image_state(images)
+    generated = model.decode_state(position, velocity)
+    diagnostics = compute_generator_success_diagnostics(model)
+
+    assert config.state_anchor_weight == 0.10
+    assert config.state_anchor_mode == "settle"
+    assert model.state_anchor_encoder is not None
+    assert position.shape == (2, 512)
+    assert velocity.shape == (2, 512)
+    assert generated.shape == (2, 32 * 32 * 3)
+    assert diagnostics["state_anchor_encoder_enabled"] is True
+    assert diagnostics["state_anchor_encoder_params"] > 0
+
+
+def test_cifar_current_state_prior_training_presets_are_explicit_opt_ins():
+    global_config = config_from_args(
+        parse_args(
+            [
+                "--preset",
+                "sparse_horn_cifar10_rgb_current_multimode2_retinotopic_anchor030_prior_global",
+                "--train-limit",
+                "8",
+                "--eval-limit",
+                "4",
+                "--batch-size",
+                "2",
+                "--epochs",
+                "1",
+            ]
+        )
+    )
+    global_patch_config = config_from_args(
+        parse_args(
+            [
+                "--preset",
+                "sparse_horn_cifar10_rgb_current_multimode2_retinotopic_anchor030_prior_global_patch005",
+            ]
+        )
+    )
+    class_config = config_from_args(
+        parse_args(
+            [
+                "--preset",
+                "sparse_horn_cifar10_rgb_current_multimode2_retinotopic_anchor030_prior_class",
+                "--state-prior-rank",
+                "4",
+                "--state-prior-noise-scale",
+                "0.5",
+                "--state-prior-start-epoch",
+                "3",
+            ]
+        )
+    )
+    class_patch_config = config_from_args(
+        parse_args(
+            [
+                "--preset",
+                "sparse_horn_cifar10_rgb_current_multimode2_retinotopic_anchor030_prior_class_patch005",
+            ]
+        )
+    )
+    state_mlp_config = config_from_args(
+        parse_args(
+            [
+                "--preset",
+                "sparse_horn_cifar10_rgb_current_state_mlp_retinotopic_anchor030_prior_class_patch005",
+                "--steps",
+                "1",
+                "--state-anchor-steps",
+                "1",
+            ]
+        )
+    )
+
+    assert global_config.state_prior_sampling_mode == "global"
+    assert global_config.state_prior_rank == 32
+    assert global_config.state_prior_start_epoch == 2
+    assert global_config.state_anchor_weight == 0.30
+    assert global_patch_config.state_prior_sampling_mode == "global"
+    assert global_patch_config.patch_objective_weight == 0.05
+    assert global_patch_config.patch_objective_offsets == (0, 2)
+
+    assert class_config.state_prior_sampling_mode == "class"
+    assert class_config.state_prior_rank == 4
+    assert class_config.state_prior_noise_scale == 0.5
+    assert class_config.state_prior_start_epoch == 3
+    assert class_patch_config.state_prior_sampling_mode == "class"
+    assert class_patch_config.patch_objective_weight == 0.05
+    assert class_patch_config.patch_objective_offsets == (0, 2)
+    assert state_mlp_config.model_family == "state_mlp"
+    assert state_mlp_config.num_oscillators == 512
+    assert state_mlp_config.state_mlp_hidden_dim == 128
+
+    model = build_mnist_generator_model(global_config, jax.random.PRNGKey(136))
+    assert model.state_anchor_encoder is not None
+    assert model.dynamics_family == "multimode_horn"
+    state_mlp_model = build_mnist_generator_model(
+        state_mlp_config,
+        jax.random.PRNGKey(137),
+    )
+    assert state_mlp_model.state_anchor_encoder is not None
+    assert state_mlp_model.dynamics_family == "state_mlp"
+    assert state_mlp_model.num_spatial_sites == 256
+    assert state_mlp_model.num_modes == 2
+
+
+def test_cifar_single_mode_retinotopic_seed4_preset_builds_rgb_model():
+    config = config_from_args(
+        parse_args(
+            [
+                "--preset",
+                "sparse_horn_cifar10_rgb_current_retinotopic_seed4_ch30",
+                "--train-limit",
+                "8",
+                "--eval-limit",
+                "4",
+                "--batch-size",
+                "2",
+                "--steps",
+                "1",
+            ]
+        )
+    )
+    model = build_mnist_generator_model(config, jax.random.PRNGKey(133))
+    labels = jnp.asarray([0, 1], dtype=jnp.int32)
+    generated = model(jax.random.PRNGKey(134), 2, labels)
+    diagnostics = compute_generator_success_diagnostics(model)
+
+    assert generated.shape == (2, 32 * 32 * 3)
+    assert model.dynamics_family == "horn"
+    assert model.resize_conv_seed_layout == "retinotopic"
+    assert model.resize_conv_seed_min_channels == 4
+    assert model.resize_conv_seed_shape == (4, 16, 16)
+    assert model.resize_conv_min_channels == 30
+    assert diagnostics["resize_conv_seed_layout"] == "retinotopic"
+    assert diagnostics["resize_conv_seed_min_channels"] == 4
 
 
 def test_generator_cli_accepts_coupling_normalization():
@@ -302,6 +922,12 @@ def test_generator_cli_accepts_multiscale_horn_options():
                 "1",
                 "--multiscale-readout-fusion-strength",
                 "0.25",
+                "--multiscale-readout-gate-mode",
+                "seed_film",
+                "--multiscale-readout-gate-strength",
+                "0.10",
+                "--multiscale-readout-gate-init-scale",
+                "0.01",
                 "--coarse-auxiliary-weight",
                 "0.05",
                 "--coarse-auxiliary-target-size",
@@ -312,6 +938,24 @@ def test_generator_cli_accepts_multiscale_horn_options():
                 "0.05",
                 "--coarse-readout-consistency-onset-epoch",
                 "5",
+                "--frequency-objective-weight",
+                "0.03",
+                "--frequency-objective-edge-weight",
+                "0.5",
+                "--patch-objective-weight",
+                "0.07",
+                "--patch-objective-patch-size",
+                "3",
+                "--patch-objective-patch-sizes",
+                "3,5",
+                "--patch-objective-stride",
+                "2",
+                "--patch-objective-offsets",
+                "0,1",
+                "--patch-objective-projections",
+                "12",
+                "--patch-objective-edge-weight",
+                "0.4",
                 "--vertical-audit-modes",
                 "normal,zero,shuffle,flip,scale025",
                 "--vertical-audit-sample-count",
@@ -353,11 +997,23 @@ def test_generator_cli_accepts_multiscale_horn_options():
     assert parsed.multiscale_conditioning_strength == 0.75
     assert parsed.multiscale_auxiliary_readout_layer == 1
     assert parsed.multiscale_readout_fusion_strength == 0.25
+    assert parsed.multiscale_readout_gate_mode == "seed_film"
+    assert parsed.multiscale_readout_gate_strength == 0.10
+    assert parsed.multiscale_readout_gate_init_scale == 0.01
     assert parsed.coarse_auxiliary_weight == 0.05
     assert parsed.coarse_auxiliary_target_size == 8
     assert parsed.coarse_auxiliary_loss_mode == "distributional"
     assert parsed.coarse_readout_consistency_weight == 0.05
     assert parsed.coarse_readout_consistency_onset_epoch == 5
+    assert parsed.frequency_objective_weight == 0.03
+    assert parsed.frequency_objective_edge_weight == 0.5
+    assert parsed.patch_objective_weight == 0.07
+    assert parsed.patch_objective_patch_size == 3
+    assert parsed.patch_objective_patch_sizes == (3, 5)
+    assert parsed.patch_objective_stride == 2
+    assert parsed.patch_objective_offsets == (0, 1)
+    assert parsed.patch_objective_projections == 12
+    assert parsed.patch_objective_edge_weight == 0.4
     assert parsed.vertical_audit_modes == (
         "normal",
         "zero",
@@ -438,6 +1094,37 @@ def test_sparse_horn_mnist_control_presets_share_recipe():
         "sparse_horn_cifar10_rgb_recommended_drive025": "horn",
         "sparse_horn_cifar10_rgb_recommended_normlocal": "horn",
         "sparse_horn_cifar10_rgb_current": "horn",
+        "sparse_horn_cifar10_rgb_current_resonant005": "horn",
+        "sparse_horn_cifar10_rgb_current_resonant010": "horn",
+        "sparse_horn_cifar10_rgb_current_n512": "horn",
+        "sparse_horn_cifar10_rgb_current_n512_resonant005": "horn",
+        "sparse_horn_cifar10_rgb_current_multimode2": "multimode_horn",
+        "sparse_horn_cifar10_rgb_current_multimode2_weak": "multimode_horn",
+        "sparse_horn_cifar10_rgb_current_retinotopic": "horn",
+        "sparse_horn_cifar10_rgb_current_retinotopic_ch30": "horn",
+        "sparse_horn_cifar10_rgb_current_retinotopic_seed4_ch30": "horn",
+        "sparse_horn_cifar10_rgb_current_multimode2_retinotopic": (
+            "multimode_horn"
+        ),
+        "sparse_horn_cifar10_rgb_current_multimode2_retinotopic_ch30": (
+            "multimode_horn"
+        ),
+        (
+            "sparse_horn_cifar10_rgb_current_multimode2_"
+            "retinotopic_anchor_reconstruct010"
+        ): "multimode_horn",
+        (
+            "sparse_horn_cifar10_rgb_current_multimode2_"
+            "retinotopic_anchor010"
+        ): "multimode_horn",
+        (
+            "sparse_horn_cifar10_rgb_current_multimode2_"
+            "retinotopic_anchor030"
+        ): "multimode_horn",
+        (
+            "sparse_horn_cifar10_rgb_current_multimode2_"
+            "retinotopic_anchor_frozen010"
+        ): "multimode_horn",
         "sparse_horn_cifar10_rgb_coarse16_normlocal": "coarse_horn",
         "sparse_horn_cifar10_rgb_coarse16_normlocal_gentle": "coarse_horn",
         "sparse_horn_cifar10_rgb_coarse16_normlocal_gentle_dist050": (
@@ -593,6 +1280,20 @@ def test_sparse_horn_mnist_control_presets_share_recipe():
             "local050_fb005_auxdist8_signed_gain_conditioning_vscale30_"
             "center_feedback_state_mix50_50_fusion025"
         ): "multiscale_horn",
+        "sparse_horn_cifar10_rgb_hierarchy_lead": "multiscale_horn",
+        "sparse_horn_cifar10_rgb_hierarchy_gate010": "multiscale_horn",
+        "sparse_horn_cifar10_rgb_hierarchy_gate025": "multiscale_horn",
+        "sparse_horn_cifar10_rgb_hierarchy_freq001": "multiscale_horn",
+        "sparse_horn_cifar10_rgb_hierarchy_freq003": "multiscale_horn",
+        "sparse_horn_cifar10_rgb_hierarchy_patch005": "multiscale_horn",
+        "sparse_horn_cifar10_rgb_hierarchy_patch010": "multiscale_horn",
+        "sparse_horn_cifar10_rgb_hierarchy_patch010_overlap": "multiscale_horn",
+        (
+            "sparse_horn_cifar10_rgb_hierarchy_patch010_multiscale"
+        ): "multiscale_horn",
+        (
+            "sparse_horn_cifar10_rgb_hierarchy_patch010_multiscale_overlap"
+        ): "multiscale_horn",
         "sparse_horn_cifar10_rgb_recommended_drive025_spatial_grid": "horn",
         "sparse_horn_cifar10_rgb_recommended_drive025_center_block": "horn",
         "sparse_horn_cifar10_rgb_recommended_drive010": "horn",
@@ -622,6 +1323,27 @@ def test_sparse_horn_mnist_control_presets_share_recipe():
         if preset in (
             "sparse_horn_cifar10_rgb_recommended_normlocal",
             "sparse_horn_cifar10_rgb_current",
+            "sparse_horn_cifar10_rgb_current_resonant005",
+            "sparse_horn_cifar10_rgb_current_resonant010",
+            "sparse_horn_cifar10_rgb_current_n512",
+            "sparse_horn_cifar10_rgb_current_n512_resonant005",
+            "sparse_horn_cifar10_rgb_current_multimode2",
+            "sparse_horn_cifar10_rgb_current_multimode2_weak",
+            "sparse_horn_cifar10_rgb_current_retinotopic",
+            "sparse_horn_cifar10_rgb_current_retinotopic_ch30",
+            "sparse_horn_cifar10_rgb_current_retinotopic_seed4_ch30",
+            "sparse_horn_cifar10_rgb_current_multimode2_retinotopic",
+            "sparse_horn_cifar10_rgb_current_multimode2_retinotopic_ch30",
+            (
+                "sparse_horn_cifar10_rgb_current_multimode2_"
+                "retinotopic_anchor_reconstruct010"
+            ),
+            "sparse_horn_cifar10_rgb_current_multimode2_retinotopic_anchor010",
+            "sparse_horn_cifar10_rgb_current_multimode2_retinotopic_anchor030",
+            (
+                "sparse_horn_cifar10_rgb_current_multimode2_"
+                "retinotopic_anchor_frozen010"
+            ),
             "sparse_horn_cifar10_rgb_coarse16_normlocal",
             "sparse_horn_cifar10_rgb_coarse16_normlocal_gentle",
             "sparse_horn_cifar10_rgb_coarse16_normlocal_gentle_dist050",
@@ -631,6 +1353,46 @@ def test_sparse_horn_mnist_control_presets_share_recipe():
             assert parsed.train_limit == 2000
             assert parsed.coupling_normalization == "row_sum"
             assert parsed.main_coupling_strength == 1.0
+            if preset.endswith("_resonant005"):
+                assert parsed.resonant_readout_strength == 0.05
+                assert parsed.resonant_readout_patch_size == 5
+            elif preset.endswith("_resonant010"):
+                assert parsed.resonant_readout_strength == 0.10
+                assert parsed.resonant_readout_patch_size == 5
+            else:
+                assert parsed.resonant_readout_strength == 0.0
+            if "_n512" in preset:
+                assert parsed.num_oscillators == 512
+            else:
+                assert parsed.num_oscillators == 256
+            if "_multimode2" in preset:
+                assert parsed.model_family == "multimode_horn"
+                assert parsed.multimode_num_modes == 2
+                assert parsed.multimode_frequency_scales == (0.75, 1.35)
+                expected_mode_strength = (
+                    0.10 if preset.endswith("_weak") else 0.25
+                )
+                assert parsed.multimode_mode_coupling_strength == (
+                    expected_mode_strength
+                )
+            if "_retinotopic" in preset:
+                assert parsed.resize_conv_seed_layout == "retinotopic"
+                assert parsed.resize_conv_seed_size == 16
+                assert parsed.resize_conv_upsamples == 1
+                if preset.endswith("_ch30"):
+                    assert parsed.resize_conv_min_channels == 30
+                if "_anchor" in preset:
+                    assert parsed.resize_conv_min_channels == 30
+                    assert parsed.state_anchor_weight > 0.0
+                    assert parsed.state_anchor_mode in (
+                        "reconstruct",
+                        "settle",
+                        "frozen_dynamics",
+                    )
+                if "_seed4" in preset:
+                    assert parsed.resize_conv_seed_min_channels == 4
+            else:
+                assert parsed.resize_conv_seed_layout == "flat"
             if preset in (
                 "sparse_horn_cifar10_rgb_coarse16_normlocal",
                 "sparse_horn_cifar10_rgb_coarse16_normlocal_gentle",
@@ -653,7 +1415,7 @@ def test_sparse_horn_mnist_control_presets_share_recipe():
                     assert parsed.coarse_to_fine_length_scale == 0.5
         elif preset.startswith(
             "sparse_horn_cifar10_rgb_multiscale16_64"
-        ) or preset == "sparse_horn_cifar10_rgb_hierarchy_lead":
+        ) or preset.startswith("sparse_horn_cifar10_rgb_hierarchy_"):
             assert parsed.loss_mode == "pixel_feature_drift"
             assert parsed.train_limit == 2000
             assert parsed.model_family == "multiscale_horn"
@@ -661,12 +1423,24 @@ def test_sparse_horn_mnist_control_presets_share_recipe():
             assert parsed.multiscale_coupling_normalization == "row_sum"
             assert parsed.multiscale_vertical_profile == "local_radius"
             assert parsed.multiscale_vertical_length_scale == 0.5
-            if "_auxlow8" in preset or "_auxdist8" in preset:
+            is_hierarchy_alias = preset.startswith(
+                "sparse_horn_cifar10_rgb_hierarchy_"
+            )
+            has_auxiliary_objective = (
+                "_auxlow8" in preset
+                or "_auxdist8" in preset
+                or is_hierarchy_alias
+            )
+            if has_auxiliary_objective:
                 assert parsed.coarse_auxiliary_weight == 0.05
                 assert parsed.coarse_auxiliary_target_size == 8
                 assert parsed.multiscale_auxiliary_readout_layer == 0
                 expected_loss_mode = (
-                    "distributional" if "_auxdist8" in preset else "mse"
+                    "distributional"
+                    if "_auxdist8" in preset or preset.startswith(
+                        "sparse_horn_cifar10_rgb_hierarchy_"
+                    )
+                    else "mse"
                 )
                 assert parsed.coarse_auxiliary_loss_mode == expected_loss_mode
             else:
@@ -676,14 +1450,14 @@ def test_sparse_horn_mnist_control_presets_share_recipe():
             ):
                 assert parsed.multiscale_vertical_target_gate == "conditioning"
             elif preset.endswith("_vgate_non_conditioning"):
-                assert parsed.multiscale_vertical_target_gate == "non_conditioning"
-            elif "_gain_conditioning" in preset:
+                    assert parsed.multiscale_vertical_target_gate == "non_conditioning"
+            elif "_gain_conditioning" in preset or is_hierarchy_alias:
                 assert parsed.multiscale_vertical_target_gate == "conditioning"
             else:
                 assert parsed.multiscale_vertical_target_gate == "all"
             if "_dual_gain_" in preset:
                 assert parsed.multiscale_vertical_mode == "dual_gain"
-            elif "_signed_gain_" in preset:
+            elif "_signed_gain_" in preset or is_hierarchy_alias:
                 assert parsed.multiscale_vertical_mode == "signed_gain"
             elif "_gain_" in preset:
                 assert parsed.multiscale_vertical_mode == "gain_modulation"
@@ -700,26 +1474,28 @@ def test_sparse_horn_mnist_control_presets_share_recipe():
                 assert parsed.multiscale_vertical_soft_gate_floor == 0.0
             if "_vscale10" in preset:
                 assert parsed.multiscale_vertical_signal_scale == 10.0
-            elif "_vscale30" in preset:
+            elif "_vscale30" in preset or is_hierarchy_alias:
                 assert parsed.multiscale_vertical_signal_scale == 30.0
             else:
                 assert parsed.multiscale_vertical_signal_scale == 1.0
             expected_feedback_mode = (
-                "state" if "_feedback_state" in preset else "position"
+                "state"
+                if "_feedback_state" in preset or is_hierarchy_alias
+                else "position"
             )
             assert parsed.multiscale_feedback_signal_mode == expected_feedback_mode
             if "_source_conditioning" in preset:
                 expected_source_gate = "conditioning"
             elif "_source_non_conditioning" in preset:
                 expected_source_gate = "non_conditioning"
-            elif "_mix" in preset:
+            elif "_mix" in preset or is_hierarchy_alias:
                 expected_source_gate = "weighted"
             else:
                 expected_source_gate = "all"
             assert parsed.multiscale_feedback_source_gate == expected_source_gate
             if "_mix75_25" in preset:
                 assert parsed.multiscale_feedback_source_mix == (0.75, 0.25)
-            elif "_mix50_50" in preset:
+            elif "_mix50_50" in preset or is_hierarchy_alias:
                 assert parsed.multiscale_feedback_source_mix == (0.5, 0.5)
             elif "_mix25_75" in preset:
                 assert parsed.multiscale_feedback_source_mix == (0.25, 0.75)
@@ -731,6 +1507,15 @@ def test_sparse_horn_mnist_control_presets_share_recipe():
                 assert parsed.multiscale_readout_fusion_strength == 0.25
             else:
                 assert parsed.multiscale_readout_fusion_strength == 0.0
+            if preset.endswith("_gate010"):
+                assert parsed.multiscale_readout_gate_mode == "seed_film"
+                assert parsed.multiscale_readout_gate_strength == 0.10
+            elif preset.endswith("_gate025"):
+                assert parsed.multiscale_readout_gate_mode == "seed_film"
+                assert parsed.multiscale_readout_gate_strength == 0.25
+            else:
+                assert parsed.multiscale_readout_gate_mode == "none"
+                assert parsed.multiscale_readout_gate_strength == 0.0
             if "_consistency005" in preset:
                 assert parsed.coarse_readout_consistency_weight == 0.05
                 assert parsed.coarse_readout_consistency_onset_epoch == 5
@@ -740,10 +1525,55 @@ def test_sparse_horn_mnist_control_presets_share_recipe():
             else:
                 assert parsed.coarse_readout_consistency_weight == 0.0
                 assert parsed.coarse_readout_consistency_onset_epoch == 0
+            if preset.endswith("_freq001"):
+                assert parsed.frequency_objective_weight == 0.01
+                assert parsed.frequency_objective_edge_weight == 1.0
+            elif preset.endswith("_freq003"):
+                assert parsed.frequency_objective_weight == 0.03
+                assert parsed.frequency_objective_edge_weight == 1.0
+            else:
+                assert parsed.frequency_objective_weight == 0.0
+                assert parsed.frequency_objective_edge_weight == 1.0
+            if preset.endswith("_patch005"):
+                assert parsed.patch_objective_weight == 0.05
+                assert parsed.patch_objective_patch_size == 5
+                assert parsed.patch_objective_patch_sizes == ()
+                assert parsed.patch_objective_stride == 4
+                assert parsed.patch_objective_offsets == (0,)
+                assert parsed.patch_objective_projections == 32
+                assert parsed.patch_objective_edge_weight == 0.25
+            elif "_patch010" in preset:
+                expected_patch_weight = (
+                    0.07
+                    if preset.endswith("_patch010_multiscale_overlap")
+                    else 0.10
+                )
+                assert parsed.patch_objective_weight == expected_patch_weight
+                assert parsed.patch_objective_patch_size == 5
+                if "_multiscale" in preset:
+                    assert parsed.patch_objective_patch_sizes == (3, 5, 7)
+                    assert parsed.patch_objective_projections == 48
+                else:
+                    assert parsed.patch_objective_patch_sizes == ()
+                    assert parsed.patch_objective_projections == 32
+                assert parsed.patch_objective_stride == 4
+                if preset.endswith("_overlap"):
+                    assert parsed.patch_objective_offsets == (0, 2)
+                else:
+                    assert parsed.patch_objective_offsets == (0,)
+                assert parsed.patch_objective_edge_weight == 0.25
+            else:
+                assert parsed.patch_objective_weight == 0.0
+                assert parsed.patch_objective_patch_size == 5
+                assert parsed.patch_objective_patch_sizes == ()
+                assert parsed.patch_objective_stride == 4
+                assert parsed.patch_objective_offsets == (0,)
+                assert parsed.patch_objective_projections == 32
+                assert parsed.patch_objective_edge_weight == 0.25
             if "_normstd015" in preset:
                 assert parsed.multiscale_vertical_gain_normalization == "center_rms"
                 assert parsed.multiscale_vertical_gain_target_std == 0.015
-            elif "_center" in preset:
+            elif "_center" in preset or is_hierarchy_alias:
                 assert parsed.multiscale_vertical_gain_normalization == "center"
                 assert parsed.multiscale_vertical_gain_target_std == 0.0
             else:
@@ -1756,6 +2586,7 @@ def test_generator_quality_metrics_can_use_classifier_labels():
         generated,
         labels=labels,
         classifier=classifier,
+        image_shape=(28, 28),
     )
 
     assert 0.0 <= metrics["classifier_label_accuracy"] <= 1.0
@@ -1768,6 +2599,35 @@ def test_generator_quality_metrics_can_use_classifier_labels():
     assert metrics["classifier_feature_nearest_real_mse"] >= 0.0
     assert metrics["classifier_feature_real_nearest_real_mse"] >= 0.0
     assert metrics["classifier_feature_pairwise_distance_ratio"] >= 0.0
+    assert metrics["classifier_feature_frechet_distance"] >= 0.0
+    assert "classifier_feature_kid_mmd2" in metrics
+    assert 0.0 <= metrics["classifier_feature_precision_at_real_median"] <= 1.0
+    assert 0.0 <= metrics["classifier_feature_recall_at_real_median"] <= 1.0
+    assert metrics["frequency_real_high_power_ratio"] >= 0.0
+    assert metrics["edge_laplacian_variance_ratio"] >= 0.0
+
+
+def test_generator_quality_metrics_report_frequency_diagnostics_for_rgb():
+    real = jnp.full((2, 3 * 4 * 4), 0.5, dtype=jnp.float32)
+    high_frequency = jnp.asarray(
+        [
+            [[0.0, 1.0, 0.0, 1.0] * 4] * 3,
+            [[1.0, 0.0, 1.0, 0.0] * 4] * 3,
+        ],
+        dtype=jnp.float32,
+    ).reshape(2, 3 * 4 * 4)
+
+    metrics = compute_generator_quality_metrics(
+        real,
+        high_frequency,
+        image_shape=(4, 4, 3),
+    )
+
+    assert metrics["frequency_generated_high_power_ratio"] > 0.0
+    assert metrics["frequency_spectral_centroid_generated"] > 0.0
+    assert metrics["edge_laplacian_variance_generated"] > (
+        metrics["edge_laplacian_variance_real"]
+    )
 
 
 def test_conv_image_feature_classifier_smoke():
@@ -2341,6 +3201,8 @@ def test_multiscale_horn_generator_samples_and_counts_layered_params():
     assert diagnostics["multiscale_auxiliary_readout_layer"] == 0
     assert diagnostics["multiscale_auxiliary_readout_size"] == 4
     assert diagnostics["multiscale_readout_fusion_strength"] == 0.25
+    assert diagnostics["multiscale_readout_gate_mode"] == "none"
+    assert diagnostics["multiscale_readout_gate_params"] == 0
     assert diagnostics["multiscale_vertical_mode"] == "additive"
     assert diagnostics["multiscale_feedback_signal_mode"] == "position"
     assert diagnostics["multiscale_feedback_source_gate"] == "all"
@@ -2351,6 +3213,54 @@ def test_multiscale_horn_generator_samples_and_counts_layered_params():
     assert diagnostics["aux_1_state_update_rms_mean"] >= 0.0
     assert diagnostics["vertical_0_potential_proxy_final"] >= 0.0
     assert "vertical_potential_proxy_delta_mean" in diagnostics
+
+
+def test_multiscale_horn_readout_gate_modulates_resize_conv_seed():
+    from oscnet.models import MultiscaleHORNImageGenerator
+
+    model = MultiscaleHORNImageGenerator(
+        num_oscillators=8,
+        image_shape=(8, 8),
+        decoder_mode="resize_conv",
+        resize_conv_seed_shape=(2, 2),
+        resize_conv_upsamples=2,
+        resize_conv_min_channels=4,
+        steps=2,
+        num_classes=3,
+        num_condition_oscillators=3,
+        conditioning_mode="class_coupling",
+        label_phase_scale=0.0,
+        coupling_profile="local_radius",
+        coupling_normalization="row_sum",
+        coupling_length_scale=0.8,
+        multiscale_layer_sizes=(2, 4),
+        multiscale_vertical_strength=0.25,
+        multiscale_feedback_strength=0.1,
+        multiscale_auxiliary_readout_size=4,
+        multiscale_readout_gate_mode="seed_film",
+        multiscale_readout_gate_strength=0.5,
+        multiscale_readout_gate_init_scale=0.0,
+        key=jax.random.PRNGKey(945),
+    )
+    labels = jnp.asarray([0, 1, 2], dtype=jnp.int32)
+    key = jax.random.PRNGKey(946)
+    ungated_output = model(key, 3, labels)
+
+    seed_channels = int(model.resize_conv_seed_shape[0])
+    gate_bias = jnp.concatenate(
+        [
+            jnp.full((seed_channels,), 0.5, dtype=jnp.float32),
+            jnp.full((seed_channels,), -0.25, dtype=jnp.float32),
+        ],
+        axis=0,
+    )
+    object.__setattr__(model, "multiscale_readout_gate_bias", gate_bias)
+    gated_output = model(key, 3, labels)
+    diagnostics = compute_generator_success_diagnostics(model)
+
+    assert jnp.max(jnp.abs(gated_output - ungated_output)) > 0.0
+    assert diagnostics["multiscale_readout_gate_mode"] == "seed_film"
+    assert diagnostics["multiscale_readout_gate_params"] > 0
 
 
 def test_multiscale_vertical_target_gate_routes_fine_drive():
@@ -3119,6 +4029,13 @@ def test_mnist_generator_multiscale_auxiliary_synthetic_training_smoke(tmp_path)
         coarse_auxiliary_loss_mode="distributional",
         coarse_readout_consistency_weight=0.05,
         coarse_readout_consistency_onset_epoch=1,
+        frequency_objective_weight=0.01,
+        frequency_objective_edge_weight=0.5,
+        patch_objective_weight=0.02,
+        patch_objective_patch_size=3,
+        patch_objective_stride=2,
+        patch_objective_projections=4,
+        patch_objective_edge_weight=0.25,
         steps=1,
         num_projections=8,
         eval_sample_count=2,
@@ -3140,10 +4057,21 @@ def test_mnist_generator_multiscale_auxiliary_synthetic_training_smoke(tmp_path)
     assert summary["generator"]["coarse_auxiliary_loss_mode"] == "distributional"
     assert summary["generator"]["coarse_readout_consistency_weight"] == 0.05
     assert summary["generator"]["coarse_readout_consistency_onset_epoch"] == 1
+    assert summary["generator"]["frequency_objective_weight"] == 0.01
+    assert summary["generator"]["frequency_objective_edge_weight"] == 0.5
+    assert summary["generator"]["patch_objective_weight"] == 0.02
+    assert summary["generator"]["patch_objective_patch_size"] == 3
+    assert summary["generator"]["patch_objective_stride"] == 2
+    assert summary["generator"]["patch_objective_projections"] == 4
+    assert summary["generator"]["patch_objective_edge_weight"] == 0.25
     assert summary["final_train_coarse_auxiliary_loss"] >= 0.0
     assert summary["final_eval_coarse_auxiliary_loss"] >= 0.0
     assert summary["final_train_coarse_readout_consistency_loss"] >= 0.0
     assert summary["final_eval_coarse_readout_consistency_loss"] >= 0.0
+    assert summary["final_train_frequency_objective_loss"] >= 0.0
+    assert summary["final_eval_frequency_objective_loss"] >= 0.0
+    assert summary["final_train_patch_objective_loss"] >= 0.0
+    assert summary["final_eval_patch_objective_loss"] >= 0.0
     assert diagnostics["auxiliary_readout_params"] > 0
 
 
@@ -3306,6 +4234,10 @@ def test_generator_success_diagnostics_count_spatial_basis_as_decoder():
     assert diagnostics["decoder_mode"] == "spatial_basis"
     assert diagnostics["decoder_params"] == 19
     assert diagnostics["decoder_param_fraction"] < 0.5
+    assert "state_final_spatial_high_power_ratio" in diagnostics
+    assert "state_final_spatial_spectral_centroid" in diagnostics
+    assert "state_spatial_high_power_ratio_delta" in diagnostics
+    assert "velocity_final_spatial_high_power_ratio" not in diagnostics
 
 
 def test_generator_success_diagnostics_count_local_basis_as_decoder():

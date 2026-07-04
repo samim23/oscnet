@@ -284,6 +284,16 @@ and internally convert them to patch sequences.
   `sparse_horn_mnist_recommended`. The stable CIFAR-10 RGB generator alias is
   `sparse_horn_cifar10_rgb_current`; it currently points to the normalized
   local sparse HORN recipe rather than any of the multiscale hierarchy probes.
+  For spatial HORN generators with `decoder_mode="resize_conv"`,
+  `resize_conv_seed_layout="retinotopic"` preserves the oscillator grid in the
+  seed image instead of flattening state features into arbitrary seed pixels.
+  `resize_conv_seed_min_channels` can pad a retinotopic seed with extra local
+  oscillator observables, which is useful for seed-width controls such as a
+  four-channel single-mode HORN readout.
+  This is useful for diagnostics and future readout work, but the first CIFAR
+  RGB probe found that it improves frozen-state reconstructability before it
+  improves direct sample quality. A param-matched follow-up confirmed that the
+  issue is not simply the smaller retinotopic decoder.
   Optional HORN self-feedback can be enabled with
   `output_feedback_strength > 0`. `output_feedback_mode="state_proxy"` feeds a
   cheap centered local proxy, `tanh(position) + 0.5 * tanh(velocity)`, back
@@ -292,6 +302,13 @@ and internally convert them to patch sequences.
   settling step and pools it back to oscillator sites; it is closer to a
   readout-in-the-loop attractor, but it is much more expensive with
   `resize_conv` and should be reserved for tiny diagnostics.
+  `resonant_readout_strength > 0` enables an optional shared HORN resonant
+  filter-bank readout on top of `resize_conv`. This branch decodes local
+  phase, velocity, phase-alignment, local order, and energy observables through
+  a small shared spatial filter bank. It is meant to test whether settled HORN
+  field structure can be exposed without adding a large conventional decoder.
+  The first CIFAR RGB pilot found `sparse_horn_cifar10_rgb_current_resonant005`
+  promising for semantic/diversity metrics but not yet a sharpness fix.
   This makes HORN the best current OscNet generator branch while keeping the
   claim precise: it is a conditional MNIST generator with useful learned
   oscillator dynamics, not yet a general image-generation win over all
@@ -299,6 +316,22 @@ and internally convert them to patch sequences.
   route where class information cannot enter as a direct initial
   label shift; this route currently starts near chance and becomes readable
   through oscillator settling.
+
+`MultiModeHORNImageGenerator`
+: A structured-capacity HORN generator where each spatial site owns several
+  frequency-band HORN modes. Same-frequency modes couple across nearby spatial
+  sites, while different modes couple within the same site. This tests a
+  filter-bank style hypothesis: CIFAR capacity may need richer local spectral
+  state, not simply more flat oscillator sites. Use
+  `model_family="multimode_horn"` or the preset
+  `sparse_horn_cifar10_rgb_current_multimode2`. The first CIFAR RGB pilot
+  found that the two-mode variant strongly beats a flat 512-site HORN field on
+  class consistency and attractor metrics, while still not solving visual
+  sharpness or high-frequency detail. Treat it as a structured-capacity lead,
+  not a new default yet. The companion
+  `sparse_horn_cifar10_rgb_current_multimode2_retinotopic` preset keeps the
+  two-mode field retinotopic in the resize-conv seed; it is best used for
+  state-fitting/readout diagnostics until direct generation catches up.
 
 `CoarseToFineHORNImageGenerator`
 : A multiscale HORN generator that evolves a small coarse oscillator bank in
@@ -358,12 +391,33 @@ and internally convert them to patch sequences.
   whether the coarse layer contains a useful rendering scaffold. This is
   intentionally lower capacity than adding a second full decoder, so positive
   results still point back to the layered oscillator state.
+  `multiscale_readout_gate_mode="seed_film"` is the preferred non-blending
+  probe when using `decoder_mode="resize_conv"`: it projects the selected
+  auxiliary oscillator state into a FiLM-style scale/shift on the fine
+  resize-conv seed tensor. Unlike readout fusion, it does not paste a coarse
+  RGB image into the output. It asks whether the coarse field can change how
+  the fine field is rendered. `multiscale_readout_gate_strength` controls the
+  modulation scale, and `multiscale_readout_gate_init_scale=0.0` starts from
+  the ungated model while remaining trainable.
   Prefer `coarse_readout_consistency_weight` when you want the coarse scaffold
   to shape training without pasting coarse pixels into samples. It downsamples
   the final image and matches it to the same-trajectory auxiliary readout with
   a stop-gradient auxiliary target. `coarse_readout_consistency_onset_epoch`
   can delay that loss so the auxiliary scaffold has a short warmup before it
   guides the fine readout.
+  `frequency_objective_weight` is an experiment-level image-spectrum loss for
+  generated-image training. It matches low/mid/high frequency-band ratios plus
+  a Laplacian edge statistic to real images. Use it as a diagnostic for blur or
+  missing high-frequency detail; keep it off for stable reference presets until
+  a paired probe shows a real quality gain.
+  `patch_objective_weight` is the local-detail follow-up. It compares unpaired
+  small patch distributions with sliced-Wasserstein projections, optionally
+  including Laplacian-edge patches. This is meant to reward object-local detail
+  more directly than global frequency matching, which can be satisfied by
+  border halos or color-channel ringing. `patch_objective_offsets` repeats the
+  patch comparison on shifted grids, and `patch_objective_patch_sizes` lets one
+  projection bank score several patch scales. Use those when a fixed-grid patch
+  objective improves detail but leaves tiled or striped artifacts.
   `multiscale_vertical_target_gate` can
   route vertical drive into all decoded fine oscillators, only the
   class-conditioning target subset, or only the complementary subset; this is

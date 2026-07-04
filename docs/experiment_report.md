@@ -60,17 +60,20 @@ a conventional latent autoencoder: random oscillator position/velocity state is
 settled by second-order HORN dynamics and then read out by a small resize-conv
 decoder. Across the latest replicated low-data generator probes, the sparse
 local HORN model beats frozen, decoder-only, no-main-coupling, and one-step
-controls on semantic generation. Against the strongest matched StateMLP
-control, HORN's current edge is diversity/settling behavior; StateMLP still
-wins raw pixel proximity. The HORN route uses only about 3.7% of possible
-oscillator couplings.
+controls on semantic generation. Against matched StateMLP controls, the honest
+read is now split: HORN still shows useful diversity/settling behavior on
+MNIST-like generator probes, but the latest CIFAR RGB state-prior/patch probe
+is a null result once paired by seed. The same healthy prior/anchor/patch
+pipeline transfers to a non-oscillatory iterated MLP. HORN remains a useful
+mechanism reference, not a demonstrated CIFAR image-quality advantage.
 
 Current clean generator defaults:
 
 - `sparse_horn_mnist_recommended`: stable default for
   `python examples/image_mnist_generator.py`.
-- `sparse_horn_cifar10_rgb_current`: stable CIFAR-10 RGB HORN recipe, currently
-  aliasing the normalized-local sparse HORN generator.
+- `sparse_horn_cifar10_rgb_current_multimode2_retinotopic_anchor030_prior_class_patch005`:
+  current CIFAR-10 RGB HORN mechanism reference. Keep the same-stack StateMLP
+  control beside it.
 - `sparse_horn_cifar10_rgb_hierarchy_lead`: active multiscale mechanism lead,
   useful for hierarchy probes but not the stable rendering default.
 
@@ -8553,6 +8556,1045 @@ Updated readout conclusion:
   objective, a learned/gated interface from the coarse scaffold into the fine
   readout, or an explicit staged task where the coarse layer predicts
   class/shape statistics rather than exact low-res pixels.
+
+### Readout Gate and Frequency Diagnostics
+
+The next implementation adds that learned interface without increasing direct
+pixel blending:
+
+- `multiscale_readout_gate_mode="seed_film"` projects the selected auxiliary
+  oscillator layer into a scale/shift on the fine resize-conv seed tensor.
+- `sparse_horn_cifar10_rgb_hierarchy_gate010` and
+  `sparse_horn_cifar10_rgb_hierarchy_gate025` inherit the current hierarchy
+  lead and test gentle versus stronger seed modulation.
+- Generator quality metrics now include classifier-feature Frechet/KID-style
+  distances, nearest-neighbor feature precision/recall, and frequency/edge
+  diagnostics. The goal is to distinguish "semantically wrong", "mode
+  collapsed", "pixel-close but blurry", and "good basin but poor high-frequency
+  rendering" instead of relying on nearest-pixel MSE alone.
+
+This keeps the current hypothesis precise: the hierarchy may already be
+forming better attractor basins, but the final RGB readout still needs a
+coarse-aware rendering interface that preserves diversity and semantics.
+
+Run:
+
+```text
+mnist_generator_cifar10_rgb_readout_gate_probe
+```
+
+Two-seed result at 20 epochs:
+
+```text
+Variant        Acc     Diversity  Nearest MSE  Feature div  Feature Frechet  Attractor acc  Basin  Output settle
+hierarchy      0.3232  0.7719     0.0203       0.8093       0.1518           0.3625         1.1017 0.0810
+gate010        0.3330  0.8423     0.0219       0.7838       0.2682           0.3125         1.1765 0.0738
+gate025        0.3379  0.7439     0.0181       0.7641       0.2984           0.3563         1.1653 0.0460
+```
+
+Read:
+
+- The learned seed gate is numerically stable and causally active.
+- `gate010` improves raw diversity and basin score, but loses feature Frechet
+  and attractor accuracy.
+- `gate025` improves generated-label accuracy, nearest-real MSE, basin score,
+  and output settling, but loses diversity and feature-distribution quality.
+- Frequency/edge diagnostics confirm the broader blur issue: generated images
+  have only about half the real high-frequency power and roughly 15-17% of real
+  Laplacian edge energy.
+
+Conclusion: the gate is a useful readout-conversion probe, not a new default.
+The bottleneck is still high-frequency/semantic rendering from the oscillator
+state. Future readout work should be sharper than scalar gate strength: e.g.
+class/feature-aware modulation, a perceptual/feature readout loss, or a staged
+coarse-shape-to-fine-detail objective.
+
+### Frequency Objective and State Spectrum Probe
+
+The next test targets the blur diagnosis directly:
+
+- `frequency_objective_weight` adds a light low/mid/high frequency-band and
+  Laplacian edge-statistics loss.
+- `sparse_horn_cifar10_rgb_hierarchy_freq001` and
+  `sparse_horn_cifar10_rgb_hierarchy_freq003` inherit the current hierarchy
+  lead and only add this objective.
+- Success diagnostics now report spatial spectra for square oscillator banks
+  when trace data is available. That lets us compare image sharpness against
+  state sharpness: if the oscillator state has high-frequency structure but
+  the output does not, the readout/objective is suspect; if the state is smooth
+  too, the dynamics or conditioning path is the bottleneck.
+
+Run:
+
+```text
+mnist_generator_cifar10_rgb_frequency_objective_probe
+```
+
+This is a bottleneck probe, not a new default. The desired result is not merely
+lower nearest-pixel MSE; it is better high-frequency/edge metrics without
+destroying the hierarchy's semantic/diversity/basin advantages.
+
+Two-seed result at 20 epochs:
+
+```text
+Variant        Acc     Diversity  Nearest MSE  Feature Frechet  High-freq ratio  Edge ratio  State high-freq
+hierarchy      0.4131  0.7400     0.0198       0.2510           0.5259           0.1581      0.2502
+freq001        0.2949  1.0216     0.0470       0.0176           1.0136           1.0550      0.3084
+freq003        0.3652  0.8873     0.0624       0.1765           0.9798           1.0374      0.3150
+```
+
+Read:
+
+- The frequency objective does what it says: generated high-frequency and
+  Laplacian edge ratios move from far below real images to near real-image
+  levels.
+- The oscillator state also keeps more high-frequency spatial power after
+  settling, so the loss is not merely changing the last pixel layer.
+- Visual samples show much of that new frequency energy as color-channel
+  ringing, borders, and texture, not object-aligned detail.
+- `freq001` greatly improves feature Frechet/KID and diversity, but loses
+  generated-label accuracy, attractor accuracy, and nearest-real MSE.
+- `freq003` recovers some accuracy versus `freq001`, but worsens nearest-real
+  MSE and output-settling metrics.
+
+Conclusion: naive spectrum matching is a useful diagnostic, but it is not the
+rendering fix. The bottleneck is object-aligned detail: high-frequency energy
+must be conditioned by semantic/shape structure, not simply matched as a global
+image statistic.
+
+### Patch Detail Objective Probe
+
+Follow-up implementation:
+
+- `patch_objective_weight` compares local raw patch distributions with sliced
+  Wasserstein projections.
+- `patch_objective_edge_weight` adds the same comparison on Laplacian patches,
+  so local edges are rewarded without using a paired target.
+- `sparse_horn_cifar10_rgb_hierarchy_patch005` and
+  `sparse_horn_cifar10_rgb_hierarchy_patch010` inherit the hierarchy lead and
+  only add this local-detail objective.
+
+Hypothesis: if the global frequency objective failed because it rewarded
+border halos/color ringing, a patch-level distribution objective should be a
+cleaner readout/objective pressure. It should improve local texture and edge
+quality while preserving more of the hierarchy's semantic and attractor
+behavior than `freq001`/`freq003`.
+
+Run:
+
+```text
+mnist_generator_cifar10_rgb_patch_objective_probe
+```
+
+Two-seed result at 20 epochs:
+
+```text
+Variant        Acc     Diversity  Nearest MSE  Feature Frechet  Attractor acc  Basin  High-freq ratio  Edge ratio
+hierarchy      0.3770  0.8476     0.0241       0.2485           0.3500         1.2190 0.4553           0.1855
+patch005       0.3535  0.9584     0.0350       0.0144           0.3563         1.6061 1.1289           0.5536
+patch010       0.4062  0.9447     0.0346       0.1146           0.4000         1.7153 1.7239           0.7664
+```
+
+Read:
+
+- `patch010` is the strongest local-detail contender so far: it improves
+  generated-label accuracy, diversity, feature Frechet/KID, feature
+  nearest-real distance, attractor accuracy, and basin score versus the matched
+  hierarchy baseline.
+- Both patch variants raise image high-frequency power and edge energy while
+  also preserving more high-frequency power in the oscillator state after
+  settling.
+- The cost is clear: nearest-real pixel MSE worsens and visual samples show
+  chunky local artifacts/striping. This is better aligned than the global
+  frequency objective's neon ringing, but it is still not a clean rendered
+  image-quality win.
+- Training is stable, but patch SWD lowers samples/sec versus the baseline.
+
+Conclusion: local patch objectives are more promising than global frequency
+matching for converting hierarchy basins into detail. The next rendering work
+should reduce artifact geometry, likely by using multiscale/overlapping patch
+features, a learned perceptual patch judge, or a readout architecture that can
+place fine detail without grid-aligned striping.
+
+### Patch V2 Objective Probe
+
+Follow-up implementation:
+
+- `patch_objective_offsets` repeats the patch sliced-Wasserstein comparison on
+  shifted patch grids.
+- `patch_objective_patch_sizes` lets one projection bank score multiple patch
+  scales.
+- Added `patch010_overlap`, `patch010_multiscale`, and
+  `patch010_multiscale_overlap` CIFAR RGB hierarchy presets.
+
+Hypothesis: if `patch010` worked because it supplied missing local detail
+pressure, but failed visually because the fixed grid was too easy to satisfy,
+then shifted and multiscale patch scoring should keep the semantic/detail gains
+while reducing chunking and striping.
+
+Run:
+
+```text
+mnist_generator_cifar10_rgb_patch_v2_probe
+```
+
+Two-seed result at 20 epochs, with one interrupted row:
+
+```text
+Variant             Runs  Acc     Diversity  Nearest MSE  Feature Frechet  Attractor acc  Basin   High-freq ratio  Edge ratio
+hierarchy           2     0.3662  0.8901     0.0261       0.1487           0.3625         1.4428  0.4630           0.2050
+patch010            2     0.2910  0.9180     0.0340       0.0546           0.3000         1.2638  1.5195           0.7442
+patch010_overlap    2     0.3574  0.9378     0.0348       0.0543           0.3875         1.6318  1.5862           0.7838
+patch010_multiscale 2     0.3359  0.9234     0.0345       0.0392           0.3937         1.7138  1.8498           0.7573
+multi+overlap       1     0.3398  0.9569     0.0335       0.1069           0.3625         1.5643  1.7501           0.7225
+```
+
+Read:
+
+- Shifted-grid overlap repairs some of plain `patch010`'s worst dynamical
+  metrics: better generated-label accuracy, diversity, feature diversity,
+  attractor accuracy, and basin score versus plain `patch010`.
+- Multiscale patch scoring gives the best feature Frechet and best basin score
+  among completed patch variants.
+- Neither variant is a rendered-image breakthrough. Visual grids still show
+  dark blobs, halos, horizontal bands, and fixed local texture artifacts. The
+  patch objective adds high-frequency energy, but the model still turns too
+  much of it into objective-satisfying texture rather than object-aligned
+  detail.
+- `patch010_multiscale_overlap` is too expensive and not visually cleaner in
+  the completed seed. The second seed was interrupted while draining the long
+  full vertical-audit diagnostics, so future v2 sweeps use a lighter
+  `normal,zero` audit.
+
+Conclusion: patch objectives are useful diagnostics and can improve several
+semantic/basin metrics, but this is still a readout/objective mismatch, not
+a solved rendering bottleneck. The next high-value direction is a readout that
+uses oscillator-state detail more directly, such as patch/residual readout
+heads or a staged coarse-shape plus fine-detail renderer, rather than adding
+more patch-statistics pressure.
+
+### State Information Probe
+
+Implementation:
+
+- Added an opt-in `state_information_probe` diagnostic to the MNIST/CIFAR
+  generator runner.
+- It fits tiny deterministic ridge probes from traced oscillator states, such
+  as `fine_initial`, `fine_final`, auxiliary final states, and
+  `combined_final`.
+- Probe targets are deliberately attribution-oriented: class label, generated
+  low-resolution scaffold, generated high-pass residual, auxiliary low-res
+  readout, and optional classifier features of the generated output.
+- CLI knobs: `--state-probe-sample-count`, `--state-probe-target-size`, and
+  `--state-probe-ridge`. The default sample count is `0`, so normal runs stay
+  unchanged.
+
+Question this answers:
+
+- If final oscillator states decode class/scaffold/detail much better than
+  initial states, the recurrent settling process is making useful information
+  available and the remaining bottleneck is likely readout/objective design.
+- If final states do not decode detail, the missing high-frequency/image-detail
+  problem is upstream: the oscillator field itself is not forming that
+  information, so another readout will not save it.
+
+This should be the next diagnostic before another long architecture sweep.
+
+Run:
+
+```text
+mnist_generator_cifar10_rgb_state_information_probe
+```
+
+Two-seed result at 20 epochs:
+
+```text
+Variant             Acc     Diversity  Nearest MSE  Feature Frechet  High-freq  Edge    Attractor acc  Final highpass R2  Final feature R2
+current             0.4463  0.9136     0.0265       0.0999           0.4658     0.2136  0.4438         0.3567             0.4924
+hierarchy_lead      0.3105  0.8126     0.0238       0.2227           0.4652     0.1722  0.2812         0.4897             0.5293
+patch010_multiscale 0.3799  0.9616     0.0362       0.0549           1.5089     0.7775  0.4125         0.3369             0.4171
+```
+
+State-probe read:
+
+- All variants make labels almost perfectly decodable from the final fine
+  state on the 64-sample trace (`fine_final.label_accuracy` roughly `0.97-1.0`),
+  while initial-state label decoding is near chance.
+- The hierarchy lead gives the strongest final-state high-pass residual R2 and
+  classifier-feature R2, despite weaker rendered classifier accuracy in this
+  compact run.
+- Patch multiscale raises rendered high-frequency and edge ratios dramatically,
+  but its final-state high-pass/feature decodability is weaker than the
+  hierarchy lead. This supports the read that patch pressure adds visible
+  texture/artifacts more than it unlocks a cleaner state representation.
+
+Conclusion: settling is definitely organizing useful class/scaffold/detail
+signals in the oscillator state. The current failure is not simply "the state
+is dead." The harder problem is converting that organized state into clean
+object-aligned RGB detail and/or training the state against a better notion of
+image detail than patch/frequency statistics alone. The next architecture move
+should be a readout/probe intervention that consumes the final state more
+directly, not another blind frequency-objective sweep.
+
+### State Residual Readout Probe
+
+Implementation:
+
+- Added an optional HORN state-residual readout for the resize-conv renderer.
+- The normal resize-conv path still renders the global image, but the new
+  branch lets each final oscillator contribute a small learned local RGB patch
+  from its final `(position, velocity)` state.
+- This is intentionally a state-to-image interface test, not another
+  frequency-loss sweep: if final HORN state detail is useful, a small local
+  residual patch head should let the renderer use it more directly.
+- Presets:
+  `sparse_horn_cifar10_rgb_hierarchy_state_residual005` and
+  `sparse_horn_cifar10_rgb_hierarchy_state_residual010`.
+
+Run:
+
+```text
+mnist_generator_cifar10_rgb_state_residual_readout_probe
+```
+
+Two-seed result at 20 epochs:
+
+```text
+Variant             Acc     Diversity  Nearest MSE  Feature Frechet  High-freq  Edge    Attractor acc  Final highpass R2  Final feature R2
+hierarchy_lead      0.3174  0.8585     0.0245       0.2117           0.4512     0.1852  0.3313         0.4568             0.4729
+state_residual005   0.4492  0.8161     0.0232       0.1640           0.4359     0.1660  0.4688         0.4902             0.4715
+state_residual010   0.3682  0.8143     0.0233       0.1928           0.4719     0.1854  0.3625         0.4873             0.5825
+```
+
+Read:
+
+- `state_residual005` is a real improvement over the hierarchy lead in this
+  compact probe: higher generated-label accuracy, better attractor robustness,
+  lower nearest-real MSE, better feature Frechet, and better final-state
+  high-pass decodability.
+- The effect is not "more residual is always better." `state_residual010`
+  improves some state-feature decodability but gives back too much generated
+  class consistency and attractor strength.
+- The branch adds about `38k` direct state-to-RGB residual parameters in the
+  CIFAR RGB setting, so it should be compared as a readout improvement, not as
+  a pure dynamics-only win.
+
+Conclusion: the state-information probe was actionable. Useful detail is
+present in the settled HORN state, and a small local residual state readout can
+extract more of it than the plain resize-conv path. The current best follow-up
+is to refine this interface, probably around `0.05` strength and with better
+regularization/calibration, rather than increasing patch/frequency losses or
+turning residual strength up blindly.
+
+### State Residual Longer Pilot
+
+Question: does the `state_residual005` candidate simply need longer training
+to turn the improved state/readout metrics into visibly better CIFAR samples?
+
+Run:
+
+```text
+mnist_generator_cifar10_rgb_state_residual_longer_pilot
+```
+
+This was a narrow seed-23 pilot at 40 epochs:
+
+- `current`: stable CIFAR RGB normalized-local HORN default.
+- `hierarchy_lead`: active hierarchy mechanism lead.
+- `state_residual005`: hierarchy lead plus local final-state residual RGB
+  patch readout.
+
+Result:
+
+```text
+Variant            Acc     Diversity  Nearest MSE  Feature Frechet  Feature diversity  High-freq  Edge    Attractor acc  Samples/s
+current            0.5234  0.9493     0.0374       0.0890           0.8679             0.5138     0.2617  0.5250         539.7
+hierarchy_lead     0.4062  0.9791     0.0372       0.1689           0.8082             0.3978     0.2266  0.4000         238.4
+state_residual005  0.4531  0.9330     0.0354       0.1509           0.8252             0.4326     0.2238  0.4250         210.3
+```
+
+Visual sheet:
+
+```text
+outputs/modal_samples/state_residual_longer/contact_sheet_state_residual_longer_seed23.png
+```
+
+Read:
+
+- Longer training does help the models become more saturated and structured,
+  but it does not produce a sudden visual breakthrough by epoch 40.
+- `state_residual005` still improves the hierarchy lead on generated-label
+  accuracy, nearest-real MSE, feature Frechet, and attractor accuracy. That
+  confirms the small state-to-image readout is useful.
+- The stable `current` CIFAR default is still the stronger overall 40-epoch
+  model in this pilot: better class consistency, feature Frechet, feature
+  diversity, high-frequency/edge ratios, attractor accuracy, and much better
+  throughput.
+- Therefore the bet partially held: state residual readout helps hierarchy
+  mature, but "just train the hierarchy-residual branch longer" is not enough
+  to beat the simpler stable CIFAR HORN default or solve visual sharpness.
+
+Conclusion: keep `state_residual005` as a renderer/interface candidate, but do
+not promote it to the stable CIFAR default. The next meaningful move is either
+to combine the state-residual readout with the stable normalized-local default
+instead of the heavier hierarchy lead, or to redesign the hierarchy renderer so
+the extra vertical/coarse structure is not paid for by weaker final RGB
+quality and lower throughput.
+
+### Resonant Filter-Bank Readout Pilot
+
+Question: can an ONN-native shared filter bank expose useful local HORN field
+structure without turning the decoder into the whole model?
+
+Implementation:
+
+- Added an optional `resonant_readout_strength` branch for HORN resize-conv
+  generators.
+- The branch reads local HORN observables: bounded position/velocity,
+  `sin/cos(position)`, local phase-alignment, local order magnitude, velocity
+  contrast, and local state energy.
+- It uses a shared local spatial filter bank, not per-oscillator RGB patch
+  weights. In CIFAR RGB this adds only `675` parameters, so it is much closer
+  to a resonant/filter-bank interface than a conventional large decoder.
+- Presets:
+  `sparse_horn_cifar10_rgb_current_resonant005` and
+  `sparse_horn_cifar10_rgb_current_resonant010`.
+
+Run:
+
+```text
+mnist_generator_cifar10_rgb_resonant_readout_pilot
+```
+
+Seed-23 result at 20 epochs:
+
+```text
+Variant       Acc     Diversity  Nearest MSE  Feature Frechet  Attractor acc  Attractor div  High-freq  Edge    Samples/s
+current       0.4180  0.8415     0.0269       0.2405           0.3875         1.3163         0.0118     0.2139  360.6
+resonant005   0.4414  1.0596     0.0379       0.1397           0.4375         1.9204         0.0071     0.2078  275.8
+resonant010   0.3906  0.8027     0.0244       0.2466           0.4000         1.1184         0.0082     0.1393  254.6
+```
+
+Visual sheet:
+
+```text
+outputs/modal_samples/resonant_readout/contact_sheet_resonant_readout_seed23.png
+```
+
+Read:
+
+- `resonant005` is a useful low-strength candidate: it improves generated-label
+  accuracy, diversity, feature Frechet, attractor accuracy, and attractor
+  diversity over the stable CIFAR default.
+- It does not fix rendering sharpness. Nearest-real MSE gets worse, and the
+  generated high-frequency ratio drops. Visually it is more contrasty and
+  varied, not cleaner or more detailed.
+- `resonant010` is already too strong/mixed: it recovers nearest-real MSE but
+  loses the semantic/diversity improvements and looks muddier.
+
+Conclusion: the HORN resonant filter-bank idea is worth keeping as a small
+readout primitive, because it improves the semantic/diversity frontier with
+very few parameters. It is not the missing CIFAR renderer by itself. The next
+high-value probe should ask whether the resonant branch can be trained with a
+targeted high-frequency/detail objective or combined with the state-information
+probe, rather than increasing its strength.
+
+### CIFAR RGB Oscillator Capacity Probe
+
+Question: is the stable CIFAR HORN field simply too small? The current default
+uses `256` fine HORN oscillators for a `32x32x3` image. This probe doubled the
+oscillator-site count to `512` while keeping the same stable CIFAR recipe and
+resize-conv rendering style.
+
+Implementation:
+
+- Added `sparse_horn_cifar10_rgb_current_n512`.
+- Added `sparse_horn_cifar10_rgb_current_n512_resonant005`.
+- Kept the current normalized-local sparse HORN recipe: class coupling,
+  row-sum local coupling, `resize_conv`, and `train_settling_steps=(16,32,48)`.
+- The resize-conv seed stays `8x8`; increasing from `256` to `512`
+  oscillators changes seed channels from `8` to `16`.
+
+Run:
+
+```text
+mnist_generator_cifar10_rgb_capacity_probe
+```
+
+Seed-23 result at 20 epochs, batch size 32:
+
+```text
+Variant           N    Acc     Diversity  Nearest MSE  Attractor acc  Attractor div  High-freq  Edge    Params   Samples/s
+n256_current      256  0.6250  1.1043     0.0441       0.6125         2.9327         0.0077     0.2742  156595   326.6
+n512_current      512  0.5938  1.1665     0.0514       0.5250         2.6466         0.0071     0.3208  436531   200.6
+n512_resonant005  512  0.4023  1.1637     0.0499       0.4000         2.0104         0.0090     0.3474  437206   161.5
+```
+
+Visual sheet:
+
+```text
+outputs/modal_samples/capacity_probe/contact_sheet_capacity_probe_seed23.png
+```
+
+Read:
+
+- Doubling oscillator sites does not solve CIFAR rendering by itself.
+- `n512_current` increases diversity and edge energy, but loses class
+  consistency, attractor accuracy, nearest-real MSE, and throughput.
+- The result looks more saturated/active, not more semantically stable or
+  sharply detailed.
+- `n512_resonant005` is worse than the plain 512 field on class and attractor
+  metrics, so the resonant readout strength that helped at 256 does not simply
+  transfer upward.
+
+Conclusion: the 256-field is probably capacity-constrained, but raw oscillator
+site count is not the missing ingredient. Bigger HORN fields need stronger
+organization: multimode/frequency-band structure, better homeostasis, or a
+more explicit division of coarse/global and fine/detail roles. A blind 1024
+site run is not the next best move until the 512 field has a better way to
+coordinate its extra degrees of freedom.
+
+### CIFAR RGB Multimode HORN Probe
+
+Question: is extra HORN capacity more useful when it is organized as several
+frequency modes per spatial site instead of more flat spatial sites? This probe
+kept the stable CIFAR RGB recipe and compared:
+
+- `sparse_horn_cifar10_rgb_current`: 256 spatial sites, one HORN mode each.
+- `sparse_horn_cifar10_rgb_current_n512`: 512 flat spatial sites.
+- `sparse_horn_cifar10_rgb_current_multimode2`: 256 spatial sites with two
+  frequency-band HORN modes per site, total state size 512.
+
+Run:
+
+```text
+mnist_generator_cifar10_rgb_multimode_probe
+```
+
+Seed-23 result at 20 epochs, batch size 32:
+
+```text
+Variant      Sites  Modes  Total N  Acc     Div     Feature div  Nearest MSE  Feature NN  Attractor acc  Attractor div  High-freq  Edge    Samples/s
+n256         256    1      256      0.5313  1.0338  1.0435       0.0396       0.0364      0.5000         2.2760         0.0097     0.2979  556.8
+n512 flat    512    1      512      0.4219  1.1887  0.7777       0.0525       0.1143      0.4250         2.1686         0.0074     0.3398  349.2
+multimode2   256    2      512      0.7734  1.0713  0.9814       0.0438       0.0945      0.7250         3.5281         0.0078     0.2723  223.9
+```
+
+Visual sheet:
+
+```text
+outputs/modal_samples/multimode_probe/contact_sheet_multimode_probe_seed23.png
+```
+
+Read:
+
+- Multimode HORN is much better than flat 512 scaling on generated-label
+  accuracy, feature diversity, nearest-real MSE, attractor accuracy, and
+  attractor diversity.
+- Against the compact 256 default, multimode wins class consistency and
+  attractor metrics, but loses nearest-real feature proximity, high-frequency
+  energy, edge energy, and speed.
+- Visually it is still in the blurry CIFAR regime. The frequency-band state
+  helps organize class-consistent basins, but it does not by itself solve the
+  state-to-image/detail renderer bottleneck.
+
+Conclusion: multimode/frequency-band HORN is a better capacity direction than
+more flat sites. It should replace blind 1024-site scaling as the next capacity
+lead, but it still needs either a better readout/detail path or a stronger
+objective before it becomes the default CIFAR renderer.
+
+### CIFAR RGB Retinotopic Readout and State-Fitting Probe
+
+Question: is the CIFAR sharpness bottleneck caused by the HORN state itself, or
+by the way the state is rendered/trained? A review found a concrete geometry
+issue: the resize-conv seed previously reshaped `[position, velocity]` features
+as a flat vector. For a spatial HORN grid this scrambles retinotopy, and for
+multimode HORN it also interleaves frequency modes awkwardly. This probe added:
+
+- `resize_conv_seed_layout="retinotopic"`: reshape HORN state as
+  `(spatial_site, mode, position/velocity)` into a `16x16` seed with
+  `2 * num_modes` channels.
+- `sparse_horn_cifar10_rgb_current_retinotopic`.
+- `sparse_horn_cifar10_rgb_current_multimode2_retinotopic`.
+- A frozen-decoder state-fitting probe: optimize one final HORN state per real
+  CIFAR image through the frozen decoder, then check high-frequency
+  reconstruction and whether fitted detail survives extra settling.
+
+Run:
+
+```text
+mnist_generator_cifar10_rgb_retinotopic_readout_probe
+```
+
+Seed-23 result at 20 epochs, batch size 32:
+
+```text
+Variant            Layout       Acc     Feature div  Nearest MSE  Edge    High-freq  Fit MSE  Fit high-freq  Fit edge  Settle8 MSE
+n256 flat          flat         0.6797  0.9813       0.0388       0.2613  0.0090     0.0151   0.0117         0.3975    0.0952
+n256 retino        retinotopic  0.1836  0.8225       0.0222       0.2744  0.0148     0.0095   0.0122         0.4100    0.0917
+multimode2 flat    flat         0.6719  1.0059       0.0532       0.3371  0.0075     0.0673   0.0176         1.4587    0.1103
+multimode2 retino  retinotopic  0.6367  0.8658       0.0212       0.2746  0.0133     0.0042   0.0137         0.5662    0.1126
+```
+
+Visual sheet:
+
+```text
+outputs/modal_samples/retinotopic_probe/retinotopic_probe_contact_sheet.png
+```
+
+Read:
+
+- Retinotopic layout is a real representational fix for fitted states. The
+  multimode retinotopic arm reconstructs real CIFAR images through the frozen
+  decoder much better than multimode flat (`fit_mse` `0.0042` vs `0.0673`).
+- Direct generation does not improve yet. The single-mode retinotopic arm loses
+  class consistency badly, and the multimode retinotopic arm trails the
+  multimode flat arm on direct generated-label accuracy and diversity.
+- Fitted states can recover more edge/high-frequency content than ordinary
+  samples, but additional HORN settling breaks paired reconstruction. This
+  means detail-carrying states exist, but the current generative training route
+  is not steering samples into those states and/or the attractor dynamics do not
+  preserve paired texture.
+- The fresh linear readout on fitted states still has negative high-pass R2, so
+  a simple linear probe is not enough to extract real texture from fitted state
+  features.
+
+Conclusion: this is a diagnostic win, not a sample-quality win. The next
+high-value direction is objective/trajectory design that steers the oscillator
+field toward detail-carrying states, or a two-stage oscillator scaffold plus
+oscillator renderer. Retinotopic layout should remain available because it
+fixes a real geometry mismatch, but it should not replace the stable CIFAR
+default until direct generation catches up.
+
+### CIFAR RGB Retinotopic Param-Matched Control
+
+Question: did the first retinotopic probe unfairly handicap retinotopic
+readout by shrinking the decoder? This control matched decoder capacity more
+closely by raising retinotopic `resize_conv_min_channels` to `30`, added a
+single-mode four-channel seed control, and added state-fitting settle
+granularity at `1/2/4` steps plus matched-norm random perturbation controls.
+
+Run:
+
+```text
+mnist_generator_cifar10_rgb_retinotopic_control_probe
+```
+
+Seed-23 result at 20 epochs, batch size 32:
+
+```text
+Variant              Layout       Seed ch  Dec params  Acc     Feature div  Nearest MSE  High-freq  Fit MSE  Settle1  Noise1  Settle8  Noise8
+multimode2 flat      flat         0        9715        0.7539  1.0147       0.0457       0.0079     0.0541   0.0560   0.0576  0.0940   0.1163
+multimode2 retino30  retinotopic  0        10053       0.3711  0.7798       0.0192       0.0167     0.0052   0.0086   0.0066  0.1091   0.0561
+n256 flat            flat         0        8563        0.6367  0.9371       0.0442       0.0082     0.0155   0.0202   0.0180  0.1202   0.0809
+n256 retino30        retinotopic  0        9513        0.4570  0.8778       0.0253       0.0144     0.0131   0.0157   0.0145  0.0583   0.0542
+n256 retino seed4    retinotopic  4        10053       0.4258  0.8987       0.0196       0.0216     0.0070   0.0086   0.0081  0.0879   0.0518
+```
+
+Visual sheet:
+
+```text
+outputs/modal_samples/retino_control/retino_control_contact_sheet.png
+```
+
+Read:
+
+- Decoder param matching does not rescue direct retinotopic class consistency.
+  The flat multimode branch is still the stronger direct generator on class
+  accuracy and feature diversity at 20 epochs.
+- The retinotopic branches are much better on nearest-real MSE, high-frequency
+  ratio, and fitted-state reconstruction. The previous “retinotopy improves
+  representability” read survives the control.
+- Four seed channels do not rescue single-mode retinotopic class accuracy.
+  It improves fitted-state reconstruction and high-frequency energy, but class
+  consistency remains well below the flat branch. That supports the idea that
+  flat seeds were giving the conv decoder a global/channel-mixing shortcut,
+  while honest retinotopic rendering needs a better objective or dynamics.
+- Settling is more destructive to fitted reconstructions than matched-norm
+  random perturbation by step 4/8 in the retinotopic arms. This points to real
+  attractor contraction away from paired texture, not merely brittle
+  off-manifold fitted states.
+
+Conclusion: the next scientific move should not be more readout capacity. The
+best current interpretation is that retinotopic HORN states can carry more
+image detail, but the current pixel/feature drift objective does not train free
+samples to enter and preserve those detail-carrying basins. A paired
+state-space denoising/settle-survival anchor is now the most grounded small
+next step before a larger two-stage HORN-scaffold plus oscillator-renderer
+architecture.
+
+### CIFAR RGB State Anchor Probe
+
+Question: can a tiny local image-to-state encoder train retinotopic multimode
+HORN dynamics to preserve detail-bearing states through settling?
+
+Implementation:
+
+- Base model: `sparse_horn_cifar10_rgb_current_multimode2_retinotopic_ch30`.
+- Anchor encoder: local 3x3 stride-2 conv from RGB image to 16x16x4 HORN
+  state channels, interpreted as two modes times position/velocity.
+- Anchor path is training-only. Free generation still starts from random HORN
+  state.
+- Controls:
+  - `no_anchor`
+  - `anchor_reconstruct010`: k=0 encode/decode autoencoder control.
+  - `anchor_frozen010`: stop-gradient recurrent/conditioning dynamics in the
+    anchor path.
+  - `anchor010` and `anchor030`: full anchor at lambda 0.10 and 0.30.
+
+Run:
+
+```text
+mnist_generator_cifar10_rgb_state_anchor_probe
+```
+
+Two seeds, 20 epochs, batch size 32. Key means:
+
+```text
+Variant             Settle8 MSE  Noise8 MSE  Gap      Acc     Diversity  Nearest MSE  High-freq  Attractor acc
+no_anchor           0.1605       0.0799      0.0806   0.4102  0.9070     0.0375       0.0150     0.4000
+anchor_recon010     0.0587       0.0412      0.0175   0.4004  0.6790     0.0219       0.0156     0.3875
+anchor_frozen010    0.0609       0.0348      0.0261   0.4277  0.6410     0.0204       0.0202     0.4250
+anchor010           0.0443       0.0308      0.0135   0.3027  0.6109     0.0191       0.0191     0.2438
+anchor030           0.0339       0.0290      0.0048   0.3809  0.5689     0.0181       0.0207     0.3250
+```
+
+Visual sheet:
+
+```text
+outputs/modal_samples/state_anchor_probe/state_anchor_probe_contact_sheet.png
+```
+
+Read:
+
+- The anchor worked on the targeted failure mode. `anchor030` reduced
+  settle-8 fitted-state MSE from `0.1605` to `0.0339`, and reduced the
+  settle-vs-noise gap from `0.0806` to `0.0048`. This is the clearest evidence
+  so far that the recurrent HORN field can be trained to preserve
+  detail-carrying states instead of washing them out.
+- The full anchor beats both controls on settle survival. `anchor030` is better
+  than k=0 reconstruction and better than frozen-dynamics anchor, so the gain
+  is not merely decoder pretraining.
+- The free-sample story is not solved. High-frequency ratio improves
+  (`0.0150` to `0.0207`) and nearest-real MSE drops, but diversity drops and
+  visual samples remain blurry/texture-like. This is not yet a rendered CIFAR
+  breakthrough.
+- The result sharpens the bottleneck: a good detail-preserving basin now exists
+  near image-encoded HORN states, but random class-conditioned free
+  trajectories do not reliably enter that basin.
+
+Conclusion: promote the state anchor as a useful diagnostic/training primitive,
+not as the new default generator. The next architectural question is how to
+bridge free sampling into the anchor-trained basin: staged settling, a
+two-stage HORN scaffold plus renderer, or mode-dependent damping where a slow
+mode carries semantic scaffold and a lightly damped fast mode preserves
+texture.
+
+### CIFAR RGB State Prior Sampling Probe
+
+Question: did the anchor fail at free generation because the detail-preserving
+basin is unreachable from isotropic white-noise HORN initial states?
+
+Implementation:
+
+- Added duplicate-rate metrics to distinguish "closer to train set" from
+  literal near-copying. The main thresholds are nearest-reference MSE below
+  `0.001`, `0.0025`, `0.005`, and `0.010`.
+- Added `scripts/analyze_generator_state_prior.py`, an eval-only script that
+  loads an existing anchor checkpoint, encodes training images into HORN
+  position/velocity states, fits a transparent per-class mean plus low-rank
+  PCA Gaussian state prior, and samples explicit initial HORN states.
+- Controls:
+  - `white_noise`: the ordinary generator path.
+  - `prior_mean`: class prior mean with no noise.
+  - `prior_sample`: per-class PCA prior sample.
+  - `shuffled_prior`: prior sampled from a different class while conditioning
+    dynamics on the requested class.
+
+Local eval-only run:
+
+```text
+scripts/analyze_generator_state_prior.py
+checkpoint: seed23 anchor030 epoch 20
+rank: 32
+sample_count: 256
+settle_steps: 8
+```
+
+Artifacts:
+
+```text
+outputs/analysis/state_prior_probe/seed23_anchor030_rank32_samples256.csv
+outputs/analysis/state_prior_probe/seed23_anchor030_rank32_samples256.json
+outputs/analysis/state_prior_probe/seed23_anchor030_rank32_samples256_contact_sheet.png
+```
+
+Key seed-23 metrics without a trained classifier judge:
+
+```text
+Variant         Eval near MSE  Train dup <0.001  Train dup <0.005  Train dup <0.010  Proto acc  Diversity
+white_noise     0.0129         0.0000            0.0039            0.6484            0.2422     0.4153
+prior_mean      0.0121         0.0000            0.0000            0.4766            0.9102     0.5782
+prior_sample    0.0323         0.0000            0.0000            0.0000            0.4102     0.9719
+shuffled_prior  0.0330         0.0000            0.0000            0.0000            0.2188     0.9205
+```
+
+Read:
+
+- The contact sheet reframes the earlier `anchor030` free-sample improvement.
+  White-noise samples are visually close to a single generic blurry texture
+  basin, which explains why anchor training reduced nearest-real MSE while
+  hurting diversity. The white-noise path gave the drift objective a weak,
+  near-collapsed generated distribution.
+- Tight duplicate rates are zero across variants, so the rank-32 prior sample
+  is not simply copying exact training images. The broad `0.010` train-nearest
+  rate is high for white noise and prior mean, but disappears for prior
+  samples.
+- `prior_mean` gives very high prototype consistency and moderate diversity,
+  showing that the encoded state prior carries class structure. It is also a
+  collapse control, not a generator.
+- `prior_sample` preserves much more diversity than white noise and improves
+  prototype consistency over shuffled prior, but it worsens nearest-real MSE
+  and still looks blurry/ambiguous. The shuffled-prior drop means class
+  information is flowing through the initial state prior as well as the
+  conditioning dynamics.
+- This lands between the simple decision branches: structured initial states
+  reach a different, more diverse basin without exact memorization. The basin
+  access hypothesis is confirmed. The complication is that class semantics
+  currently flow through both the initial-state cue and the HORN conditioning
+  dynamics.
+
+Conclusion: promote the bridge hypothesis from speculative to active lead.
+White noise is an arbitrary and likely poor cue distribution for anchor-trained
+HORN basins. The next grounded intervention is to put state-prior sampling
+inside training while preserving attribution controls:
+
+- `anchor030`: unchanged white-noise-trained control.
+- `anchor030_prior_global`: one class-agnostic state prior; class enters only
+  through oscillator conditioning.
+- `anchor030_prior_class`: one state prior per class; expected strongest raw
+  metrics, but must keep shuffled-prior attribution checks.
+
+Added opt-in training knobs:
+
+```text
+state_prior_sampling_mode = none | global | class
+state_prior_rank
+state_prior_noise_scale
+state_prior_refresh_epochs
+state_prior_start_epoch
+```
+
+Decision rule: if global or class prior training gives diverse, non-copying,
+class-consistent samples with better visible structure, state-prior sampling
+becomes the new CIFAR lead. If diversity/class hold but sharpness stalls, the
+field is best treated as a scaffold generator and the two-stage
+HORN-scaffold/renderer branch becomes the next major build.
+
+Implementation guardrail added before launch:
+
+- Prior-trained arms are now evaluated in the same sampling regime they train
+  in. Final quality metrics, settling metrics, attractor robustness, vertical
+  intervention audits, and contact sheets use the fitted final state prior when
+  `state_prior_sampling_mode != "none"`.
+- The fitted final prior is persisted next to the checkpoint as
+  `state_prior_final.json` and `state_prior_final.npz`.
+- White-noise sampling remains a secondary diagnostic under
+  `white_noise_*` metrics. This measures how specialized the learned basins are
+  to the state-prior cue distribution.
+- Class-prior arms additionally log `shuffled_prior_*` controls, where the
+  initial state prior is sampled from the wrong class while the conditioning
+  label stays fixed. This keeps the class-information route auditable.
+
+For these arms, "the generator" means `state prior + HORN field + decoder`.
+Scoring only the field from isotropic white-noise states is a useful stress
+test, but it is not the primary result.
+
+Two-seed Modal result after fixing prior-aware evaluation:
+
+```text
+Sweep: mnist_generator_cifar10_rgb_state_prior_training_probe
+CSV: outputs/analysis/modal_mnist_generator_cifar10_rgb_state_prior_training_probe.csv
+Contact sheets: outputs/analysis/state_prior_training_probe/contact_sheets/
+```
+
+```text
+Arm           Init         Acc     Feature div  Near MSE  Best settle acc  Dup<0.010  Edge ratio
+anchor030     white noise  0.2910  0.7512       0.0178    0.3164           0.1367     0.2512
+prior_global  prior        0.4316  0.8581       0.0293    0.4551           0.0039     0.4539
+prior_class   prior        0.4941  0.8715       0.0369    0.5371           0.0000     0.4825
+```
+
+Read:
+
+- The mechanism worked. Prior-aware training/eval produces less collapsed,
+  more class-consistent, more diverse CIFAR RGB samples than the white-noise
+  `anchor030` control.
+- `prior_global` is now the attribution-clean reference recipe: the prior is
+  class-agnostic, so class identity can only enter through oscillator
+  conditioning. It beats `anchor030` on generated-label accuracy, feature
+  diversity, settling accuracy, duplicate rate, and edge energy.
+- At this stage, `prior_class` was the strongest HORN prior arm. It had the best generated
+  class accuracy, best settling accuracy, best feature diversity, and zero
+  duplicate rate at the 0.010 threshold across both seeds. Its shuffled-prior
+  control keeps the class-information route auditable.
+- Nearest-pixel MSE worsens because the prior arms escape the blurry/copy-like
+  basin that nearest-MSE rewards. For this branch, frontier ranking should
+  demote nearest-real MSE and emphasize duplicate rates, classifier-feature
+  nearest distance, feature diversity, generated-label accuracy, edge/frequency
+  diagnostics, and contact sheets.
+- Visual contact sheets support the numeric read. The prior arms are still
+  blurry and not solved CIFAR generators, but they show broader variation and
+  more object-like color/shape mass than the anchor control.
+- Detail moved for the first time in the desired direction: edge-Laplacian
+  ratio roughly doubled versus `anchor030`. This supports the hypothesis that
+  structured state-prior inits reduce assignment-averaging pressure in the
+  drift objective.
+
+Next decision:
+
+1. Keep `prior_global` as the clean CIFAR reference and `prior_class` as the
+   stronger HORN prior arm, pending a matched non-oscillatory control.
+2. Run a scale gate before new architecture: full CIFAR train set, longer
+   training, at least three seeds, comparing `prior_global` and `prior_class`.
+3. Retest one low-weight random-offset patch objective under the healthy
+   prior-aware loop. Earlier patch negatives were measured on a near-collapsed
+   sampling loop and are stale evidence.
+4. Keep a two-stage renderer in reserve. Trigger it only if the scaled
+   prior-aware run still leaves edge/detail metrics far below real images.
+
+Scale-gate rung 1 result:
+
+```text
+Sweep: mnist_generator_cifar10_rgb_state_prior_scale_gate_rung1
+CSV: outputs/analysis/modal_mnist_generator_cifar10_rgb_state_prior_scale_gate_rung1.csv
+Contact sheets: outputs/analysis/state_prior_scale_gate_rung1/contact_sheets/
+```
+
+The originally planned batch-128 and batch-64 variants exceeded A10G memory
+with this objective stack. The completed rung therefore used batch 32,
+train-limit 10k, 40 epochs, two seeds, eval samples 512, and a stronger
+quality classifier train limit of 20k.
+
+```text
+Arm                   Acc     Feature div  Feature near  Near MSE  Dup<0.010  Edge ratio  High freq  Best settle acc
+prior_global_b32      0.5547  0.9434       0.2699        0.0336    0.0088     0.5690      0.7964     0.6084
+prior_class_b32       0.4531  0.9081       0.3118        0.0392    0.0029     0.6335      0.7015     0.4629
+prior_class_patch005  0.7129  0.9894       0.2025        0.0361    0.0000     0.9270      1.2599     0.7373
+```
+
+Read:
+
+- Rung 1 bought a real improvement, not just a longer blurry run. Contact
+  sheets show more varied scene populations, stronger sky/ground splits,
+  object-like masses, and more texture than the 2k/20 probe.
+- The low-weight random-offset patch objective is no longer stale-negative
+  evidence. Under the healthy state-prior loop it became the strongest HORN
+  arm:
+  best class accuracy, best feature diversity, best feature-nearest distance,
+  strongest edge/high-frequency metrics, best settling accuracy, and zero
+  duplicate rate at the 0.010 threshold across both seeds.
+- `prior_global_b32` remains the cleaner attribution reference. It also
+  improved over the 2k/20 version, especially generated-label accuracy,
+  feature diversity, attractor accuracy, and settling gain.
+- Plain `prior_class_b32` did not benefit from scale as clearly. The patch term
+  appears to be doing useful work, likely by reducing the residual averaging
+  pressure in the image readout/objective rather than by reintroducing copying.
+- Nearest-real pixel MSE remains secondary. The patch arm's MSE is not the best
+  absolute number, but its duplicate rate, feature metrics, semantic metrics,
+  edge/frequency diagnostics, and visual sheets are all better aligned with
+  generative quality.
+
+Decision after rung 1: treat `prior_class_patch005` as the current HORN CIFAR
+RGB reference recipe, keep `prior_global` as the attribution-clean diagnostic,
+and run the same-stack StateMLP control before buying a larger rung 2.
+
+State-prior control probe:
+
+```text
+Sweep: mnist_generator_cifar10_rgb_state_prior_control_probe
+CSV: outputs/analysis/modal_mnist_generator_cifar10_rgb_state_prior_control_probe.csv
+Contact sheets: outputs/analysis/state_prior_control_probe/contact_sheets/
+Comparison sheet:
+outputs/analysis/state_prior_control_probe/contact_sheets/control_probe_comparison.png
+```
+
+This probe fixed a fairness issue in the non-oscillatory control: the
+`StateMLPImageGenerator` now receives the same retinotopic/multimode layout,
+state-anchor encoder path, state prior sampling, anchor loss, and patch005
+objective as the HORN recipe. Parameter counts are essentially matched
+(`436,981` HORN vs `437,621` StateMLP).
+
+```text
+Arm                         n  Acc     Feature div  Feature near  Near MSE  Dup<0.010  Edge ratio  High freq  Attractor  Best settle acc
+prior_class_patch005*       2  0.7129  0.9894       0.2025        0.0361    0.0000     0.9270      1.2599     0.6875     0.7373
+state_mlp_prior_class_p005  2  0.6533  0.9261       0.1889        0.0362    0.0000     0.8592      0.9469     0.6875     0.6855
+prior_global_patch005       2  0.4365  0.8862       0.2791        0.0347    0.0000     0.8934      1.1327     0.4375     0.4678
+prior_class_p005_queue64    1  0.5664  0.9447       0.2955        0.0377    0.0000     0.9430      1.2843     0.5750     0.6348
+```
+
+`prior_class_patch005*` is the previous rung-1 HORN result, included here as
+the reference because the control probe was designed around it.
+
+Read:
+
+- The same-stack StateMLP is a real control, not a strawman. It gets lower eval
+  loss, better classifier-feature nearest distance, and faster sampling. This
+  confirms that current CIFAR visual quality is still mostly objective/readout
+  limited, not a solved ONN image-generation problem.
+- The same-stack StateMLP also removes the apparent HORN advantage once the
+  comparison is paired by seed. The means slightly favor HORN on some metrics,
+  but the paired deltas flip sign between seeds:
+
+```text
+Metric          Seed 23 HORN / StateMLP  Seed 24 HORN / StateMLP
+Accuracy        0.6289 / 0.7793          0.7969 / 0.5273
+Attractor       0.5375 / 0.8125          0.8375 / 0.5625
+Settling gain   0.2754 / 0.4355          0.3418 / 0.3008
+Feature div     0.9494 / 0.9629          1.0294 / 0.8893
+Edge ratio      0.9589 / 0.8473          0.8952 / 0.8710
+High freq       1.2494 / 0.8992          1.2704 / 0.9946
+```
+
+  With `n=2`, this is a null result, not a supported HORN lead. HORN is
+  consistently closer on edge-Laplacian ratio, while StateMLP is consistently
+  closer to the ideal high-frequency ratio of `1.0` and is faster.
+- The StateMLP shuffled-prior score is high (`~0.60` mean, with seed 23 at
+  `0.72`), so more of its class information is carried by the prior/shortcut
+  route. That makes it less clean as an oscillator-dynamics attribution story
+  even when its images are competitive under the same objective.
+- `prior_global_patch005` is **not** the new headline. It is clean
+  attribution-wise, but the class/attractor metrics are too weak. Keep
+  `prior_global` as a diagnostic reference, not a promoted recipe.
+- The queue64 positive-pool probe did not help in its first seed. It preserves
+  detail metrics but hurts semantic/feature metrics, so it should not be
+  promoted without a separate queue-tuning sprint.
+- The contact sheet matches the null-result read: all arms remain soft; HORN
+  and StateMLP both produce varied class-colored scenes under the healthy
+  prior/anchor/patch pipeline. The pipeline improvements transfer to the
+  non-oscillatory iterated map.
+
+Decision after the control probe:
+
+1. Keep `prior_class_patch005` as the current HORN CIFAR RGB reference recipe,
+   but keep the same-stack StateMLP control beside it. Do not describe it as a
+   demonstrated HORN performance lead.
+2. Do not buy a full 50k/80-epoch rung 2 yet as a quality claim. First add a
+   standard image-generation calibration metric such as FID/KID with a stronger
+   feature extractor if this branch is revisited.
+3. Treat the defensible finding as a rigorous negative for this task/scale:
+   under a matched prior/anchor/patch objective, sparse multimode HORN is
+   statistically indistinguishable from a same-stack non-oscillatory MLP on the
+   current CIFAR frontier/attractor metrics, while StateMLP is faster.
+4. Competitive CIFAR quality is not established. The samples are still
+   watercolor-like and far below modern GAN/diffusion/flow models; the current
+   result is a useful oscillator-mechanism audit plus a clean negative on
+   HORN-vs-StateMLP image generation, not a literature-grade image generator
+   result.
+5. Freeze this state-prior CIFAR generator branch for now. The next frontier
+   should move to either the phase-flow/rectified-flow formulation, where the
+   objective ceiling is higher, or to attractor-native recovery tasks where
+   settling is the point.
 
 ## Maintenance Notes
 

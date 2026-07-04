@@ -16,7 +16,7 @@ from oscnet.models.generative.common import _image_hw_channels
 
 from .common import Array
 from .config import MNISTGeneratorExperimentConfig
-from .metrics import sample_generator_images
+from .metrics import InitialStateSampler, sample_generator_images
 
 def _save_image_grid(
     images: Array,
@@ -65,6 +65,7 @@ def save_mnist_generator_artifacts(
     sample_count: int,
     batch_size: int,
     labels: Optional[Array] = None,
+    initial_state_sampler: Optional[InitialStateSampler] = None,
 ) -> None:
     """Save generated samples and oscillator traces."""
 
@@ -75,6 +76,7 @@ def save_mnist_generator_artifacts(
         sample_count=count,
         batch_size=batch_size,
         labels=None if labels is None else labels[:count],
+        initial_state_sampler=initial_state_sampler,
     )
     trace_labels = None if labels is None else labels[: min(count, batch_size)]
     trace = model.collect_trace(key, min(count, batch_size), trace_labels)
@@ -82,6 +84,9 @@ def save_mnist_generator_artifacts(
         paths.artifacts / f"mnist_generator_samples_epoch_{epoch:03d}.npz",
         real=np.asarray(real_images[:count]),
         generated=np.asarray(generated),
+        sample_initialization=np.asarray(
+            "state_prior" if initial_state_sampler is not None else "white_noise"
+        ),
         labels=(
             np.zeros((0,), dtype=np.int32)
             if labels is None
@@ -137,6 +142,24 @@ def _checkpoint_hyperparams(config: MNISTGeneratorExperimentConfig) -> Dict[str,
         "output_feedback_strength": config.output_feedback_strength,
         "output_feedback_init_scale": config.output_feedback_init_scale,
         "output_feedback_basis_sigma": config.output_feedback_basis_sigma,
+        "state_residual_readout_strength": config.state_residual_readout_strength,
+        "state_residual_readout_init_scale": (
+            config.state_residual_readout_init_scale
+        ),
+        "state_residual_readout_patch_size": (
+            config.state_residual_readout_patch_size
+        ),
+        "state_residual_readout_sigma": config.state_residual_readout_sigma,
+        "resonant_readout_strength": config.resonant_readout_strength,
+        "resonant_readout_init_scale": config.resonant_readout_init_scale,
+        "resonant_readout_patch_size": config.resonant_readout_patch_size,
+        "resonant_readout_sigma": config.resonant_readout_sigma,
+        "multimode_num_modes": config.multimode_num_modes,
+        "multimode_frequency_scales": config.multimode_frequency_scales,
+        "multimode_mode_coupling_strength": (
+            config.multimode_mode_coupling_strength
+        ),
+        "multimode_mode_coupling_profile": config.multimode_mode_coupling_profile,
         "num_coarse_oscillators": config.num_coarse_oscillators,
         "coarse_coupling_profile": config.coarse_coupling_profile,
         "coarse_coupling_normalization": config.coarse_coupling_normalization,
@@ -197,6 +220,13 @@ def _checkpoint_hyperparams(config: MNISTGeneratorExperimentConfig) -> Dict[str,
         "multiscale_readout_fusion_strength": (
             config.multiscale_readout_fusion_strength
         ),
+        "multiscale_readout_gate_mode": config.multiscale_readout_gate_mode,
+        "multiscale_readout_gate_strength": (
+            config.multiscale_readout_gate_strength
+        ),
+        "multiscale_readout_gate_init_scale": (
+            config.multiscale_readout_gate_init_scale
+        ),
         "coarse_auxiliary_weight": config.coarse_auxiliary_weight,
         "coarse_auxiliary_target_size": config.coarse_auxiliary_target_size,
         "coarse_auxiliary_loss_mode": config.coarse_auxiliary_loss_mode,
@@ -206,6 +236,15 @@ def _checkpoint_hyperparams(config: MNISTGeneratorExperimentConfig) -> Dict[str,
         "coarse_readout_consistency_onset_epoch": (
             config.coarse_readout_consistency_onset_epoch
         ),
+        "frequency_objective_weight": config.frequency_objective_weight,
+        "frequency_objective_edge_weight": config.frequency_objective_edge_weight,
+        "patch_objective_weight": config.patch_objective_weight,
+        "patch_objective_patch_size": config.patch_objective_patch_size,
+        "patch_objective_patch_sizes": config.patch_objective_patch_sizes,
+        "patch_objective_stride": config.patch_objective_stride,
+        "patch_objective_offsets": config.patch_objective_offsets,
+        "patch_objective_projections": config.patch_objective_projections,
+        "patch_objective_edge_weight": config.patch_objective_edge_weight,
         "train_recurrent_dynamics": config.train_recurrent_dynamics,
         "train_conditioning_dynamics": config.train_conditioning_dynamics,
         "conditional": config.conditional,
@@ -220,6 +259,8 @@ def _checkpoint_hyperparams(config: MNISTGeneratorExperimentConfig) -> Dict[str,
         "resize_conv_seed_size": config.resize_conv_seed_size,
         "resize_conv_upsamples": config.resize_conv_upsamples,
         "resize_conv_min_channels": config.resize_conv_min_channels,
+        "resize_conv_seed_layout": config.resize_conv_seed_layout,
+        "resize_conv_seed_min_channels": config.resize_conv_seed_min_channels,
         "output_activation": config.output_activation,
         "output_bias_init": config.output_bias_init,
         "num_projections": config.num_projections,
@@ -250,6 +291,22 @@ def _checkpoint_hyperparams(config: MNISTGeneratorExperimentConfig) -> Dict[str,
         "distributional_weight": config.distributional_weight,
         "drift_gamma": config.drift_gamma,
         "drift_temperatures": config.drift_temperatures,
+        "state_fit_sample_count": config.state_fit_sample_count,
+        "state_fit_steps": config.state_fit_steps,
+        "state_fit_learning_rate": config.state_fit_learning_rate,
+        "state_fit_init_scale": config.state_fit_init_scale,
+        "state_fit_ridge": config.state_fit_ridge,
+        "state_fit_settle_steps": config.state_fit_settle_steps,
+        "state_anchor_weight": config.state_anchor_weight,
+        "state_anchor_steps": config.state_anchor_steps,
+        "state_anchor_noise_scale": config.state_anchor_noise_scale,
+        "state_anchor_mode": config.state_anchor_mode,
+        "state_anchor_encoder_kernel_size": config.state_anchor_encoder_kernel_size,
+        "state_prior_sampling_mode": config.state_prior_sampling_mode,
+        "state_prior_rank": config.state_prior_rank,
+        "state_prior_noise_scale": config.state_prior_noise_scale,
+        "state_prior_refresh_epochs": config.state_prior_refresh_epochs,
+        "state_prior_start_epoch": config.state_prior_start_epoch,
         "train_settling_steps": config.train_settling_steps,
         "settling_steps": config.settling_steps,
         "attractor_variants_per_class": config.attractor_variants_per_class,

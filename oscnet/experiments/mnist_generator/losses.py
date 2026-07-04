@@ -133,6 +133,225 @@ def coarse_readout_consistency_loss(
     return jnp.mean((generated_lowres - auxiliary_target) ** 2)
 
 
+def _reshape_flat_images_nchw(images: Array, image_shape: Tuple[int, ...]) -> Array:
+    """Reshape flat image batches to channel-first tensors."""
+
+    height, width, channels = _image_hw_channels(tuple(int(size) for size in image_shape))
+    return images.reshape(images.shape[0], channels, height, width)
+
+
+def _frequency_band_ratios(images: Array, image_shape: Tuple[int, ...]) -> Array:
+    """Return low/mid/high spectral power ratios for flat images."""
+
+    images_chw = _reshape_flat_images_nchw(images, image_shape)
+    centered = images_chw - jnp.mean(images_chw, axis=(-2, -1), keepdims=True)
+    power = jnp.mean(
+        jnp.abs(jnp.fft.rfft2(centered, axes=(-2, -1))) ** 2,
+        axis=(0, 1),
+    )
+    height, width = images_chw.shape[-2:]
+    fy = jnp.fft.fftfreq(height)[:, None]
+    fx = jnp.fft.rfftfreq(width)[None, :]
+    radius = jnp.sqrt(fx * fx + fy * fy)
+    radius = radius / jnp.maximum(jnp.max(radius), 1e-8)
+    masks = (
+        radius <= 0.25,
+        (radius > 0.25) & (radius <= 0.50),
+        radius > 0.50,
+    )
+    total = jnp.maximum(jnp.sum(power), 1e-8)
+    return jnp.stack(
+        [
+            jnp.sum(jnp.where(mask, power, 0.0)) / total
+            for mask in masks
+        ]
+    )
+
+
+def _laplacian_variance(images: Array, image_shape: Tuple[int, ...]) -> Array:
+    """Mean per-image/channel Laplacian variance."""
+
+    images_chw = _reshape_flat_images_nchw(images, image_shape)
+    laplacian = (
+        -4.0 * images_chw
+        + jnp.roll(images_chw, 1, axis=-2)
+        + jnp.roll(images_chw, -1, axis=-2)
+        + jnp.roll(images_chw, 1, axis=-1)
+        + jnp.roll(images_chw, -1, axis=-1)
+    )
+    return jnp.mean(jnp.var(laplacian, axis=(-2, -1)))
+
+
+def frequency_statistics_loss(
+    real: Array,
+    generated: Array,
+    *,
+    image_shape: Tuple[int, ...],
+    edge_weight: float = 1.0,
+) -> Array:
+    """Match unpaired image spectrum and edge-energy statistics.
+
+    This objective is deliberately distributional: it compares batch-level
+    low/mid/high spectral ratios and Laplacian energy instead of pairing a
+    generated sample with an arbitrary real sample.
+    """
+
+    real_bands = jax.lax.stop_gradient(_frequency_band_ratios(real, image_shape))
+    generated_bands = _frequency_band_ratios(generated, image_shape)
+    band_loss = jnp.mean(
+        (
+            jnp.log(jnp.maximum(generated_bands, 1e-8))
+            - jnp.log(jnp.maximum(real_bands, 1e-8))
+        )
+        ** 2
+    )
+    real_edge = jax.lax.stop_gradient(_laplacian_variance(real, image_shape))
+    generated_edge = _laplacian_variance(generated, image_shape)
+    edge_loss = (
+        jnp.log(jnp.maximum(generated_edge, 1e-8))
+        - jnp.log(jnp.maximum(real_edge, 1e-8))
+    ) ** 2
+    return band_loss + float(edge_weight) * edge_loss
+
+
+def extract_grid_patches(
+    images: Array,
+    *,
+    image_shape: Tuple[int, ...],
+    patch_size: int,
+    stride: int,
+    offset_y: int = 0,
+    offset_x: int = 0,
+) -> Array:
+    """Extract flat channel-first patches on a fixed spatial grid."""
+
+    patch_size = int(patch_size)
+    stride = int(stride)
+    offset_y = int(offset_y)
+    offset_x = int(offset_x)
+    if patch_size < 1:
+        raise ValueError("patch_size must be positive")
+    if stride < 1:
+        raise ValueError("stride must be positive")
+    images_chw = _reshape_flat_images_nchw(images, image_shape)
+    height, width = images_chw.shape[-2:]
+    if patch_size > height or patch_size > width:
+        raise ValueError("patch_size must fit inside image_shape")
+
+    patches = []
+    offset_y = max(0, min(offset_y, int(height) - patch_size))
+    offset_x = max(0, min(offset_x, int(width) - patch_size))
+    for top in range(offset_y, int(height) - patch_size + 1, stride):
+        for left in range(offset_x, int(width) - patch_size + 1, stride):
+            patch = images_chw[
+                :,
+                :,
+                top : top + patch_size,
+                left : left + patch_size,
+            ]
+            patches.append(patch.reshape(images.shape[0], -1))
+    if not patches:
+        raise ValueError("patch grid is empty")
+    return jnp.concatenate(patches, axis=0)
+
+
+def _flat_laplacian_images(images: Array, image_shape: Tuple[int, ...]) -> Array:
+    images_chw = _reshape_flat_images_nchw(images, image_shape)
+    laplacian = (
+        -4.0 * images_chw
+        + jnp.roll(images_chw, 1, axis=-2)
+        + jnp.roll(images_chw, -1, axis=-2)
+        + jnp.roll(images_chw, 1, axis=-1)
+        + jnp.roll(images_chw, -1, axis=-1)
+    )
+    return laplacian.reshape(images.shape[0], -1)
+
+
+def patch_sliced_wasserstein_loss(
+    real: Array,
+    generated: Array,
+    projections: Array,
+    *,
+    image_shape: Tuple[int, ...],
+    patch_size: int = 5,
+    patch_sizes: Sequence[int] = (),
+    stride: int = 4,
+    offsets: Sequence[int] = (0,),
+    edge_weight: float = 0.0,
+) -> Array:
+    """Compare unpaired local patch distributions with random projections."""
+
+    sizes = tuple(int(size) for size in patch_sizes) or (int(patch_size),)
+    shifts = tuple(int(offset) for offset in offsets) or (0,)
+    real_edges = jax.lax.stop_gradient(_flat_laplacian_images(real, image_shape))
+    generated_edges = _flat_laplacian_images(generated, image_shape)
+    losses = []
+    for current_size in sizes:
+        patch_dim = int(projections.shape[-1])
+        current_dim = int(
+            _image_hw_channels(tuple(int(size) for size in image_shape))[2]
+            * current_size
+            * current_size
+        )
+        if current_dim > patch_dim:
+            raise ValueError("patch projections are smaller than patch dimension")
+        projection_slice = projections[:, :current_dim]
+        projection_slice = projection_slice / jnp.maximum(
+            jnp.linalg.norm(projection_slice, axis=-1, keepdims=True),
+            1e-8,
+        )
+        for offset_y in shifts:
+            for offset_x in shifts:
+                real_patches = jax.lax.stop_gradient(
+                    extract_grid_patches(
+                        real,
+                        image_shape=image_shape,
+                        patch_size=current_size,
+                        stride=stride,
+                        offset_y=offset_y,
+                        offset_x=offset_x,
+                    )
+                )
+                generated_patches = extract_grid_patches(
+                    generated,
+                    image_shape=image_shape,
+                    patch_size=current_size,
+                    stride=stride,
+                    offset_y=offset_y,
+                    offset_x=offset_x,
+                )
+                loss = sliced_wasserstein_loss(
+                    real_patches,
+                    generated_patches,
+                    projection_slice,
+                )
+                if edge_weight > 0.0:
+                    real_edge_patches = extract_grid_patches(
+                        real_edges,
+                        image_shape=image_shape,
+                        patch_size=current_size,
+                        stride=stride,
+                        offset_y=offset_y,
+                        offset_x=offset_x,
+                    )
+                    generated_edge_patches = extract_grid_patches(
+                        generated_edges,
+                        image_shape=image_shape,
+                        patch_size=current_size,
+                        stride=stride,
+                        offset_y=offset_y,
+                        offset_x=offset_x,
+                    )
+                    edge_loss = sliced_wasserstein_loss(
+                        real_edge_patches,
+                        generated_edge_patches,
+                        projection_slice,
+                    )
+                    loss = loss + float(edge_weight) * edge_loss
+                losses.append(loss)
+    return jnp.mean(jnp.stack(losses))
+
+
 def sliced_wasserstein_loss(real: Array, generated: Array, projections: Array) -> Array:
     """Compare two batches by sorted random one-dimensional projections."""
 
