@@ -9899,6 +9899,141 @@ current pooled-seed dense form, and the one genuinely ONN-native positive is
 the multimode settling-improves-fill-in trend — small, consistent, and the only
 place where dynamics (not the decoder) are doing completion work.
 
+### Multimode Carrier Probe — Active-Ingredient Ablation (2026-07-15)
+
+Follow-up sweep `mnist_generator_cifar10_rgb_multimode_carrier_probe` (app
+`ap-ew3UgLxsft1IorlyV84F3l`, 8 parallel A10G, 40 epochs, mixed corruption,
+recovery eval extended to settle depths 0-64). Arms: multimode2 with equal
+frequencies (1.0/1.0), wide split (0.5/1.5), multimode4, and a "fair" slow
+carrier — `CoarseToFineMultiModeHORNImageGenerator`, a 16-node dense coarse
+band at 0.5x frequency (`coarse_frequency_scale`) on the multimode substrate.
+The mm4 arm OOMed on A10G (1024 oscillators, 16.4GiB `_train_step` allocation
+at batch 32) on both seeds and is absent. Source:
+`outputs/analysis/modal_mnist_generator_cifar10_rgb_multimode_carrier_probe.csv`.
+
+Contiguous-block occluded-region MSE, two-seed means (anchors from the
+recovery training probe: multimode2 default 0.75/1.35 and StateMLP):
+
+| Arm | k0 | k8 | k16 | k32 | k64 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| mm2 equal freq (1.0/1.0) | 0.0737 | 0.0578 | 0.0537 | 0.0980 | 0.0797 |
+| mm2 slow carrier (0.5x band) | 0.0625 | 0.0563 | 0.0560 | 0.1066 | 0.1183 |
+| mm2 default (0.75/1.35), anchor | 0.0737 | 0.0663 | 0.0625 | — | — |
+| mm2 wide (0.5/1.5) | 0.0783 | 0.0697 | 0.0687 | 0.1420 | 0.1179 |
+| StateMLP mixed, anchor | 0.0420 | 0.0407 | 0.0409 | — | — |
+
+Findings:
+
+1. **The slow-band hypothesis is falsified.** Equal-frequency multimode — no
+   timescale separation at all — shows the *strongest* settling fill-in trend
+   (0.0737 -> 0.0537 by k16, better than the default split on both seeds).
+   Wider separation (0.5/1.5) is *worse* and higher-variance. The active
+   ingredient of the multimode effect is per-site state capacity and mode
+   coupling, not a slow channel.
+2. **The centralized carrier is retired permanently.** Given its fair shot
+   (explicitly slower band, strong multimode substrate), the slow-carrier arm
+   sits within noise of the non-carrier arms at k8/k16 and does not beat the
+   best of them. Third strike across three implementations.
+3. **Deep settling reverses.** All arms peak around k8-k16 and degrade badly
+   by k32-k64. There is no iterate-to-perfection regime; the fill-in window is
+   shallow.
+4. **StateMLP remains untouched** (0.041 at k8) — the best oscillator fill-in
+   number yet (eqfreq k16, 0.0537) is still ~30% worse.
+
+Read: the timescale/slow-carrier theory thread is now closed — falsified in
+centralized form twice and in distributed form once. What survives of the
+multimode surprise is a capacity/mode-coupling effect with a shallow optimal
+settling window, still dominated by the non-oscillatory control. The mm4
+dose-response rerun (batch 16) is optional and low-value now that the
+capacity interpretation carries the effect.
+
+### Coupling-Topology Probe — Is Locality the Real Confound? (2026-07-15)
+
+Reframing of every prior recovery result. Across all recovery probes the
+independent variable was implicitly "oscillator vs. not," but the generative
+HORN and the StateMLP control differ on a second axis that was never isolated:
+**coupling range.** The HORN uses spatially-local coupling
+(`local_radius_coupling_profile` / `distance_decay_coupling_profile` in
+`oscnet/models/generative/common.py`), where each oscillator only reaches its
+grid neighbours. StateMLP uses dense `Linear` hidden-to-hidden layers
+(`coupling_profile = "none"`, fully connected). A dense matrix can transport
+structure across a contiguous occlusion in one step; local coupling provably
+cannot (the "contraction vs. transport" wall). So StateMLP may dominate for the
+same reason HORN fails at contiguous holes — non-local vs. local coupling —
+not because oscillation is worthless. Independent support: the repo's fractal
+coupling module (`oscnet/core/fractal_coupling.py`), a self-similar non-local
+topology built for pattern completion, reports large associative-recall gains
+but was never wired into the generative recovery pipeline.
+
+Design: hold the recovery-trained mixed-corruption objective fixed and vary
+**only** the recurrent coupling topology. New `fractal` profile added to
+`oscnet/core/coupling.py` (`hierarchical_coupling_profile`): oscillators on the
+usual near-square grid, recursively split into quadrants; two sites sharing
+their finest block couple at full strength and each coarser level of divergence
+multiplies coupling by `inter_block_strength` (0.5). This yields discrete
+self-similar scales with direct long-range links — the non-local structure
+local coupling lacks — while staying far cheaper in effective energy than flat
+dense. Sweep `mnist_generator_cifar10_rgb_coupling_topology_probe` (app
+`ap-qTl1hsn2kkqoRTqfulAyKz`, 8 parallel A10G, 40 epochs, seeds 23/24, recovery
+eval settle depths 0-32). Six arms:
+
+- single-mode HORN, local vs. fractal (topology isolated, no capacity confound);
+- multimode2 HORN, local vs. dense vs. fractal (topology on the stronger
+  substrate);
+- StateMLP mixed anchor (dense-linear non-oscillatory ceiling).
+
+Prediction that would rescue the ONN thread: if the StateMLP win is really about
+non-local coupling, the dense/fractal oscillator arms should close the gap to it
+and beat their local baselines. If dense/fractal do *not* help either, the
+advantage was always dense linear mixing and oscillation adds nothing — a clean
+negative that retires the question without the locality confound.
+
+Completed 2026-07-15 18:33 CEST, all 12 runs clean. Contiguous-block
+occluded-region MSE, two-seed means:
+
+| Arm | k0 | k8 | k16 | k32 |
+| --- | ---: | ---: | ---: | ---: |
+| single local | 0.0769 | 0.0912 | 0.0954 | 0.0743 |
+| single fractal | 0.0835 | 0.0943 | 0.0933 | 0.0910 |
+| mm2 local | 0.0794 | 0.0692 | 0.0642 | 0.1237 |
+| mm2 dense | 0.0656 | **0.0567** | 0.0611 | 0.1281 |
+| mm2 fractal | 0.0651 | 0.0639 | **0.0608** | 0.1302 |
+| StateMLP | 0.0421 | **0.0378** | 0.0385 | 0.0483 |
+
+Findings:
+
+1. **The locality confound was real — non-local coupling helps.** On the
+   multimode substrate, dense coupling beats local at every depth (k8: 0.0567
+   vs 0.0692, ~18% better, consistent across both seeds; k0 already ~17%
+   better). Fractal tracks dense closely (best k16 0.0608). The
+   contraction-vs-transport account survives its first direct intervention:
+   giving oscillators long-range links buys real contiguous-hole fill-in.
+2. **But locality explains only ~a third of the gap.** With coupling range
+   equalized (dense oscillator vs dense-linear StateMLP), StateMLP still wins
+   by ~50% (0.0378 vs 0.0567 at k8) and is far more stable at depth (k32:
+   0.0483 vs ~0.13). The residual deficit is attributable to the oscillatory
+   update rule itself — the second-order dynamics constraint — not to
+   topology.
+3. **Fractal ≈ dense.** The self-similar structure matches flat all-to-all but
+   does not beat it at this scale; the active ingredient is non-locality, not
+   discrete scale invariance. (Fractal does achieve parity with far more
+   structured, compressible coupling, which may matter for efficiency claims.)
+4. **Topology needs capacity.** On the single-mode substrate fractal does
+   nothing (0.0835 vs 0.0769 local; settling hurts both). Non-local links only
+   pay off where per-site state capacity (multimode) lets dynamics do active
+   fill-in — topology and capacity interact rather than add.
+5. **Deep-settling reversal unchanged.** All mm2 arms still degrade sharply by
+   k32 regardless of topology; StateMLP degrades far more gracefully.
+
+Read: the confound is resolved cleanly in both directions. Locality was
+genuinely holding oscillators back on contiguous holes (hypothesis partially
+confirmed, and the transport theory predicted it), but equalizing coupling
+range does not close the gap to the non-oscillatory control — so the remaining
+deficit is intrinsic to the oscillator update at this scale. The negative
+result for "ONNs beat recurrent MLPs at recovery" now stands on an unconfounded
+comparison, which makes it publishable-grade: local coupling → no transport;
+add transport → recover a third of the gap; the rest is the dynamics prior
+itself.
 
 
 

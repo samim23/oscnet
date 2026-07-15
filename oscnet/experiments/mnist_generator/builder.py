@@ -7,6 +7,7 @@ import jax
 
 from oscnet.models import (
     CoarseToFineHORNImageGenerator,
+    CoarseToFineMultiModeHORNImageGenerator,
     HORNImageGenerator,
     KuramotoImageGenerator,
     MultiscaleHORNImageGenerator,
@@ -26,6 +27,7 @@ def build_mnist_generator_model(
         "kuramoto",
         "horn",
         "coarse_horn",
+        "coarse_multimode_horn",
         "multiscale_horn",
         "multimode_horn",
         "state_mlp",
@@ -73,7 +75,9 @@ def build_mnist_generator_model(
         else bool(config.train_conditioning_dynamics)
     )
 
-    if config.model_family in (
+    if config.model_family == "coarse_multimode_horn":
+        model_class = CoarseToFineMultiModeHORNImageGenerator
+    elif config.model_family in (
         "coarse_horn",
         "coarse_horn_decoder_only",
         "frozen_coarse_horn",
@@ -148,6 +152,7 @@ def build_mnist_generator_model(
     if model_class in (
         HORNImageGenerator,
         CoarseToFineHORNImageGenerator,
+        CoarseToFineMultiModeHORNImageGenerator,
         MultiscaleHORNImageGenerator,
         MultiModeHORNImageGenerator,
     ):
@@ -184,7 +189,10 @@ def build_mnist_generator_model(
                 ),
             }
         )
-    if model_class is MultiModeHORNImageGenerator:
+    if model_class in (
+        MultiModeHORNImageGenerator,
+        CoarseToFineMultiModeHORNImageGenerator,
+    ):
         model_kwargs.update(
             {
                 "num_modes": config.multimode_num_modes,
@@ -195,7 +203,10 @@ def build_mnist_generator_model(
                 "mode_coupling_profile": config.multimode_mode_coupling_profile,
             }
         )
-    if model_class is CoarseToFineHORNImageGenerator:
+    if model_class in (
+        CoarseToFineHORNImageGenerator,
+        CoarseToFineMultiModeHORNImageGenerator,
+    ):
         model_kwargs.update(
             {
                 "num_coarse_oscillators": config.num_coarse_oscillators,
@@ -214,6 +225,7 @@ def build_mnist_generator_model(
                 "coarse_conditioning_strength": (
                     config.coarse_conditioning_strength
                 ),
+                "coarse_frequency_scale": config.coarse_frequency_scale,
             }
         )
     if model_class is MultiscaleHORNImageGenerator:

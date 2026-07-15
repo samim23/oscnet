@@ -124,6 +124,7 @@ def build_arg_parser(preset: str = "none") -> argparse.ArgumentParser:
             "multimode_horn",
             "multimode_horn_decoder_only",
             "frozen_multimode_horn",
+            "coarse_multimode_horn",
             "state_mlp",
             "state_mlp_decoder_only",
             "frozen_state_mlp",
@@ -150,7 +151,7 @@ def build_arg_parser(preset: str = "none") -> argparse.ArgumentParser:
     parser.add_argument("--coupling-init-scale", type=float, default=0.05)
     parser.add_argument(
         "--coupling-profile",
-        choices=["dense", "distance_decay", "local_radius"],
+        choices=["dense", "distance_decay", "local_radius", "fractal"],
         default="dense",
     )
     parser.add_argument(
@@ -406,6 +407,15 @@ def build_arg_parser(preset: str = "none") -> argparse.ArgumentParser:
     parser.add_argument("--coarse-to-fine-length-scale", type=float, default=0.0)
     parser.add_argument("--coarse-to-fine-floor", type=float, default=0.0)
     parser.add_argument("--coarse-conditioning-strength", type=float, default=1.0)
+    parser.add_argument(
+        "--coarse-frequency-scale",
+        type=float,
+        default=1.0,
+        help=(
+            "Frequency multiplier for the coarse carrier band. Values < 1 "
+            "make the carrier explicitly slower than the fine field."
+        ),
+    )
     parser.add_argument(
         "--multiscale-layer-sizes",
         type=_parse_int_tuple,
@@ -1122,6 +1132,7 @@ def config_from_args(args: argparse.Namespace) -> MNISTGeneratorExperimentConfig
         coarse_to_fine_length_scale=args.coarse_to_fine_length_scale,
         coarse_to_fine_floor=args.coarse_to_fine_floor,
         coarse_conditioning_strength=args.coarse_conditioning_strength,
+        coarse_frequency_scale=args.coarse_frequency_scale,
         multiscale_layer_sizes=args.multiscale_layer_sizes,
         multiscale_frequency_scales=args.multiscale_frequency_scales,
         multiscale_coupling_profile=args.multiscale_coupling_profile,

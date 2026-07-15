@@ -2789,6 +2789,37 @@ GENERATOR_PRESETS[
 }
 
 GENERATOR_PRESETS[
+    "sparse_horn_cifar10_rgb_current_multimode2_dense_retinotopic_recovery_mixed"
+] = {
+    **GENERATOR_PRESETS[
+        "sparse_horn_cifar10_rgb_current_multimode2_retinotopic_recovery_mixed"
+    ],
+    "coupling_profile": "dense",
+    "coupling_normalization": "row_sum",
+    "output_dir": (
+        "outputs/reference/"
+        "mnist_generator_sparse_horn_cifar10_rgb_current_multimode2_dense_"
+        "retinotopic_recovery_mixed"
+    ),
+}
+
+GENERATOR_PRESETS[
+    "sparse_horn_cifar10_rgb_current_multimode2_fractal_retinotopic_recovery_mixed"
+] = {
+    **GENERATOR_PRESETS[
+        "sparse_horn_cifar10_rgb_current_multimode2_retinotopic_recovery_mixed"
+    ],
+    "coupling_profile": "fractal",
+    "coupling_length_scale": 0.5,
+    "coupling_normalization": "row_sum",
+    "output_dir": (
+        "outputs/reference/"
+        "mnist_generator_sparse_horn_cifar10_rgb_current_multimode2_fractal_"
+        "retinotopic_recovery_mixed"
+    ),
+}
+
+GENERATOR_PRESETS[
     "sparse_horn_cifar10_rgb_current_single_retinotopic_recovery_mixed"
 ] = {
     **GENERATOR_PRESETS[
@@ -2799,6 +2830,22 @@ GENERATOR_PRESETS[
     "output_dir": (
         "outputs/reference/"
         "mnist_generator_sparse_horn_cifar10_rgb_current_single_"
+        "retinotopic_recovery_mixed"
+    ),
+}
+
+GENERATOR_PRESETS[
+    "sparse_horn_cifar10_rgb_current_single_fractal_retinotopic_recovery_mixed"
+] = {
+    **GENERATOR_PRESETS[
+        "sparse_horn_cifar10_rgb_current_single_retinotopic_recovery_mixed"
+    ],
+    "coupling_profile": "fractal",
+    "coupling_length_scale": 0.5,
+    "coupling_normalization": "row_sum",
+    "output_dir": (
+        "outputs/reference/"
+        "mnist_generator_sparse_horn_cifar10_rgb_current_single_fractal_"
         "retinotopic_recovery_mixed"
     ),
 }
@@ -2821,6 +2868,71 @@ GENERATOR_PRESETS[
         "outputs/reference/"
         "mnist_generator_sparse_horn_cifar10_rgb_current_coarse_carrier_"
         "retinotopic_recovery_mixed"
+    ),
+}
+
+GENERATOR_PRESETS[
+    "sparse_horn_cifar10_rgb_current_multimode2_eqfreq_retinotopic_recovery_mixed"
+] = {
+    **GENERATOR_PRESETS[
+        "sparse_horn_cifar10_rgb_current_multimode2_retinotopic_recovery_mixed"
+    ],
+    "multimode_frequency_scales": (1.0, 1.0),
+    "output_dir": (
+        "outputs/reference/"
+        "mnist_generator_sparse_horn_cifar10_rgb_current_multimode2_eqfreq_"
+        "retinotopic_recovery_mixed"
+    ),
+}
+
+GENERATOR_PRESETS[
+    "sparse_horn_cifar10_rgb_current_multimode2_wide_retinotopic_recovery_mixed"
+] = {
+    **GENERATOR_PRESETS[
+        "sparse_horn_cifar10_rgb_current_multimode2_retinotopic_recovery_mixed"
+    ],
+    "multimode_frequency_scales": (0.5, 1.5),
+    "output_dir": (
+        "outputs/reference/"
+        "mnist_generator_sparse_horn_cifar10_rgb_current_multimode2_wide_"
+        "retinotopic_recovery_mixed"
+    ),
+}
+
+GENERATOR_PRESETS[
+    "sparse_horn_cifar10_rgb_current_multimode4_retinotopic_recovery_mixed"
+] = {
+    **GENERATOR_PRESETS[
+        "sparse_horn_cifar10_rgb_current_multimode2_retinotopic_recovery_mixed"
+    ],
+    "multimode_num_modes": 4,
+    "multimode_frequency_scales": (),
+    "output_dir": (
+        "outputs/reference/"
+        "mnist_generator_sparse_horn_cifar10_rgb_current_multimode4_"
+        "retinotopic_recovery_mixed"
+    ),
+}
+
+GENERATOR_PRESETS[
+    "sparse_horn_cifar10_rgb_current_multimode2_slow_carrier_retinotopic_recovery_mixed"
+] = {
+    **GENERATOR_PRESETS[
+        "sparse_horn_cifar10_rgb_current_multimode2_retinotopic_recovery_mixed"
+    ],
+    "model_family": "coarse_multimode_horn",
+    "num_coarse_oscillators": 16,
+    "coarse_coupling_profile": "dense",
+    "coarse_coupling_normalization": "row_sum",
+    "coarse_to_fine_strength": 0.5,
+    "coarse_to_fine_profile": "dense",
+    "coarse_to_fine_normalization": "row_sum",
+    "coarse_conditioning_strength": 1.0,
+    "coarse_frequency_scale": 0.5,
+    "output_dir": (
+        "outputs/reference/"
+        "mnist_generator_sparse_horn_cifar10_rgb_current_multimode2_"
+        "slow_carrier_retinotopic_recovery_mixed"
     ),
 }
 

@@ -9,6 +9,7 @@ from oscnet.core.coupling import (
 
 from .common import Array, Dict, Optional, Tuple, eqx, jax, jnp, math
 from .horn import HORNImageGenerator
+from .multimode_horn import MultiModeHORNImageGenerator
 
 
 class CoarseToFineHORNImageGenerator(HORNImageGenerator):
@@ -35,6 +36,7 @@ class CoarseToFineHORNImageGenerator(HORNImageGenerator):
     coarse_to_fine_length_scale: float = eqx.field(static=True)
     coarse_to_fine_floor: float = eqx.field(static=True)
     coarse_conditioning_strength: float = eqx.field(static=True)
+    coarse_frequency_scale: float = eqx.field(static=True)
 
     def __init__(
         self,
@@ -49,6 +51,7 @@ class CoarseToFineHORNImageGenerator(HORNImageGenerator):
         coarse_to_fine_length_scale: float = 0.0,
         coarse_to_fine_floor: float = 0.0,
         coarse_conditioning_strength: float = 1.0,
+        coarse_frequency_scale: float = 1.0,
         **kwargs,
     ):
         if num_coarse_oscillators < 1:
@@ -75,6 +78,8 @@ class CoarseToFineHORNImageGenerator(HORNImageGenerator):
             raise ValueError("coarse_to_fine_floor must be in [0, 1]")
         if coarse_conditioning_strength < 0.0:
             raise ValueError("coarse_conditioning_strength must be non-negative")
+        if coarse_frequency_scale <= 0.0:
+            raise ValueError("coarse_frequency_scale must be positive")
 
         key = kwargs.get("key", None)
         if key is None:
@@ -107,6 +112,7 @@ class CoarseToFineHORNImageGenerator(HORNImageGenerator):
         self.coarse_to_fine_length_scale = float(coarse_to_fine_length_scale)
         self.coarse_to_fine_floor = float(coarse_to_fine_floor)
         self.coarse_conditioning_strength = float(coarse_conditioning_strength)
+        self.coarse_frequency_scale = float(coarse_frequency_scale)
         self.dynamics_family = "coarse_horn"
 
         self.coarse_omega = (
@@ -205,7 +211,8 @@ class CoarseToFineHORNImageGenerator(HORNImageGenerator):
             omega = jax.lax.stop_gradient(omega)
             coupling = jax.lax.stop_gradient(coupling)
         coupling = coupling * self.coarse_coupling_profile_matrix()
-        return self._horn_frequency(omega), coupling
+        frequency = self._horn_frequency(omega) * float(self.coarse_frequency_scale)
+        return frequency, coupling
 
     def _coarse_conditioning_drive(
         self,
@@ -651,3 +658,37 @@ class CoarseToFineHORNImageGenerator(HORNImageGenerator):
                 else self.spatial_output_bias
             ),
         }
+
+
+class CoarseToFineMultiModeHORNImageGenerator(
+    CoarseToFineHORNImageGenerator,
+    MultiModeHORNImageGenerator,
+):
+    """Multimode fine field driven by a slow/global coarse carrier.
+
+    Cooperative composition: ``MultiModeHORNImageGenerator`` supplies the
+    mode-structured fine coupling and per-mode frequencies (via
+    ``coupling_profile_matrix`` / ``_horn_frequency`` overrides used inside the
+    shared step functions), while ``CoarseToFineHORNImageGenerator`` supplies
+    the coarse carrier band, coarse-to-fine drive, and the recovery-path
+    ``evolve_state`` override that seeds the carrier from a pooled summary of
+    the fine state. ``coarse_frequency_scale < 1`` makes the carrier explicitly
+    slower than the fine field.
+    """
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.dynamics_family = "coarse_multimode_horn"
+
+    def _pool_fine_to_coarse(self, fine: Array) -> Array:
+        """Pool per-site mode averages into the coarse grid.
+
+        The multimode fine state interleaves modes within each spatial site,
+        so we first average modes per site, then reuse the retinotopic block
+        pooling from the coarse base class.
+        """
+
+        batch = fine.shape[0]
+        per_site = fine.reshape(batch, self.num_spatial_sites, self.num_modes)
+        site_mean = jnp.mean(per_site, axis=-1)
+        return CoarseToFineHORNImageGenerator._pool_fine_to_coarse(self, site_mean)

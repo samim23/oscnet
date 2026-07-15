@@ -3928,3 +3928,51 @@ occlusion training works (3-5x better fill-in than noise-only training); the
 slow/global carrier arm showed no reliable effect vs its matched baseline;
 multimode HORN is the only arm where settling depth improves fill-in on both
 seeds; the StateMLP control remains the absolute winner.
+
+## 2026-07-15: CIFAR RGB multimode carrier probe (Modal GPU, 8 parallel)
+
+Active-ingredient ablation for the multimode fill-in effect plus the carrier's
+"fair shot". Sweep `mnist_generator_cifar10_rgb_multimode_carrier_probe`, app
+`ap-ew3UgLxsft1IorlyV84F3l`, `OSCNET_MODAL_MAX_CONTAINERS=8`, completed
+2026-07-15 16:09 CEST. Arms x seeds 23/24: mm2 equal-frequency (1.0/1.0), mm2
+wide split (0.5/1.5), mm4, and `coarse_multimode_horn` slow carrier
+(16-node dense coarse band, `coarse_frequency_scale 0.5`). Recovery eval
+extended to settle depths 0-64. Both mm4 runs OOMed on A10G (1024 oscillators,
+16.4GiB `_train_step` allocation at batch 32); rerun at batch 16 deemed
+low-value. CSV:
+`outputs/analysis/modal_mnist_generator_cifar10_rgb_multimode_carrier_probe.csv`.
+
+Headline (details in `docs/experiment_report.md`): equal-frequency multimode
+shows the *strongest* settling fill-in — the slow-band hypothesis is falsified;
+the active ingredient is per-site capacity/mode coupling. The fair slow carrier
+adds nothing (third strike; retired). All arms degrade at settle depths 32-64,
+so the fill-in window is shallow (k8-k16). StateMLP anchor remains ~30% better
+than the best oscillator arm.
+
+## 2026-07-15: CIFAR RGB coupling-topology probe (Modal GPU, 8 parallel)
+
+Tests whether the StateMLP recovery advantage is really a coupling-range effect
+(dense/non-local) rather than an oscillator-vs-not effect. Holds the
+recovery-trained mixed-corruption objective fixed and varies only the recurrent
+coupling topology. Added a new `fractal` coupling profile
+(`hierarchical_coupling_profile` in `oscnet/core/coupling.py`): self-similar
+ultrametric kernel on the oscillator grid with direct long-range links. Sweep
+`mnist_generator_cifar10_rgb_coupling_topology_probe`, app
+`ap-qTl1hsn2kkqoRTqfulAyKz`, `OSCNET_MODAL_MAX_CONTAINERS=8`, launched
+2026-07-15 17:38 CEST. Six arms x seeds 23/24 (12 runs): single-mode HORN local
+vs fractal; multimode2 HORN local vs dense vs fractal; StateMLP mixed anchor
+(dense-linear ceiling). Recovery eval settle depths 0-32. CSV:
+`outputs/analysis/modal_mnist_generator_cifar10_rgb_coupling_topology_probe.csv`.
+
+Hypothesis: if the StateMLP win is about non-local coupling, dense/fractal
+oscillator arms should beat their local baselines and close the gap to
+StateMLP. If not, the win is dense linear mixing and oscillation adds nothing.
+
+Completed 2026-07-15 18:33 CEST, all 12 runs clean. Headline (details in
+`docs/experiment_report.md`): partially confirmed. Dense/fractal coupling on
+the multimode substrate beats local by ~18% on contiguous-hole fill-in (both
+seeds), so locality was a real confound and the transport theory holds. But
+StateMLP still wins by ~50% with coupling range equalized, so the residual gap
+is intrinsic to the oscillatory update. Fractal matches dense (non-locality is
+the active ingredient, not self-similarity); topology only helps on the
+multimode substrate; deep-settling reversal unchanged.

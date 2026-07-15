@@ -171,10 +171,15 @@ class KuramotoImageGenerator(eqx.Module):
             raise ValueError("resize_conv_seed_layout must be 'flat' or 'retinotopic'")
         if resize_conv_seed_min_channels < 0:
             raise ValueError("resize_conv_seed_min_channels must be non-negative")
-        if coupling_profile not in ("dense", "distance_decay", "local_radius"):
+        if coupling_profile not in (
+            "dense",
+            "distance_decay",
+            "local_radius",
+            "fractal",
+        ):
             raise ValueError(
-                "coupling_profile must be 'dense', 'distance_decay', or "
-                "'local_radius'"
+                "coupling_profile must be 'dense', 'distance_decay', "
+                "'local_radius', or 'fractal'"
             )
         if coupling_normalization not in ("none", "row_sum"):
             raise ValueError("coupling_normalization must be 'none' or 'row_sum'")

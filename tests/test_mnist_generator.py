@@ -664,6 +664,79 @@ def test_coarse_carrier_recovery_preset_builds_and_evolves():
     assert settled_velocity.shape == (2, 256)
 
 
+def test_coarse_multimode_carrier_builds_and_evolves():
+    config = config_from_args(
+        parse_args(
+            [
+                "--preset",
+                "sparse_horn_cifar10_rgb_current_multimode2_slow_carrier_retinotopic_recovery_mixed",
+                "--steps",
+                "2",
+                "--state-anchor-steps",
+                "2",
+            ]
+        )
+    )
+    assert config.model_family == "coarse_multimode_horn"
+    assert config.multimode_num_modes == 2
+    assert config.coarse_frequency_scale == 0.5
+    assert config.num_coarse_oscillators == 16
+
+    model = build_mnist_generator_model(config, jax.random.PRNGKey(460))
+    assert model.dynamics_family == "coarse_multimode_horn"
+    assert model.num_oscillators == 512
+    assert model.num_modes == 2
+    assert model.coarse_frequency_scale == 0.5
+    assert model.state_anchor_encoder is not None
+
+    images = jnp.zeros((2, 32 * 32 * 3), dtype=jnp.float32)
+    position, velocity = model.encode_image_state(images)
+    settled_position, settled_velocity = model.evolve_state(
+        (position, velocity), None
+    )
+    assert settled_position.shape == (2, 512)
+    assert jnp.all(jnp.isfinite(settled_position))
+    generated = model.decode_state(settled_position, settled_velocity)
+    assert generated.shape == (2, 32 * 32 * 3)
+
+    sampled = model(jax.random.PRNGKey(461), 2, jnp.array([0, 1]))
+    assert sampled.shape == (2, 32 * 32 * 3)
+
+
+def test_multimode_ablation_presets_set_frequency_scales():
+    eqfreq = config_from_args(
+        parse_args(
+            [
+                "--preset",
+                "sparse_horn_cifar10_rgb_current_multimode2_eqfreq_retinotopic_recovery_mixed",
+            ]
+        )
+    )
+    wide = config_from_args(
+        parse_args(
+            [
+                "--preset",
+                "sparse_horn_cifar10_rgb_current_multimode2_wide_retinotopic_recovery_mixed",
+            ]
+        )
+    )
+    mm4 = config_from_args(
+        parse_args(
+            [
+                "--preset",
+                "sparse_horn_cifar10_rgb_current_multimode4_retinotopic_recovery_mixed",
+            ]
+        )
+    )
+    assert eqfreq.multimode_frequency_scales == (1.0, 1.0)
+    assert wide.multimode_frequency_scales == (0.5, 1.5)
+    assert mm4.multimode_num_modes == 4
+    assert mm4.multimode_frequency_scales == ()
+    for cfg in (eqfreq, wide, mm4):
+        assert cfg.model_family == "multimode_horn"
+        assert cfg.state_anchor_occlusion_fraction == 0.25
+
+
 def test_recovery_training_presets_configure_corruption_and_eval():
     noise_config = config_from_args(
         parse_args(
@@ -917,6 +990,89 @@ def test_cifar_current_multimode_preset_builds_rgb_model():
     assert diagnostics["num_modes"] == 2
     assert diagnostics["mode_coupling_strength"] == 0.25
     assert diagnostics["recurrent_params"] > 256 * 256
+
+
+def _build_recovery_model(preset_name, key):
+    config = config_from_args(
+        parse_args(
+            [
+                "--preset",
+                preset_name,
+                "--train-limit",
+                "8",
+                "--eval-limit",
+                "4",
+                "--batch-size",
+                "2",
+                "--steps",
+                "1",
+            ]
+        )
+    )
+    return config, build_mnist_generator_model(config, key)
+
+
+def test_single_fractal_coupling_is_dense_and_nonlocal():
+    local_config, local_model = _build_recovery_model(
+        "sparse_horn_cifar10_rgb_current_single_retinotopic_recovery_mixed",
+        jax.random.PRNGKey(716),
+    )
+    config, model = _build_recovery_model(
+        "sparse_horn_cifar10_rgb_current_single_fractal_"
+        "retinotopic_recovery_mixed",
+        jax.random.PRNGKey(717),
+    )
+    assert local_config.coupling_profile == "local_radius"
+    assert config.coupling_profile == "fractal"
+    profile = model.coupling_profile_matrix()
+    local_profile = local_model.coupling_profile_matrix()
+    n = profile.shape[0]
+    labels = jnp.asarray([0, 1], dtype=jnp.int32)
+    generated = model(jax.random.PRNGKey(718), 2, labels)
+
+    assert generated.shape == (2, 32 * 32 * 3)
+    # Fractal coupling keeps direct long-range links between distant corner
+    # sites; the sparse local profile leaves them disconnected.
+    assert float(profile[0, n - 1]) > 0.0
+    assert float(local_profile[0, n - 1]) == 0.0
+    assert float(jnp.count_nonzero(profile)) == float(n * n - n)
+    assert float(jnp.count_nonzero(profile)) > float(
+        jnp.count_nonzero(local_profile)
+    )
+
+
+def test_multimode_dense_and_fractal_are_more_connected_than_local():
+    _, local_model = _build_recovery_model(
+        "sparse_horn_cifar10_rgb_current_multimode2_"
+        "retinotopic_recovery_mixed",
+        jax.random.PRNGKey(720),
+    )
+    dense_config, dense_model = _build_recovery_model(
+        "sparse_horn_cifar10_rgb_current_multimode2_dense_"
+        "retinotopic_recovery_mixed",
+        jax.random.PRNGKey(721),
+    )
+    fractal_config, fractal_model = _build_recovery_model(
+        "sparse_horn_cifar10_rgb_current_multimode2_fractal_"
+        "retinotopic_recovery_mixed",
+        jax.random.PRNGKey(722),
+    )
+    assert dense_config.coupling_profile == "dense"
+    assert fractal_config.coupling_profile == "fractal"
+
+    local_nonzero = float(jnp.count_nonzero(local_model.coupling_profile_matrix()))
+    dense_nonzero = float(jnp.count_nonzero(dense_model.coupling_profile_matrix()))
+    fractal_nonzero = float(
+        jnp.count_nonzero(fractal_model.coupling_profile_matrix())
+    )
+
+    labels = jnp.asarray([0, 1], dtype=jnp.int32)
+    assert dense_model(jax.random.PRNGKey(723), 2, labels).shape == (
+        2,
+        32 * 32 * 3,
+    )
+    assert dense_nonzero > local_nonzero
+    assert fractal_nonzero > local_nonzero
 
 
 def test_cifar_current_multimode_retinotopic_preset_builds_rgb_model():

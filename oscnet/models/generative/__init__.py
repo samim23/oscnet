@@ -1,6 +1,9 @@
 """Implicit image generators driven by oscillator dynamics."""
 
-from .coarse_horn import CoarseToFineHORNImageGenerator
+from .coarse_horn import (
+    CoarseToFineHORNImageGenerator,
+    CoarseToFineMultiModeHORNImageGenerator,
+)
 from .horn import HORNImageGenerator
 from .kuramoto import KuramotoImageGenerator
 from .multiscale_horn import MultiscaleHORNImageGenerator
@@ -10,6 +13,7 @@ from .state_mlp import StateMLPImageGenerator
 
 __all__ = [
     "CoarseToFineHORNImageGenerator",
+    "CoarseToFineMultiModeHORNImageGenerator",
     "HORNImageGenerator",
     "KuramotoImageGenerator",
     "KuramotoPhaseVAE",

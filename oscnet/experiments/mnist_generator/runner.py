@@ -2352,6 +2352,9 @@ def run_mnist_generator_experiment(
             "coarse_conditioning_strength": float(
                 getattr(model, "coarse_conditioning_strength", 0.0)
             ),
+            "coarse_frequency_scale": float(
+                getattr(model, "coarse_frequency_scale", 1.0)
+            ),
             "multiscale_layer_sizes": [
                 int(size) for size in getattr(model, "multiscale_layer_sizes", ())
             ],

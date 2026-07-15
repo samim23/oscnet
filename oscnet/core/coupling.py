@@ -139,6 +139,58 @@ def dense_coupling_profile(
     )
 
 
+def hierarchical_coupling_profile(
+    *,
+    num_oscillators: int,
+    inter_block_strength: float = 0.5,
+    depth: int = 0,
+    normalization: CouplingNormalization = "none",
+    target_row_sum: float | None = None,
+) -> Array:
+    """Build a self-similar (fractal) ultrametric coupling profile.
+
+    Oscillators are placed on the same near-square grid used by the local and
+    distance-decay profiles, then the grid is recursively split into quadrants
+    for ``depth`` levels. Two sites sharing their finest block are coupled at
+    full strength; each coarser level at which they diverge multiplies the
+    coupling by ``inter_block_strength``. This yields discrete self-similar
+    scales with direct long-range links between distant sites -- the non-local
+    structure that local nearest-neighbour coupling lacks -- while remaining far
+    sparser in effective energy than a flat dense profile.
+    """
+
+    if num_oscillators < 1:
+        raise ValueError("num_oscillators must be positive")
+    coords = oscillator_grid_coordinates(num_oscillators)
+    grid_extent = max(2, int(math.ceil(math.sqrt(num_oscillators))))
+    if depth <= 0:
+        depth = max(1, int(math.floor(math.log2(grid_extent))) - 1)
+    depth = int(depth)
+    strength = float(inter_block_strength)
+    if strength <= 0.0:
+        strength = 0.5
+    strength = min(strength, 1.0)
+    unit = jnp.clip((coords + 1.0) / 2.0, 0.0, 1.0 - 1e-6)
+    shared = jnp.zeros((num_oscillators, num_oscillators), dtype=jnp.float32)
+    prefix = jnp.ones((num_oscillators, num_oscillators), dtype=jnp.float32)
+    for level in range(1, depth + 1):
+        scale = float(2**level)
+        block = jnp.floor(unit * scale)
+        match = jnp.all(
+            block[:, None, :] == block[None, :, :],
+            axis=-1,
+        ).astype(jnp.float32)
+        prefix = prefix * match
+        shared = shared + prefix
+    weight = strength ** (float(depth) - shared)
+    profile = weight * (1.0 - jnp.eye(num_oscillators, dtype=jnp.float32))
+    return normalize_coupling_profile(
+        profile,
+        mode=normalization,
+        target_row_sum=target_row_sum,
+    )
+
+
 def rectangular_dense_coupling_profile(
     *,
     num_targets: int,
@@ -261,9 +313,16 @@ def coupling_profile_from_name(
             normalization=normalization,
             target_row_sum=target_row_sum,
         )
+    if name == "fractal":
+        return hierarchical_coupling_profile(
+            num_oscillators=num_oscillators,
+            inter_block_strength=length_scale if length_scale > 0.0 else 0.5,
+            normalization=normalization,
+            target_row_sum=target_row_sum,
+        )
     raise ValueError(
-        "coupling profile name must be 'dense', 'distance_decay', or "
-        "'local_radius'"
+        "coupling profile name must be 'dense', 'distance_decay', "
+        "'local_radius', or 'fractal'"
     )
 
 
@@ -325,6 +384,7 @@ __all__ = [
     "coupling_profile_from_name",
     "dense_coupling_profile",
     "distance_decay_coupling_profile",
+    "hierarchical_coupling_profile",
     "local_radius_coupling_profile",
     "normalize_coupling_profile",
     "oscillator_grid_coordinates",

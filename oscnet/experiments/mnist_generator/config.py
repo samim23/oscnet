@@ -60,6 +60,7 @@ class MNISTGeneratorExperimentConfig:
     coarse_to_fine_length_scale: float = 0.0
     coarse_to_fine_floor: float = 0.0
     coarse_conditioning_strength: float = 1.0
+    coarse_frequency_scale: float = 1.0
     multiscale_layer_sizes: Tuple[int, ...] = (16, 64)
     multiscale_frequency_scales: Tuple[float, ...] = ()
     multiscale_coupling_profile: str = "local_radius"

@@ -28,6 +28,7 @@ from .config import (
 from .fractal import FractalHORNCell
 from .generative import (
     CoarseToFineHORNImageGenerator,
+    CoarseToFineMultiModeHORNImageGenerator,
     HORNImageGenerator,
     KuramotoImageGenerator,
     KuramotoPhaseVAE,
@@ -159,6 +160,7 @@ __all__ = [
     "WONNPatchAutoencoder",
     "FractalHORNCell",
     "CoarseToFineHORNImageGenerator",
+    "CoarseToFineMultiModeHORNImageGenerator",
     "HORNImageGenerator",
     "KuramotoImageGenerator",
     "MultiscaleHORNImageGenerator",

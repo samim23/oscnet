@@ -3,6 +3,7 @@ import jax.numpy as jnp
 from oscnet.core.coupling import (
     coupling_profile_from_name,
     distance_decay_coupling_profile,
+    hierarchical_coupling_profile,
     local_radius_coupling_profile,
     normalize_coupling_profile,
     oscillator_grid_coordinates,
@@ -84,6 +85,49 @@ def test_named_normalized_distance_decay_profile_has_expected_row_gain():
     assert profile.shape == (9, 9)
     assert jnp.allclose(jnp.diag(profile), 0.0)
     assert jnp.allclose(jnp.sum(profile, axis=-1), 9.0, atol=1e-5)
+
+
+def test_fractal_profile_is_nonlocal_with_discrete_scales():
+    fractal = hierarchical_coupling_profile(
+        num_oscillators=64,
+        inter_block_strength=0.5,
+        normalization="none",
+    )
+    local = local_radius_coupling_profile(
+        num_oscillators=64,
+        radius=0.0,
+        normalization="none",
+    )
+
+    assert fractal.shape == (64, 64)
+    assert jnp.allclose(jnp.diag(fractal), 0.0)
+    # Symmetric ultrametric kernel.
+    assert jnp.allclose(fractal, fractal.T, atol=1e-6)
+    # Unlike the sparse local profile, the fractal profile keeps direct
+    # long-range links: the far corners of the grid remain coupled.
+    assert float(fractal[0, -1]) > 0.0
+    assert float(local[0, -1]) == 0.0
+    # Discrete self-similar scales: only a handful of distinct nonzero
+    # coupling magnitudes rather than a smooth continuum.
+    magnitudes = jnp.unique(jnp.round(fractal[fractal > 0.0], 5))
+    assert int(magnitudes.shape[0]) <= 8
+
+
+def test_named_fractal_profile_matches_row_gain_and_uses_strength():
+    profile = coupling_profile_from_name(
+        name="fractal",
+        num_oscillators=64,
+        length_scale=0.5,
+        normalization="row_sum",
+        target_row_sum=64.0,
+    )
+
+    assert profile.shape == (64, 64)
+    assert jnp.allclose(jnp.diag(profile), 0.0)
+    assert jnp.allclose(jnp.sum(profile, axis=-1), 64.0, atol=1e-4)
+    # Every site reaches every other after row-sum normalization (dense
+    # support), in contrast to the sparse local profile.
+    assert float(jnp.count_nonzero(profile)) == float(64 * 64 - 64)
 
 
 def test_row_laplacian_reports_degree_and_zero_row_sum():

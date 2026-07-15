@@ -415,6 +415,14 @@ SWEEP_CSVS = {
         "outputs/analysis/"
         "modal_mnist_generator_cifar10_rgb_recovery_training_probe.csv"
     ),
+    "mnist_generator_cifar10_rgb_multimode_carrier_probe": Path(
+        "outputs/analysis/"
+        "modal_mnist_generator_cifar10_rgb_multimode_carrier_probe.csv"
+    ),
+    "mnist_generator_cifar10_rgb_coupling_topology_probe": Path(
+        "outputs/analysis/"
+        "modal_mnist_generator_cifar10_rgb_coupling_topology_probe.csv"
+    ),
     "mnist_generator_cifar10_rgb_attribution_probe": Path(
         "outputs/analysis/"
         "modal_mnist_generator_cifar10_rgb_attribution_probe.csv"
@@ -5689,6 +5697,154 @@ def _mnist_generator_cifar10_rgb_recovery_training_probe() -> list[
     return entries
 
 
+def _mnist_generator_cifar10_rgb_multimode_carrier_probe() -> list[
+    tuple[list[str], str]
+]:
+    """Isolate the active ingredient of multimode settling fill-in.
+
+    Frequency-ratio ablations (equal vs default vs wide split), mode-count
+    dose response, and one fair slow/global carrier arm on the multimode
+    substrate. Anchored against the earlier recovery training probe results
+    (multimode2 default and StateMLP arms are not rerun).
+    """
+
+    entries = []
+    probe_args = (
+        "--epochs 40 "
+        "--train-limit 10000 "
+        "--eval-limit 5000 "
+        "--checkpoint-every 40 "
+        "--artifact-every 40 "
+        "--batch-size 32 "
+        "--eval-sample-count 512 "
+        "--quality-classifier-train-limit 20000 "
+        "--quality-classifier-eval-limit 5000 "
+        "--attractor-variants-per-class 8 "
+        "--state-fit-sample-count 32 "
+        "--state-fit-steps 80 "
+        "--state-fit-settle-steps 0,1,2,4,8,16,32 "
+        "--recovery-eval-sample-count 256 "
+        "--recovery-eval-settle-steps 0,2,4,8,16,32,64"
+    )
+    variants = (
+        (
+            "mm2_eqfreq",
+            "sparse_horn_cifar10_rgb_current_multimode2_eqfreq_"
+            "retinotopic_recovery_mixed",
+        ),
+        (
+            "mm2_wide",
+            "sparse_horn_cifar10_rgb_current_multimode2_wide_"
+            "retinotopic_recovery_mixed",
+        ),
+        (
+            "mm4",
+            "sparse_horn_cifar10_rgb_current_multimode4_"
+            "retinotopic_recovery_mixed",
+        ),
+        (
+            "mm2_slow_carrier",
+            "sparse_horn_cifar10_rgb_current_multimode2_slow_carrier_"
+            "retinotopic_recovery_mixed",
+        ),
+    )
+    for seed in (23, 24):
+        for variant_name, local_preset in variants:
+            run_name = (
+                "mnist_generator_cifar10_rgb_multimode_carrier_probe_"
+                f"{variant_name}_train10000_seed{seed}_40e"
+            )
+            args = shlex.split(
+                f"--seed {seed} --preset {local_preset} {probe_args}"
+            )
+            output_dir = VOLUME_MOUNT / "mnist_generator" / run_name
+            args = _with_default_arg(args, "--output-dir", output_dir)
+            entries.append((args, run_name))
+
+    return entries
+
+
+def _mnist_generator_cifar10_rgb_coupling_topology_probe() -> list[
+    tuple[list[str], str]
+]:
+    """Does coupling range, not oscillation, drive recovery fill-in?
+
+    Holds the recovery-trained mixed-corruption objective fixed and varies only
+    the recurrent coupling topology: local nearest-neighbour (baseline), dense
+    all-to-all, and fractal (self-similar ultrametric long-range links). Run on
+    both the single-mode and multimode substrates so the topology effect is
+    isolated from the multimode capacity effect. StateMLP (dense linear hidden
+    coupling) is the non-oscillatory ceiling. Hypothesis: if the StateMLP win is
+    really about non-local coupling, dense/fractal oscillator arms should close
+    the gap to it and beat the local baseline.
+    """
+
+    entries = []
+    probe_args = (
+        "--epochs 40 "
+        "--train-limit 10000 "
+        "--eval-limit 5000 "
+        "--checkpoint-every 40 "
+        "--artifact-every 40 "
+        "--batch-size 32 "
+        "--eval-sample-count 512 "
+        "--quality-classifier-train-limit 20000 "
+        "--quality-classifier-eval-limit 5000 "
+        "--attractor-variants-per-class 8 "
+        "--state-fit-sample-count 32 "
+        "--state-fit-steps 80 "
+        "--state-fit-settle-steps 0,1,2,4,8,16,32 "
+        "--recovery-eval-sample-count 256 "
+        "--recovery-eval-settle-steps 0,2,4,8,16,32"
+    )
+    variants = (
+        (
+            "mm2_local",
+            "sparse_horn_cifar10_rgb_current_multimode2_"
+            "retinotopic_recovery_mixed",
+        ),
+        (
+            "mm2_dense",
+            "sparse_horn_cifar10_rgb_current_multimode2_dense_"
+            "retinotopic_recovery_mixed",
+        ),
+        (
+            "mm2_fractal",
+            "sparse_horn_cifar10_rgb_current_multimode2_fractal_"
+            "retinotopic_recovery_mixed",
+        ),
+        (
+            "single_local",
+            "sparse_horn_cifar10_rgb_current_single_"
+            "retinotopic_recovery_mixed",
+        ),
+        (
+            "single_fractal",
+            "sparse_horn_cifar10_rgb_current_single_fractal_"
+            "retinotopic_recovery_mixed",
+        ),
+        (
+            "state_mlp",
+            "sparse_horn_cifar10_rgb_current_state_mlp_"
+            "retinotopic_recovery_mixed",
+        ),
+    )
+    for seed in (23, 24):
+        for variant_name, local_preset in variants:
+            run_name = (
+                "mnist_generator_cifar10_rgb_coupling_topology_probe_"
+                f"{variant_name}_train10000_seed{seed}_40e"
+            )
+            args = shlex.split(
+                f"--seed {seed} --preset {local_preset} {probe_args}"
+            )
+            output_dir = VOLUME_MOUNT / "mnist_generator" / run_name
+            args = _with_default_arg(args, "--output-dir", output_dir)
+            entries.append((args, run_name))
+
+    return entries
+
+
 def _sweep_entries(preset: str) -> list[tuple[list[str], str]]:
     if preset == "mnist_generator_core":
         return _mnist_generator_core_sweep()
@@ -5898,6 +6054,10 @@ def _sweep_entries(preset: str) -> list[tuple[list[str], str]]:
         return _mnist_generator_cifar10_rgb_state_prior_control_probe()
     if preset == "mnist_generator_cifar10_rgb_recovery_training_probe":
         return _mnist_generator_cifar10_rgb_recovery_training_probe()
+    if preset == "mnist_generator_cifar10_rgb_multimode_carrier_probe":
+        return _mnist_generator_cifar10_rgb_multimode_carrier_probe()
+    if preset == "mnist_generator_cifar10_rgb_coupling_topology_probe":
+        return _mnist_generator_cifar10_rgb_coupling_topology_probe()
     if preset == "mnist_generator_cifar10_rgb_attribution_probe":
         return _mnist_generator_cifar10_rgb_attribution_probe_sweep()
     if preset == "mnist_generator_cifar10_rgb_sparse_drive_probe":
@@ -6058,6 +6218,13 @@ def _write_sweep_csv(results: list[dict[str, Any]], path: Path) -> None:
         "generator.recovery.occl_f0_p4_k008_intact_region_mse",
         "generator.recovery.occl_f0_p4_k008_psnr",
         "generator.recovery.occl_f0_p4_k016_occluded_region_mse",
+        "generator.recovery.occl_f0_p1_k032_occluded_region_mse",
+        "generator.recovery.occl_f0_p1_k064_occluded_region_mse",
+        "generator.recovery.occl_f0_p4_k032_occluded_region_mse",
+        "generator.recovery.occl_f0_p4_k064_occluded_region_mse",
+        "generator.recovery.clean_k032_psnr",
+        "generator.recovery.clean_k064_psnr",
+        "generator.coarse_frequency_scale",
         "generator.state_prior_sampling_mode",
         "generator.state_prior_rank",
         "generator.state_prior_noise_scale",
