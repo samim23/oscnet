@@ -3836,3 +3836,95 @@ reference recipe and keep the same-stack StateMLP beside it as the co-equal
 control. Do not launch a full 50k/80-epoch quality rung from this result; the
 current branch is a useful mechanism audit plus a null HORN-vs-StateMLP result
 for CIFAR image generation at this scale.
+
+## 2026-07-14: CIFAR RGB state recovery probe (eval-only, local, pulled checkpoints)
+
+No new GPU runs. Pulled the epoch-40 checkpoints from the volume and ran the
+new noise-then-settle recovery probe locally:
+
+```bash
+mkdir -p outputs/checkpoints/state_recovery_probe
+modal volume get oscnet-runs \
+  /mnist_generator/mnist_generator_cifar10_rgb_state_prior_scale_gate_rung1_prior_class_patch005_offset_b32_train10000_seed23_40e/checkpoints/checkpoint_epoch_040.eqx \
+  outputs/checkpoints/state_recovery_probe/prior_class_patch005_seed23_epoch040.eqx
+# ... same for prior_class seed24, prior_global 23/24 (control probe runs),
+# and state_mlp_prior_class_patch005 23/24 (control probe runs).
+
+python scripts/analyze_generator_state_recovery.py \
+  --checkpoint outputs/checkpoints/state_recovery_probe/prior_class_patch005_seed23_epoch040.eqx \
+  --preset sparse_horn_cifar10_rgb_current_multimode2_retinotopic_anchor030_prior_class_patch005 \
+  --seed 23 --sample-count 32 --fit-steps 120 \
+  --output-dir outputs/analysis/state_recovery_probe \
+  --output-prefix horn_prior_class_patch005_seed23
+# ... repeated per arm/seed with the matching preset.
+```
+
+Outputs: per-arm CSV/JSON/contact sheets plus
+`outputs/analysis/state_recovery_probe/state_recovery_probe_aggregate.csv`.
+
+Result summary (details in `docs/experiment_report.md`): both HORN arms
+denoise corrupted fitted states in 80/80 cells (denoise fraction positive at
+every noise scale, depth, seed; mean 0.40-0.53), while the same-stack StateMLP
+manages mean 0.24 with 9/40 negative cells. First consistent-sign
+oscillator-vs-control asymmetry in the CIFAR branch.
+
+## 2026-07-14: CIFAR RGB occlusion recovery probe (eval-only, local)
+
+Same six pulled checkpoints as the noise recovery probe. New
+`--occlusion-fractions` condition in `scripts/analyze_generator_state_recovery.py`
+zeroes square patches (6.25/12.5/25%) of the 16x16 retinotopic site grid, then
+settles 1-16 steps, reporting occluded-region vs intact-region decode MSE.
+
+Outputs: `outputs/analysis/state_recovery_probe_occlusion/` (per-arm CSV/JSON/
+contact sheets, aggregate `state_occlusion_probe_aggregate.csv`).
+
+Result (details in `docs/experiment_report.md`): decisive negative — no arm
+fills in the occluded region at any depth; HORN degrades it slightly while
+paying a large intact-region cost, StateMLP is flat-to-marginally-better at
+shallow depths. The noise-recovery asymmetry does not extend to structured
+damage; emergent associative memory is absent at this operating point.
+
+## 2026-07-15: CIFAR RGB recovery training probe (Modal GPU, detached)
+
+First training run of the corrupted-anchor recovery objective (step 2). The
+anchor loss now corrupts before/at encoding — image-space square-patch
+occlusion applied before the encoder plus state-space Gaussian noise — settles
+the dynamics, decodes, and scores paired MSE against the clean image, with an
+explicit clean fixed-point term (`state_anchor_clean_weight`) that also settles
+the uncorrupted encoded state. New eval block `generator.recovery.*` reports
+PSNR/SSIM and occluded-region vs intact-region MSE across settle depths and
+corruption conditions (noise scales; contiguous single-block and scattered
+4-patch occlusion).
+
+Sweep preset `mnist_generator_cifar10_rgb_recovery_training_probe`, 40 epochs,
+train 10k / eval 5k, A10G, `max_containers=1` (runs roll sequentially). Six
+arms x 2 seeds (23, 24):
+
+- `horn_recovery_noise` — multimode2 HORN, Gaussian-noise-only corruption.
+- `horn_recovery_mixed` — multimode2 HORN, noise + scattered 4-patch occlusion.
+- `state_mlp_recovery_noise` / `state_mlp_recovery_mixed` — matched
+  non-oscillatory recurrent MLP controls.
+- `single_local_recovery_mixed` — single-mode local HORN, mixed corruption; the
+  matched no-carrier baseline for the carrier arm.
+- `coarse_carrier_recovery_mixed` — single-mode fine HORN plus a 16-node dense
+  slow/global coarse carrier (`CoarseToFineHORNImageGenerator`). The carrier is
+  seeded in the recovery/anchor path by parameter-free spatial mean-pooling of
+  the (corrupted) fine encoded state, so a long-wavelength mode participates in
+  settling. This is the one mechanism theory says could move the contiguous-hole
+  number; the matched single-mode local arm isolates its effect.
+
+App: `ap-GzzdJI4vJm3HrgTHp0bMgl` (detached). Sweep CSV on completion:
+`outputs/analysis/modal_mnist_generator_cifar10_rgb_recovery_training_probe.csv`.
+Design rationale (distributed vs contiguous corruption, slow/global carrier) is
+in `docs/experiment_report.md`.
+
+Update: `ap-GzzdJI4vJm3HrgTHp0bMgl` was cancelled (serial execution with
+`max_containers=1` was too slow), as was a 12-container relaunch
+(`ap-jZMTfFXjvjPlu3ffeWTpCN`, exceeded the workspace 10-GPU limit). Final run:
+`ap-15xJuAPbD45RyKC9p4akCd` with `OSCNET_MODAL_MAX_CONTAINERS=8`, completed
+2026-07-15 12:18 CEST, all 12 runs clean. Results and interpretation in
+`docs/experiment_report.md` ("Recovery Training Probe — Results"). Headline:
+occlusion training works (3-5x better fill-in than noise-only training); the
+slow/global carrier arm showed no reliable effect vs its matched baseline;
+multimode HORN is the only arm where settling depth improves fill-in on both
+seeds; the StateMLP control remains the absolute winner.

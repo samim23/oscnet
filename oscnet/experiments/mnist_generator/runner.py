@@ -28,7 +28,7 @@ from .artifacts import (
     save_mnist_generator_artifacts,
 )
 from .builder import build_mnist_generator_model
-from .common import Array, _logger, _tree_norm
+from .common import Array, _logger, _tree_norm, occlude_image_batch
 from .config import MNISTGeneratorExperimentConfig
 from .features import (
     FeatureClassifier,
@@ -50,6 +50,7 @@ from .metrics import (
     compute_generator_attractor_robustness,
     compute_generator_quality_metrics,
     compute_generator_settling_metrics,
+    compute_generator_recovery_metrics,
     compute_generator_state_fitting_probe,
     compute_generator_state_information_probe,
     compute_generator_success_diagnostics,
@@ -347,6 +348,10 @@ def _state_anchor_image_loss(
     state_anchor_steps: Tuple[int, ...],
     state_anchor_noise_scale: float,
     state_anchor_mode: str,
+    state_anchor_occlusion_fraction: float = 0.0,
+    state_anchor_occlusion_patches: int = 4,
+    state_anchor_occlusion_probability: float = 0.5,
+    state_anchor_clean_weight: float = 0.0,
 ) -> Array:
     """Train a local image-to-state anchor to survive HORN settling.
 
@@ -354,6 +359,13 @@ def _state_anchor_image_loss(
     HORN state. ``reconstruct`` is the k=0 autoencoder control; ``settle`` lets
     dynamics learn through the anchor; ``frozen_dynamics`` stops gradients on
     recurrent/conditioning parameters only inside this anchor path.
+
+    Corruption for the recovery objective happens in two places: occlusion is
+    applied to the image *before* encoding (zeroed square patches, so the task
+    is "corrupted image in, clean image out after settling"), while Gaussian
+    noise is added to the encoded state. The optional clean fixed-point term
+    settles the uncorrupted encoded state and scores it against the clean
+    image, training clean states to survive the dynamics.
     """
 
     if state_anchor_weight <= 0.0 or state_anchor_mode == "none":
@@ -368,15 +380,26 @@ def _state_anchor_image_loss(
             "or 'frozen_dynamics'"
         )
 
-    position, velocity = model.encode_image_state(real_batch)
     if state_anchor_mode == "reconstruct":
+        position, velocity = model.encode_image_state(real_batch)
         generated = model.decode_state(position, velocity)
         return jnp.mean((generated - real_batch) ** 2)
 
     if not state_anchor_steps:
         state_anchor_steps = (int(model.steps),)
 
-    position_key, velocity_key, step_key = jax.random.split(key, 3)
+    position_key, velocity_key, step_key, occlusion_key = jax.random.split(key, 4)
+    encoder_input = real_batch
+    if state_anchor_occlusion_fraction > 0.0:
+        encoder_input, _ = occlude_image_batch(
+            real_batch,
+            key=occlusion_key,
+            image_shape=model.image_shape,
+            fraction=float(state_anchor_occlusion_fraction),
+            patches=int(state_anchor_occlusion_patches),
+            probability=float(state_anchor_occlusion_probability),
+        )
+    position, velocity = model.encode_image_state(encoder_input)
     if state_anchor_noise_scale > 0.0:
         position = position + float(state_anchor_noise_scale) * jax.random.normal(
             position_key,
@@ -404,6 +427,14 @@ def _state_anchor_image_loss(
         maxval=len(state_anchor_steps),
     )
 
+    clean_state = None
+    if state_anchor_clean_weight > 0.0:
+        if state_anchor_occlusion_fraction > 0.0 or state_anchor_noise_scale > 0.0:
+            clean_state = model.encode_image_state(real_batch)
+        else:
+            # Without corruption the settled path already scores clean states.
+            clean_state = (position, velocity)
+
     def branch(step_depth: int):
         def _run() -> Array:
             step_model = _model_with_steps(dynamics_model, int(step_depth))
@@ -412,7 +443,17 @@ def _state_anchor_image_loss(
                 None,
             )
             generated = model.decode_state(settled_position, settled_velocity)
-            return jnp.mean((generated - real_batch) ** 2)
+            loss = jnp.mean((generated - real_batch) ** 2)
+            if clean_state is not None:
+                clean_position, clean_velocity = step_model.evolve_state(
+                    clean_state,
+                    None,
+                )
+                clean_decode = model.decode_state(clean_position, clean_velocity)
+                loss = loss + float(state_anchor_clean_weight) * jnp.mean(
+                    (clean_decode - real_batch) ** 2
+                )
+            return loss
 
         return _run
 
@@ -467,6 +508,10 @@ def _train_step(
     state_anchor_steps: Tuple[int, ...],
     state_anchor_noise_scale: float,
     state_anchor_mode: str,
+    state_anchor_occlusion_fraction: float,
+    state_anchor_occlusion_patches: int,
+    state_anchor_occlusion_probability: float,
+    state_anchor_clean_weight: float,
     state_prior_sampling_mode: str,
     image_shape: Tuple[int, ...],
     num_classes: int,
@@ -640,6 +685,10 @@ def _train_step(
             state_anchor_steps=state_anchor_steps,
             state_anchor_noise_scale=state_anchor_noise_scale,
             state_anchor_mode=state_anchor_mode,
+            state_anchor_occlusion_fraction=state_anchor_occlusion_fraction,
+            state_anchor_occlusion_patches=state_anchor_occlusion_patches,
+            state_anchor_occlusion_probability=state_anchor_occlusion_probability,
+            state_anchor_clean_weight=state_anchor_clean_weight,
         )
         total_loss = total_loss + float(state_anchor_weight) * state_anchor_loss
         mean_parts["state_anchor_loss"] = state_anchor_loss
@@ -696,6 +745,10 @@ def _eval_step(
     state_anchor_steps: Tuple[int, ...],
     state_anchor_noise_scale: float,
     state_anchor_mode: str,
+    state_anchor_occlusion_fraction: float,
+    state_anchor_occlusion_patches: int,
+    state_anchor_occlusion_probability: float,
+    state_anchor_clean_weight: float,
     state_prior_sampling_mode: str,
     image_shape: Tuple[int, ...],
     num_classes: int,
@@ -819,6 +872,10 @@ def _eval_step(
         state_anchor_steps=state_anchor_steps,
         state_anchor_noise_scale=state_anchor_noise_scale,
         state_anchor_mode=state_anchor_mode,
+        state_anchor_occlusion_fraction=state_anchor_occlusion_fraction,
+        state_anchor_occlusion_patches=state_anchor_occlusion_patches,
+        state_anchor_occlusion_probability=state_anchor_occlusion_probability,
+        state_anchor_clean_weight=state_anchor_clean_weight,
     )
     loss = loss + float(state_anchor_weight) * state_anchor_loss
     parts["state_anchor_loss"] = state_anchor_loss
@@ -863,6 +920,10 @@ def evaluate_generator_loss(
     state_anchor_steps: Tuple[int, ...] = (4, 8, 16),
     state_anchor_noise_scale: float = 0.05,
     state_anchor_mode: str = "none",
+    state_anchor_occlusion_fraction: float = 0.0,
+    state_anchor_occlusion_patches: int = 4,
+    state_anchor_occlusion_probability: float = 0.5,
+    state_anchor_clean_weight: float = 0.0,
     initial_state_sampler: Optional[InitialStateSampler] = None,
     state_prior_sampling_mode: str = "none",
     image_shape: Tuple[int, ...] = (28, 28),
@@ -954,6 +1015,10 @@ def evaluate_generator_loss(
             state_anchor_steps,
             state_anchor_noise_scale,
             state_anchor_mode,
+            state_anchor_occlusion_fraction,
+            state_anchor_occlusion_patches,
+            state_anchor_occlusion_probability,
+            state_anchor_clean_weight,
             effective_state_prior_sampling_mode,
             image_shape,
             num_classes,
@@ -1448,6 +1513,10 @@ def run_mnist_generator_experiment(
                 config.state_anchor_steps,
                 config.state_anchor_noise_scale,
                 config.state_anchor_mode,
+                config.state_anchor_occlusion_fraction,
+                config.state_anchor_occlusion_patches,
+                config.state_anchor_occlusion_probability,
+                config.state_anchor_clean_weight,
                 config.state_prior_sampling_mode if state_prior_active else "none",
                 config.image_shape,
                 config.num_classes if config.conditional else 0,
@@ -1594,6 +1663,12 @@ def run_mnist_generator_experiment(
                 state_anchor_steps=config.state_anchor_steps,
                 state_anchor_noise_scale=config.state_anchor_noise_scale,
                 state_anchor_mode=config.state_anchor_mode,
+                state_anchor_occlusion_fraction=config.state_anchor_occlusion_fraction,
+                state_anchor_occlusion_patches=config.state_anchor_occlusion_patches,
+                state_anchor_occlusion_probability=(
+                    config.state_anchor_occlusion_probability
+                ),
+                state_anchor_clean_weight=config.state_anchor_clean_weight,
                 image_shape=config.image_shape,
                 num_classes=config.num_classes if config.conditional else 0,
             )
@@ -1901,6 +1976,19 @@ def run_mnist_generator_experiment(
                 "sample_count": int(state_fit_count),
                 "insufficient_samples": True,
             }
+    recovery_metrics: Dict[str, Any] = {}
+    if config.recovery_eval_sample_count > 0:
+        recovery_metrics = compute_generator_recovery_metrics(
+            model,
+            eval_images,
+            key=jax.random.fold_in(key, 51_333),
+            image_shape=config.image_shape,
+            sample_count=config.recovery_eval_sample_count,
+            noise_scales=config.recovery_eval_noise_scales,
+            occlusion_fractions=config.recovery_eval_occlusion_fractions,
+            occlusion_patch_counts=config.recovery_eval_occlusion_patches,
+            settle_steps=config.recovery_eval_settle_steps,
+        )
     attractor_robustness = compute_generator_attractor_robustness(
         model,
         key=jax.random.fold_in(key, 55_000),
@@ -2128,6 +2216,23 @@ def run_mnist_generator_experiment(
             "state_anchor_encoder_kernel_size": (
                 config.state_anchor_encoder_kernel_size
             ),
+            "state_anchor_occlusion_fraction": (
+                config.state_anchor_occlusion_fraction
+            ),
+            "state_anchor_occlusion_patches": config.state_anchor_occlusion_patches,
+            "state_anchor_occlusion_probability": (
+                config.state_anchor_occlusion_probability
+            ),
+            "state_anchor_clean_weight": config.state_anchor_clean_weight,
+            "recovery_eval_sample_count": config.recovery_eval_sample_count,
+            "recovery_eval_noise_scales": list(config.recovery_eval_noise_scales),
+            "recovery_eval_occlusion_fractions": list(
+                config.recovery_eval_occlusion_fractions
+            ),
+            "recovery_eval_occlusion_patches": list(
+                config.recovery_eval_occlusion_patches
+            ),
+            "recovery_eval_settle_steps": list(config.recovery_eval_settle_steps),
             "state_prior_sampling_mode": config.state_prior_sampling_mode,
             "state_prior_rank": config.state_prior_rank,
             "state_prior_noise_scale": config.state_prior_noise_scale,
@@ -2439,6 +2544,7 @@ def run_mnist_generator_experiment(
             ),
             "state_information_probe": state_information_probe,
             "state_fitting_probe": state_fitting_probe,
+            "recovery": recovery_metrics,
             **quality,
             "success_diagnostics": success_diagnostics,
         },

@@ -256,6 +256,77 @@ def build_arg_parser(preset: str = "none") -> argparse.ArgumentParser:
     )
     parser.add_argument("--state-anchor-encoder-kernel-size", type=int, default=3)
     parser.add_argument(
+        "--state-anchor-occlusion-fraction",
+        type=float,
+        default=0.0,
+        help=(
+            "Total image-area fraction zeroed before anchor encoding as "
+            "square occlusion patches. 0 disables occlusion corruption."
+        ),
+    )
+    parser.add_argument(
+        "--state-anchor-occlusion-patches",
+        type=int,
+        default=4,
+        help=(
+            "Number of square patches the anchor occlusion area is split "
+            "into. 1 is a single contiguous block; larger values scatter "
+            "the same total area."
+        ),
+    )
+    parser.add_argument(
+        "--state-anchor-occlusion-probability",
+        type=float,
+        default=0.5,
+        help="Per-sample probability of applying anchor occlusion corruption.",
+    )
+    parser.add_argument(
+        "--state-anchor-clean-weight",
+        type=float,
+        default=0.0,
+        help=(
+            "Relative weight of the clean fixed-point anchor term: encode "
+            "without corruption, settle, decode, paired MSE. Trains clean "
+            "states to survive settling."
+        ),
+    )
+    parser.add_argument(
+        "--recovery-eval-sample-count",
+        type=int,
+        default=0,
+        help=(
+            "Eval images for the encode-corrupt-settle-decode recovery "
+            "metrics (PSNR/SSIM and occluded-region MSE). 0 disables."
+        ),
+    )
+    parser.add_argument(
+        "--recovery-eval-noise-scales",
+        type=_parse_float_tuple,
+        default=(0.25, 0.5),
+        help="Comma-separated state-noise scales for recovery eval.",
+    )
+    parser.add_argument(
+        "--recovery-eval-occlusion-fractions",
+        type=_parse_float_tuple,
+        default=(0.25,),
+        help="Comma-separated image-area occlusion fractions for recovery eval.",
+    )
+    parser.add_argument(
+        "--recovery-eval-occlusion-patches",
+        type=_parse_int_tuple,
+        default=(1, 4),
+        help=(
+            "Comma-separated patch counts for recovery-eval occlusion, e.g. "
+            "'1,4' scores one contiguous block and four scattered patches."
+        ),
+    )
+    parser.add_argument(
+        "--recovery-eval-settle-steps",
+        type=_parse_int_tuple,
+        default=(0, 4, 8, 16),
+        help="Comma-separated settle depths for recovery eval.",
+    )
+    parser.add_argument(
         "--state-prior-sampling-mode",
         choices=["none", "global", "class"],
         default="none",
@@ -1023,6 +1094,15 @@ def config_from_args(args: argparse.Namespace) -> MNISTGeneratorExperimentConfig
         state_anchor_noise_scale=args.state_anchor_noise_scale,
         state_anchor_mode=args.state_anchor_mode,
         state_anchor_encoder_kernel_size=args.state_anchor_encoder_kernel_size,
+        state_anchor_occlusion_fraction=args.state_anchor_occlusion_fraction,
+        state_anchor_occlusion_patches=args.state_anchor_occlusion_patches,
+        state_anchor_occlusion_probability=args.state_anchor_occlusion_probability,
+        state_anchor_clean_weight=args.state_anchor_clean_weight,
+        recovery_eval_sample_count=args.recovery_eval_sample_count,
+        recovery_eval_noise_scales=args.recovery_eval_noise_scales,
+        recovery_eval_occlusion_fractions=args.recovery_eval_occlusion_fractions,
+        recovery_eval_occlusion_patches=args.recovery_eval_occlusion_patches,
+        recovery_eval_settle_steps=args.recovery_eval_settle_steps,
         state_prior_sampling_mode=args.state_prior_sampling_mode,
         state_prior_rank=args.state_prior_rank,
         state_prior_noise_scale=args.state_prior_noise_scale,

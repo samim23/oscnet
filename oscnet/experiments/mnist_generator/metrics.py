@@ -1386,6 +1386,10 @@ def compute_generator_state_fitting_probe(
     init_scale: float = 0.05,
     settle_steps: Sequence[int] = (0, 8, 16, 32),
     ridge: float = 1e-3,
+    recovery_noise_scales: Sequence[float] = (),
+    recovery_settle_steps: Sequence[int] = (1, 2, 4, 8, 16),
+    occlusion_fractions: Sequence[float] = (),
+    return_images: bool = False,
 ) -> Dict[str, Any]:
     """Fit per-image final oscillator states through a frozen decoder.
 
@@ -1393,6 +1397,21 @@ def compute_generator_state_fitting_probe(
     can the frozen state representation and decoder reconstruct real images at
     all if we are allowed to optimize one final HORN state per image? It then
     tests whether those fitted details survive additional oscillator settling.
+
+    When ``recovery_noise_scales`` is non-empty, a noise-then-settle recovery
+    condition is added: each fitted state is perturbed with Gaussian noise
+    whose per-sample norm is ``scale`` times the clean state norm, then the
+    dynamics settle for each depth in ``recovery_settle_steps``. This asks
+    whether settling *repairs* a corrupted detail-bearing state (drives the
+    decode back toward the clean target) or degrades it further.
+
+    When ``occlusion_fractions`` is non-empty, a structured occlude-then-settle
+    condition is added for retinotopic models: a square patch of the spatial
+    oscillator grid covering roughly that fraction of sites is zeroed
+    (position and velocity, all modes) at a random location per sample, then
+    the dynamics settle. Decode error is additionally reported separately for
+    the image region under the occluded sites and the intact remainder, which
+    is the associative-memory / pattern-completion version of recovery.
     """
 
     if not hasattr(model, "decode_state"):
@@ -1490,6 +1509,12 @@ def compute_generator_state_fitting_probe(
         "settle_steps": [int(step) for step in settle_steps],
     }
     probe.update(prefixed_metrics("fit", fitted))
+    probe_images: Dict[str, np.ndarray] = {}
+    if return_images:
+        probe_images["target"] = np.asarray(target, dtype=np.float32)
+        probe_images["fit"] = np.clip(
+            np.asarray(fitted, dtype=np.float32), 0.0, 1.0
+        )
 
     fitted_features = _state_probe_features(
         {"final_theta": position, "final_velocity": velocity},
@@ -1544,6 +1569,10 @@ def compute_generator_state_fitting_probe(
             )
         settled = model.decode_state(settled_position, settled_velocity)
         probe.update(prefixed_metrics(f"settle_{step:03d}", settled))
+        if return_images:
+            probe_images[f"settle_{step:03d}"] = np.clip(
+                np.asarray(settled, dtype=np.float32), 0.0, 1.0
+            )
         if step > 0:
             perturb_key = jax.random.fold_in(key, step)
             noise_position_key, noise_velocity_key = jax.random.split(perturb_key)
@@ -1570,7 +1599,419 @@ def compute_generator_state_fitting_probe(
                 jnp.sqrt(jnp.mean(displacement_norm**2))
             )
             probe.update(prefixed_metrics(f"noise_{step:03d}", perturbed))
+
+    clean_state_norm = jnp.sqrt(
+        jnp.sum(position**2, axis=-1) + jnp.sum(velocity**2, axis=-1) + 1e-12
+    )
+    clean_fit_mse = probe["fit_paired_mse"]
+    fitted_np = np.clip(np.asarray(fitted, dtype=np.float32), 0.0, 1.0)
+    for scale_index, noise_scale in enumerate(recovery_noise_scales):
+        noise_scale = float(noise_scale)
+        prefix = f"recover_n{scale_index}"
+        noise_key = jax.random.fold_in(key, 90_000 + scale_index)
+        noise_position_key, noise_velocity_key = jax.random.split(noise_key)
+        noise_position = jax.random.normal(noise_position_key, position.shape)
+        noise_velocity = jax.random.normal(noise_velocity_key, velocity.shape)
+        raw_noise_norm = jnp.sqrt(
+            jnp.sum(noise_position**2, axis=-1)
+            + jnp.sum(noise_velocity**2, axis=-1)
+            + 1e-12
+        )
+        per_sample_scale = noise_scale * clean_state_norm / raw_noise_norm
+        perturbed_position = position + noise_position * per_sample_scale[:, None]
+        perturbed_velocity = velocity + noise_velocity * per_sample_scale[:, None]
+        if hasattr(model, "_bound_state"):
+            perturbed_position = model._bound_state(perturbed_position)
+            perturbed_velocity = model._bound_state(perturbed_velocity)
+        perturbed_distance = jnp.sqrt(
+            jnp.sum((perturbed_position - position) ** 2, axis=-1)
+            + jnp.sum((perturbed_velocity - velocity) ** 2, axis=-1)
+            + 1e-12
+        )
+        noisy_decode = model.decode_state(perturbed_position, perturbed_velocity)
+        probe[f"{prefix}_noise_scale"] = noise_scale
+        probe[f"{prefix}_state_displacement_rms"] = float(
+            jnp.sqrt(jnp.mean(perturbed_distance**2))
+        )
+        probe.update(prefixed_metrics(f"{prefix}_settle_000", noisy_decode))
+        if return_images:
+            probe_images[f"{prefix}_settle_000"] = np.clip(
+                np.asarray(noisy_decode, dtype=np.float32), 0.0, 1.0
+            )
+        noisy_mse = probe[f"{prefix}_settle_000_paired_mse"]
+        for recovery_step in recovery_settle_steps:
+            recovery_step = int(recovery_step)
+            if recovery_step <= 0 or not hasattr(model, "evolve_state"):
+                continue
+            settled_model = _model_with_steps(model, recovery_step)
+            settled_position, settled_velocity = settled_model.evolve_state(
+                (perturbed_position, perturbed_velocity),
+                fit_labels,
+            )
+            settled_decode = model.decode_state(settled_position, settled_velocity)
+            step_prefix = f"{prefix}_settle_{recovery_step:03d}"
+            probe.update(prefixed_metrics(step_prefix, settled_decode))
+            if return_images:
+                probe_images[step_prefix] = np.clip(
+                    np.asarray(settled_decode, dtype=np.float32), 0.0, 1.0
+                )
+            settled_mse = probe[f"{step_prefix}_paired_mse"]
+            # Negative repair delta means settling moved the decode back
+            # toward the clean target relative to the un-settled noisy state.
+            probe[f"{step_prefix}_repair_delta_vs_noisy"] = float(
+                settled_mse - noisy_mse
+            )
+            probe[f"{step_prefix}_excess_mse_vs_clean_fit"] = float(
+                settled_mse - clean_fit_mse
+            )
+            settled_np = np.clip(
+                np.asarray(settled_decode, dtype=np.float32), 0.0, 1.0
+            )
+            probe[f"{step_prefix}_decode_drift_from_fit"] = float(
+                np.mean((settled_np - fitted_np) ** 2)
+            )
+            settled_distance = jnp.sqrt(
+                jnp.sum((settled_position - position) ** 2, axis=-1)
+                + jnp.sum((settled_velocity - velocity) ** 2, axis=-1)
+                + 1e-12
+            )
+            # Below 1.0 the settled state is closer to the clean fitted state
+            # than the perturbed state was; above 1.0 settling moved it away.
+            probe[f"{step_prefix}_state_return_ratio"] = float(
+                jnp.mean(settled_distance / perturbed_distance)
+            )
+
+    if occlusion_fractions:
+        occlusion_metrics = _state_occlusion_recovery_metrics(
+            model,
+            position=position,
+            velocity=velocity,
+            fit_labels=fit_labels,
+            target=target,
+            fitted_np=fitted_np,
+            image_shape=image_shape,
+            key=key,
+            occlusion_fractions=occlusion_fractions,
+            recovery_settle_steps=recovery_settle_steps,
+            prefixed_metrics=prefixed_metrics,
+            probe_images=probe_images if return_images else None,
+        )
+        probe.update(occlusion_metrics)
+    if return_images:
+        probe["images"] = probe_images
     return probe
+
+
+def _state_occlusion_recovery_metrics(
+    model: eqx.Module,
+    *,
+    position: Array,
+    velocity: Array,
+    fit_labels: Optional[Array],
+    target: Array,
+    fitted_np: np.ndarray,
+    image_shape: Optional[Sequence[int]],
+    key: jax.random.PRNGKey,
+    occlusion_fractions: Sequence[float],
+    recovery_settle_steps: Sequence[int],
+    prefixed_metrics: Callable[[str, Array], Dict[str, float]],
+    probe_images: Optional[Dict[str, np.ndarray]],
+) -> Dict[str, Any]:
+    """Occlude square patches of the retinotopic state grid, then settle.
+
+    Requires a retinotopic state layout (oscillator index = spatial site index
+    times modes plus mode, sites row-major on the resize_conv seed grid) so
+    the occluded sites correspond to a contiguous image region.
+    """
+
+    metrics: Dict[str, Any] = {}
+    count = int(position.shape[0])
+    num_oscillators = int(model.num_oscillators)
+    num_spatial_sites = int(
+        getattr(model, "num_spatial_sites", num_oscillators)
+    )
+    num_modes = int(getattr(model, "num_modes", 1))
+    seed_shape = getattr(model, "resize_conv_seed_shape", None)
+    layout = getattr(model, "resize_conv_seed_layout", None)
+    if (
+        seed_shape is None
+        or layout != "retinotopic"
+        or num_spatial_sites * num_modes != num_oscillators
+    ):
+        metrics["occlusion_unsupported"] = True
+        return metrics
+    _, seed_h, seed_w = (int(size) for size in seed_shape)
+    if seed_h * seed_w != num_spatial_sites:
+        metrics["occlusion_unsupported"] = True
+        return metrics
+
+    pixel_geometry = None
+    if image_shape is not None:
+        img_h, img_w, img_c = _image_hw_channels(
+            tuple(int(size) for size in image_shape)
+        )
+        if img_h % seed_h == 0 and img_w % seed_w == 0:
+            pixel_geometry = (img_h, img_w, img_c)
+    target_np = np.asarray(target, dtype=np.float32)
+
+    for fraction_index, fraction in enumerate(occlusion_fractions):
+        fraction = float(fraction)
+        prefix = f"occl_f{fraction_index}"
+        side_h = int(np.clip(round(seed_h * np.sqrt(fraction)), 1, seed_h))
+        side_w = int(np.clip(round(seed_w * np.sqrt(fraction)), 1, seed_w))
+        patch_key = jax.random.fold_in(key, 91_000 + fraction_index)
+        row_key, col_key = jax.random.split(patch_key)
+        row0 = jax.random.randint(row_key, (count,), 0, seed_h - side_h + 1)
+        col0 = jax.random.randint(col_key, (count,), 0, seed_w - side_w + 1)
+        rows = jnp.arange(seed_h)[None, :]
+        cols = jnp.arange(seed_w)[None, :]
+        row_mask = (rows >= row0[:, None]) & (rows < (row0 + side_h)[:, None])
+        col_mask = (cols >= col0[:, None]) & (cols < (col0 + side_w)[:, None])
+        site_mask = (
+            row_mask[:, :, None] & col_mask[:, None, :]
+        ).reshape(count, num_spatial_sites)
+        state_mask = jnp.repeat(site_mask, num_modes, axis=-1)
+
+        occluded_position = jnp.where(state_mask, 0.0, position)
+        occluded_velocity = jnp.where(state_mask, 0.0, velocity)
+        occluded_decode = model.decode_state(occluded_position, occluded_velocity)
+
+        pixel_mask_flat = None
+        if pixel_geometry is not None:
+            img_h, img_w, img_c = pixel_geometry
+            scale_h, scale_w = img_h // seed_h, img_w // seed_w
+            pixel_mask = jnp.kron(
+                site_mask.reshape(count, seed_h, seed_w).astype(jnp.float32),
+                jnp.ones((scale_h, scale_w), dtype=jnp.float32),
+            )
+            pixel_mask_flat = np.asarray(
+                jnp.tile(pixel_mask[:, None, :, :], (1, img_c, 1, 1)).reshape(
+                    count, -1
+                )
+                > 0.5
+            )
+
+        def region_mse(decoded: Array, mask: np.ndarray) -> float:
+            decoded_np = np.clip(np.asarray(decoded, dtype=np.float32), 0.0, 1.0)
+            squared = (decoded_np - target_np) ** 2
+            selected = squared[mask]
+            return float(np.mean(selected)) if selected.size else float("nan")
+
+        metrics[f"{prefix}_fraction"] = fraction
+        metrics[f"{prefix}_patch_sites"] = int(side_h * side_w)
+        metrics.update(prefixed_metrics(f"{prefix}_settle_000", occluded_decode))
+        if probe_images is not None:
+            probe_images[f"{prefix}_settle_000"] = np.clip(
+                np.asarray(occluded_decode, dtype=np.float32), 0.0, 1.0
+            )
+        if pixel_mask_flat is not None:
+            metrics[f"{prefix}_settle_000_occluded_region_mse"] = region_mse(
+                occluded_decode, pixel_mask_flat
+            )
+            metrics[f"{prefix}_settle_000_intact_region_mse"] = region_mse(
+                occluded_decode, ~pixel_mask_flat
+            )
+        occluded_mse = metrics[f"{prefix}_settle_000_paired_mse"]
+
+        for recovery_step in recovery_settle_steps:
+            recovery_step = int(recovery_step)
+            if recovery_step <= 0 or not hasattr(model, "evolve_state"):
+                continue
+            settled_model = _model_with_steps(model, recovery_step)
+            settled_position, settled_velocity = settled_model.evolve_state(
+                (occluded_position, occluded_velocity),
+                fit_labels,
+            )
+            settled_decode = model.decode_state(settled_position, settled_velocity)
+            step_prefix = f"{prefix}_settle_{recovery_step:03d}"
+            metrics.update(prefixed_metrics(step_prefix, settled_decode))
+            if probe_images is not None:
+                probe_images[step_prefix] = np.clip(
+                    np.asarray(settled_decode, dtype=np.float32), 0.0, 1.0
+                )
+            settled_mse = metrics[f"{step_prefix}_paired_mse"]
+            metrics[f"{step_prefix}_repair_delta_vs_occluded"] = float(
+                settled_mse - occluded_mse
+            )
+            settled_np = np.clip(
+                np.asarray(settled_decode, dtype=np.float32), 0.0, 1.0
+            )
+            metrics[f"{step_prefix}_decode_drift_from_fit"] = float(
+                np.mean((settled_np - fitted_np) ** 2)
+            )
+            if pixel_mask_flat is not None:
+                metrics[f"{step_prefix}_occluded_region_mse"] = region_mse(
+                    settled_decode, pixel_mask_flat
+                )
+                metrics[f"{step_prefix}_intact_region_mse"] = region_mse(
+                    settled_decode, ~pixel_mask_flat
+                )
+    return metrics
+
+
+def _psnr_np(generated: np.ndarray, target: np.ndarray) -> float:
+    """Mean per-image PSNR in dB for [0, 1] images."""
+
+    mse = np.mean((generated - target) ** 2, axis=-1)
+    mse = np.maximum(mse, 1e-10)
+    return float(np.mean(10.0 * np.log10(1.0 / mse)))
+
+
+def _ssim_np(
+    generated: np.ndarray,
+    target: np.ndarray,
+    *,
+    image_shape: Sequence[int],
+    window: int = 7,
+) -> float:
+    """Mean SSIM over images/channels with a uniform window."""
+
+    from scipy.ndimage import uniform_filter
+
+    height, width, channels = _image_hw_channels(
+        tuple(int(size) for size in image_shape)
+    )
+    count = generated.shape[0]
+    generated = generated.reshape(count, channels, height, width)
+    target = target.reshape(count, channels, height, width)
+    c1, c2 = 0.01**2, 0.03**2
+    size = (1, 1, window, window)
+    mu_g = uniform_filter(generated, size=size)
+    mu_t = uniform_filter(target, size=size)
+    sigma_g = uniform_filter(generated**2, size=size) - mu_g**2
+    sigma_t = uniform_filter(target**2, size=size) - mu_t**2
+    sigma_gt = uniform_filter(generated * target, size=size) - mu_g * mu_t
+    ssim_map = ((2 * mu_g * mu_t + c1) * (2 * sigma_gt + c2)) / (
+        (mu_g**2 + mu_t**2 + c1) * (sigma_g + sigma_t + c2)
+    )
+    return float(np.mean(ssim_map))
+
+
+def compute_generator_recovery_metrics(
+    model: eqx.Module,
+    real_images: Array,
+    *,
+    key: jax.random.PRNGKey,
+    image_shape: Sequence[int],
+    sample_count: int = 64,
+    noise_scales: Sequence[float] = (0.25, 0.5),
+    occlusion_fractions: Sequence[float] = (0.25,),
+    occlusion_patch_counts: Sequence[int] = (1, 4),
+    settle_steps: Sequence[int] = (0, 4, 8, 16),
+) -> Dict[str, Any]:
+    """Score the encode-corrupt-settle-decode recovery task on real images.
+
+    This is the task-level evaluation for recovery-trained generators: encode
+    real images through the anchor encoder, corrupt (state-space Gaussian
+    noise, or image-space occlusion before encoding), settle the dynamics,
+    decode, and score against the clean image with paired MSE, PSNR, and SSIM.
+    Occlusion conditions additionally report the decode error inside the
+    occluded image region (fill-in) and the intact remainder separately.
+    """
+
+    from .common import occlude_image_batch
+
+    if not hasattr(model, "encode_image_state") or not hasattr(
+        model, "decode_state"
+    ):
+        return {"unsupported": True, "reason": "model lacks encode/decode"}
+    if getattr(model, "state_anchor_encoder", None) is None:
+        return {"unsupported": True, "reason": "state anchor encoder disabled"}
+    count = min(int(sample_count), int(real_images.shape[0]))
+    if count < 2:
+        return {"sample_count": int(count), "insufficient_samples": True}
+    target = jnp.asarray(real_images[:count], dtype=jnp.float32).reshape(count, -1)
+    target_np = np.asarray(target, dtype=np.float32)
+
+    metrics: Dict[str, Any] = {"sample_count": int(count)}
+
+    def score(
+        prefix: str,
+        decoded: Array,
+        pixel_mask: Optional[np.ndarray] = None,
+    ) -> None:
+        decoded_np = np.clip(np.asarray(decoded, dtype=np.float32), 0.0, 1.0)
+        metrics[f"{prefix}_paired_mse"] = float(
+            np.mean((decoded_np - target_np) ** 2)
+        )
+        metrics[f"{prefix}_psnr"] = _psnr_np(decoded_np, target_np)
+        metrics[f"{prefix}_ssim"] = _ssim_np(
+            decoded_np, target_np, image_shape=image_shape
+        )
+        if pixel_mask is not None:
+            squared = (decoded_np - target_np) ** 2
+            occluded = squared[pixel_mask]
+            intact = squared[~pixel_mask]
+            metrics[f"{prefix}_occluded_region_mse"] = (
+                float(np.mean(occluded)) if occluded.size else float("nan")
+            )
+            metrics[f"{prefix}_intact_region_mse"] = (
+                float(np.mean(intact)) if intact.size else float("nan")
+            )
+
+    def settle_and_score(
+        prefix: str,
+        position: Array,
+        velocity: Array,
+        pixel_mask: Optional[np.ndarray] = None,
+    ) -> None:
+        for step in settle_steps:
+            step = int(step)
+            if step <= 0:
+                settled_position, settled_velocity = position, velocity
+            else:
+                step_model = _model_with_steps(model, step)
+                settled_position, settled_velocity = step_model.evolve_state(
+                    (position, velocity),
+                    None,
+                )
+            decoded = model.decode_state(settled_position, settled_velocity)
+            score(f"{prefix}_k{step:03d}", decoded, pixel_mask)
+
+    clean_position, clean_velocity = model.encode_image_state(target)
+    settle_and_score("clean", clean_position, clean_velocity)
+
+    for scale_index, noise_scale in enumerate(noise_scales):
+        noise_key = jax.random.fold_in(key, 40_000 + scale_index)
+        position_key, velocity_key = jax.random.split(noise_key)
+        position = clean_position + float(noise_scale) * jax.random.normal(
+            position_key, clean_position.shape
+        )
+        velocity = clean_velocity + float(noise_scale) * jax.random.normal(
+            velocity_key, clean_velocity.shape
+        )
+        if hasattr(model, "_bound_state"):
+            position = model._bound_state(position)
+            velocity = model._bound_state(velocity)
+        metrics[f"noise_s{scale_index}_scale"] = float(noise_scale)
+        settle_and_score(f"noise_s{scale_index}", position, velocity)
+
+    for fraction_index, fraction in enumerate(occlusion_fractions):
+        for patch_index, patches in enumerate(occlusion_patch_counts):
+            occlusion_key = jax.random.fold_in(
+                key, 41_000 + fraction_index * 97 + patch_index
+            )
+            occluded, mask = occlude_image_batch(
+                target,
+                key=occlusion_key,
+                image_shape=image_shape,
+                fraction=float(fraction),
+                patches=int(patches),
+                probability=1.0,
+            )
+            height, width, channels = _image_hw_channels(
+                tuple(int(size) for size in image_shape)
+            )
+            pixel_mask = np.asarray(
+                jnp.tile(mask[:, None, :, :], (1, channels, 1, 1)).reshape(
+                    count, -1
+                )
+            )
+            prefix = f"occl_f{fraction_index}_p{int(patches)}"
+            metrics[f"{prefix}_fraction"] = float(fraction)
+            position, velocity = model.encode_image_state(occluded)
+            settle_and_score(prefix, position, velocity, pixel_mask)
+    return metrics
 
 
 def compute_generator_settling_metrics(

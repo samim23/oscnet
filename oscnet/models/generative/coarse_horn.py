@@ -384,6 +384,92 @@ class CoarseToFineHORNImageGenerator(HORNImageGenerator):
             final_coarse_velocity,
         )
 
+    def _pool_fine_to_coarse(self, fine: Array) -> Array:
+        """Average-pool a retinotopic fine field into the coarse grid.
+
+        This is a parameter-free spatial summary: the fine sites live on the
+        retinotopic seed grid, and we mean-pool square blocks into the coarse
+        nodes. It lets the recovery/anchor path seed the slow carrier from a
+        global summary of the (possibly corrupted) image, so the carrier can
+        transport long-range structure into occluded regions.
+        """
+
+        _, seed_h, seed_w = self.resize_conv_seed_shape
+        seed_h = int(seed_h)
+        seed_w = int(seed_w)
+        coarse_side = int(round(math.sqrt(self.num_coarse_oscillators)))
+        pools_square = (
+            coarse_side * coarse_side == self.num_coarse_oscillators
+            and seed_h % coarse_side == 0
+            and seed_w % coarse_side == 0
+            and seed_h * seed_w == fine.shape[-1]
+        )
+        if pools_square:
+            block_h = seed_h // coarse_side
+            block_w = seed_w // coarse_side
+            grid = fine.reshape(
+                fine.shape[0], coarse_side, block_h, coarse_side, block_w
+            )
+            pooled = jnp.mean(grid, axis=(2, 4))
+            return pooled.reshape(fine.shape[0], self.num_coarse_oscillators)
+        # Fallback: contiguous grouping when the grid is not squarely divisible.
+        sites = fine.shape[-1]
+        group = max(1, sites // self.num_coarse_oscillators)
+        usable = group * self.num_coarse_oscillators
+        head = fine[:, :usable].reshape(
+            fine.shape[0], self.num_coarse_oscillators, group
+        )
+        return jnp.mean(head, axis=-1)
+
+    def evolve_state(
+        self,
+        state0: Tuple[Array, Array],
+        labels: Optional[Array] = None,
+        *,
+        return_trajectory: bool = False,
+    ):
+        """Evolve the fine field under the coupled slow/global carrier.
+
+        The base class evolves the fine field alone. For coarse-to-fine models
+        the recovery and anchor paths call ``evolve_state`` with only the fine
+        state; here we seed the coarse carrier from a pooled summary of that
+        fine state and run the coupled dynamics, so the slow global mode
+        participates in settling. Free sampling uses ``sample_state`` and is
+        unaffected.
+        """
+
+        position0, velocity0 = state0
+        coarse_position0 = self._pool_fine_to_coarse(position0)
+        coarse_velocity0 = self._pool_fine_to_coarse(velocity0)
+        if return_trajectory:
+            (
+                final_position,
+                final_velocity,
+                _,
+                _,
+                position_trajectory,
+                velocity_trajectory,
+                _,
+                _,
+            ) = self.evolve_coarse_fine_state(
+                (position0, velocity0),
+                (coarse_position0, coarse_velocity0),
+                labels,
+                return_trajectory=True,
+            )
+            return (
+                final_position,
+                final_velocity,
+                position_trajectory,
+                velocity_trajectory,
+            )
+        final_position, final_velocity, _, _ = self.evolve_coarse_fine_state(
+            (position0, velocity0),
+            (coarse_position0, coarse_velocity0),
+            labels,
+        )
+        return final_position, final_velocity
+
     def sample_state(
         self,
         key: jax.random.PRNGKey,

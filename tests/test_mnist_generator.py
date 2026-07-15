@@ -31,6 +31,7 @@ from oscnet.experiments.mnist_generator import (
     compute_generator_attractor_robustness,
     compute_generator_quality_metrics,
     compute_generator_settling_metrics,
+    compute_generator_recovery_metrics,
     compute_generator_state_fitting_probe,
     compute_generator_state_information_probe,
     compute_generator_success_diagnostics,
@@ -369,6 +370,340 @@ def test_generator_state_fitting_probe_scores_frozen_decoder_states():
     assert "settle_001_paired_mse" in probe
     assert "fresh_readout" in probe
     assert probe["fresh_readout"]["feature_dim"] == 16
+
+
+def test_generator_state_fitting_probe_recovery_conditions():
+    from oscnet.models import HORNImageGenerator
+    from oscnet.models.generative.state_mlp import StateMLPImageGenerator
+
+    common = dict(
+        num_oscillators=4,
+        image_shape=(4, 4),
+        decoder_mode="resize_conv",
+        resize_conv_seed_shape=(2, 2),
+        resize_conv_seed_layout="retinotopic",
+        resize_conv_upsamples=1,
+        resize_conv_min_channels=2,
+        steps=1,
+        num_classes=2,
+        conditioning_mode="class_coupling",
+        num_condition_oscillators=2,
+    )
+    labels = jnp.asarray([0, 1, 0, 1], dtype=jnp.int32)
+    for model in (
+        HORNImageGenerator(**common, key=jax.random.PRNGKey(410)),
+        StateMLPImageGenerator(**common, key=jax.random.PRNGKey(411)),
+    ):
+        real_images = model(jax.random.PRNGKey(412), 4, labels)
+        probe = compute_generator_state_fitting_probe(
+            model,
+            real_images,
+            key=jax.random.PRNGKey(413),
+            labels=labels,
+            image_shape=(4, 4),
+            sample_count=4,
+            fit_steps=3,
+            learning_rate=1e-2,
+            settle_steps=(0, 1),
+            recovery_noise_scales=(0.25, 0.5),
+            recovery_settle_steps=(1, 2),
+            occlusion_fractions=(0.25,),
+            return_images=True,
+        )
+
+        for scale_index in (0, 1):
+            prefix = f"recover_n{scale_index}"
+            assert probe[f"{prefix}_noise_scale"] > 0.0
+            assert probe[f"{prefix}_state_displacement_rms"] > 0.0
+            assert f"{prefix}_settle_000_paired_mse" in probe
+            for step in (1, 2):
+                step_prefix = f"{prefix}_settle_{step:03d}"
+                assert f"{step_prefix}_paired_mse" in probe
+                assert f"{step_prefix}_repair_delta_vs_noisy" in probe
+                assert f"{step_prefix}_excess_mse_vs_clean_fit" in probe
+                assert probe[f"{step_prefix}_state_return_ratio"] > 0.0
+                assert probe[f"{step_prefix}_decode_drift_from_fit"] >= 0.0
+        assert "occlusion_unsupported" not in probe
+        assert probe["occl_f0_fraction"] == 0.25
+        assert probe["occl_f0_patch_sites"] == 1
+        assert probe["occl_f0_settle_000_paired_mse"] >= 0.0
+        assert probe["occl_f0_settle_000_occluded_region_mse"] >= 0.0
+        assert probe["occl_f0_settle_000_intact_region_mse"] >= 0.0
+        for step in (1, 2):
+            step_prefix = f"occl_f0_settle_{step:03d}"
+            assert probe[f"{step_prefix}_paired_mse"] >= 0.0
+            assert f"{step_prefix}_repair_delta_vs_occluded" in probe
+            assert probe[f"{step_prefix}_occluded_region_mse"] >= 0.0
+            assert probe[f"{step_prefix}_intact_region_mse"] >= 0.0
+        images = probe["images"]
+        assert set(images) >= {
+            "target",
+            "fit",
+            "recover_n0_settle_000",
+            "recover_n0_settle_001",
+            "recover_n1_settle_002",
+            "occl_f0_settle_000",
+            "occl_f0_settle_002",
+        }
+        assert images["fit"].shape == (4, 16)
+
+
+def _tiny_anchor_horn(key=None):
+    from oscnet.models import HORNImageGenerator
+
+    return HORNImageGenerator(
+        num_oscillators=4,
+        image_shape=(4, 4),
+        decoder_mode="resize_conv",
+        resize_conv_seed_shape=(2, 2),
+        resize_conv_seed_layout="retinotopic",
+        resize_conv_upsamples=1,
+        resize_conv_min_channels=2,
+        steps=1,
+        num_classes=2,
+        conditioning_mode="class_coupling",
+        num_condition_oscillators=2,
+        state_anchor_encoder_enabled=True,
+        state_anchor_num_spatial_sites=4,
+        state_anchor_num_modes=1,
+        key=key if key is not None else jax.random.PRNGKey(420),
+    )
+
+
+def test_occlude_image_batch_masks_expected_fraction():
+    from oscnet.experiments.mnist_generator.common import occlude_image_batch
+
+    images = jnp.ones((6, 8 * 8 * 3), dtype=jnp.float32)
+    occluded, mask = occlude_image_batch(
+        images,
+        key=jax.random.PRNGKey(431),
+        image_shape=(8, 8, 3),
+        fraction=0.25,
+        patches=1,
+        probability=1.0,
+    )
+    assert occluded.shape == images.shape
+    assert mask.shape == (6, 8, 8)
+    per_sample = np.asarray(mask).reshape(6, -1).mean(axis=1)
+    # One square patch of exactly 4x4 = 25% of an 8x8 grid.
+    assert np.allclose(per_sample, 0.25)
+    occluded_np = np.asarray(occluded).reshape(6, 3, 8, 8)
+    assert np.all(occluded_np[np.asarray(mask)[:, None, :, :].repeat(3, 1)] == 0.0)
+
+    _, scattered_mask = occlude_image_batch(
+        images,
+        key=jax.random.PRNGKey(432),
+        image_shape=(8, 8, 3),
+        fraction=0.25,
+        patches=4,
+        probability=1.0,
+    )
+    scattered = np.asarray(scattered_mask).reshape(6, -1).mean(axis=1)
+    # Patches may overlap, so scattered coverage is bounded by the target.
+    assert np.all(scattered > 0.0)
+    assert np.all(scattered <= 0.25 + 1e-6)
+
+    _, none_mask = occlude_image_batch(
+        images,
+        key=jax.random.PRNGKey(433),
+        image_shape=(8, 8, 3),
+        fraction=0.25,
+        patches=1,
+        probability=0.0,
+    )
+    assert not np.any(np.asarray(none_mask))
+
+
+def test_state_anchor_loss_supports_occlusion_and_clean_term():
+    from oscnet.experiments.mnist_generator.runner import _state_anchor_image_loss
+
+    model = _tiny_anchor_horn()
+    real_batch = jax.random.uniform(jax.random.PRNGKey(434), (4, 16))
+
+    loss = _state_anchor_image_loss(
+        model,
+        real_batch,
+        key=jax.random.PRNGKey(435),
+        state_anchor_weight=1.0,
+        state_anchor_steps=(1,),
+        state_anchor_noise_scale=0.1,
+        state_anchor_mode="settle",
+        state_anchor_occlusion_fraction=0.25,
+        state_anchor_occlusion_patches=2,
+        state_anchor_occlusion_probability=1.0,
+        state_anchor_clean_weight=0.5,
+    )
+    assert jnp.isfinite(loss)
+    assert float(loss) > 0.0
+
+    baseline = _state_anchor_image_loss(
+        model,
+        real_batch,
+        key=jax.random.PRNGKey(435),
+        state_anchor_weight=1.0,
+        state_anchor_steps=(1,),
+        state_anchor_noise_scale=0.1,
+        state_anchor_mode="settle",
+    )
+    assert jnp.isfinite(baseline)
+
+
+def test_compute_generator_recovery_metrics_scores_conditions():
+    model = _tiny_anchor_horn()
+    real_images = jax.random.uniform(jax.random.PRNGKey(436), (8, 16))
+
+    metrics = compute_generator_recovery_metrics(
+        model,
+        real_images,
+        key=jax.random.PRNGKey(437),
+        image_shape=(4, 4),
+        sample_count=8,
+        noise_scales=(0.25,),
+        occlusion_fractions=(0.25,),
+        occlusion_patch_counts=(1,),
+        settle_steps=(0, 1),
+    )
+
+    assert metrics["sample_count"] == 8
+    for prefix in ("clean_k000", "clean_k001", "noise_s0_k001"):
+        assert metrics[f"{prefix}_paired_mse"] >= 0.0
+        assert np.isfinite(metrics[f"{prefix}_psnr"])
+        assert -1.0 <= metrics[f"{prefix}_ssim"] <= 1.0
+    assert metrics["noise_s0_scale"] == 0.25
+    assert metrics["occl_f0_p1_fraction"] == 0.25
+    for step in (0, 1):
+        assert metrics[f"occl_f0_p1_k{step:03d}_occluded_region_mse"] >= 0.0
+        assert metrics[f"occl_f0_p1_k{step:03d}_intact_region_mse"] >= 0.0
+
+
+def _tiny_coarse_carrier_horn(key=None):
+    from oscnet.models.generative.coarse_horn import CoarseToFineHORNImageGenerator
+
+    return CoarseToFineHORNImageGenerator(
+        num_oscillators=16,
+        image_shape=(4, 4),
+        decoder_mode="resize_conv",
+        resize_conv_seed_shape=(4, 4),
+        resize_conv_seed_layout="retinotopic",
+        resize_conv_upsamples=0,
+        resize_conv_min_channels=2,
+        steps=3,
+        num_classes=2,
+        conditioning_mode="class_coupling",
+        num_condition_oscillators=2,
+        num_coarse_oscillators=4,
+        coarse_coupling_profile="dense",
+        coarse_to_fine_strength=0.5,
+        coarse_to_fine_profile="dense",
+        state_anchor_encoder_enabled=True,
+        state_anchor_num_spatial_sites=16,
+        state_anchor_num_modes=1,
+        key=key if key is not None else jax.random.PRNGKey(451),
+    )
+
+
+def test_coarse_carrier_evolve_state_uses_pooled_carrier():
+    from oscnet.models import HORNImageGenerator
+
+    model = _tiny_coarse_carrier_horn()
+    position = jax.random.uniform(jax.random.PRNGKey(452), (3, 16)) - 0.5
+    velocity = jax.random.uniform(jax.random.PRNGKey(453), (3, 16)) - 0.5
+
+    final_position, final_velocity = model.evolve_state((position, velocity), None)
+    assert final_position.shape == (3, 16)
+    assert final_velocity.shape == (3, 16)
+    assert jnp.all(jnp.isfinite(final_position))
+
+    # A coarse carrier should change the settled fine state relative to a
+    # fine-only evolution with the same recurrent parameters.
+    fine_only = HORNImageGenerator(
+        num_oscillators=16,
+        image_shape=(4, 4),
+        decoder_mode="resize_conv",
+        resize_conv_seed_shape=(4, 4),
+        resize_conv_seed_layout="retinotopic",
+        resize_conv_upsamples=0,
+        resize_conv_min_channels=2,
+        steps=3,
+        num_classes=2,
+        conditioning_mode="class_coupling",
+        num_condition_oscillators=2,
+        key=jax.random.PRNGKey(451),
+    )
+    fine_only_position, _ = fine_only.evolve_state((position, velocity), None)
+    assert not jnp.allclose(final_position, fine_only_position)
+
+
+def test_coarse_carrier_recovery_preset_builds_and_evolves():
+    config = config_from_args(
+        parse_args(
+            [
+                "--preset",
+                "sparse_horn_cifar10_rgb_current_coarse_carrier_retinotopic_recovery_mixed",
+                "--steps",
+                "2",
+                "--state-anchor-steps",
+                "2",
+            ]
+        )
+    )
+    assert config.model_family == "coarse_horn"
+    assert config.num_oscillators == 256
+    assert config.num_coarse_oscillators == 16
+    assert config.coarse_to_fine_strength == 0.5
+    assert config.state_anchor_occlusion_fraction == 0.25
+
+    model = build_mnist_generator_model(config, jax.random.PRNGKey(454))
+    assert model.state_anchor_encoder is not None
+    images = jnp.zeros((2, 32 * 32 * 3), dtype=jnp.float32)
+    position, velocity = model.encode_image_state(images)
+    settled_position, settled_velocity = model.evolve_state(
+        (position, velocity), None
+    )
+    assert settled_position.shape == (2, 256)
+    assert settled_velocity.shape == (2, 256)
+
+
+def test_recovery_training_presets_configure_corruption_and_eval():
+    noise_config = config_from_args(
+        parse_args(
+            [
+                "--preset",
+                "sparse_horn_cifar10_rgb_current_multimode2_retinotopic_recovery_noise",
+            ]
+        )
+    )
+    mixed_config = config_from_args(
+        parse_args(
+            [
+                "--preset",
+                "sparse_horn_cifar10_rgb_current_multimode2_retinotopic_recovery_mixed",
+            ]
+        )
+    )
+    state_mlp_mixed_config = config_from_args(
+        parse_args(
+            [
+                "--preset",
+                "sparse_horn_cifar10_rgb_current_state_mlp_retinotopic_recovery_mixed",
+            ]
+        )
+    )
+
+    assert noise_config.state_anchor_weight == 1.0
+    assert noise_config.state_anchor_noise_scale == 0.25
+    assert noise_config.state_anchor_clean_weight == 0.5
+    assert noise_config.state_anchor_occlusion_fraction == 0.0
+    assert noise_config.recovery_eval_sample_count == 256
+
+    assert mixed_config.state_anchor_occlusion_fraction == 0.25
+    assert mixed_config.state_anchor_occlusion_patches == 4
+    assert mixed_config.state_anchor_occlusion_probability == 0.5
+    assert mixed_config.state_anchor_clean_weight == 0.5
+
+    assert state_mlp_mixed_config.model_family == "state_mlp"
+    assert state_mlp_mixed_config.num_oscillators == 512
+    assert state_mlp_mixed_config.state_anchor_occlusion_fraction == 0.25
 
 
 def test_sparse_horn_mnist_preset_sets_current_recipe():

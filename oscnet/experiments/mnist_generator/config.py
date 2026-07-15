@@ -177,6 +177,15 @@ class MNISTGeneratorExperimentConfig:
     state_anchor_noise_scale: float = 0.05
     state_anchor_mode: str = "none"
     state_anchor_encoder_kernel_size: int = 3
+    state_anchor_occlusion_fraction: float = 0.0
+    state_anchor_occlusion_patches: int = 4
+    state_anchor_occlusion_probability: float = 0.5
+    state_anchor_clean_weight: float = 0.0
+    recovery_eval_sample_count: int = 0
+    recovery_eval_noise_scales: Tuple[float, ...] = (0.25, 0.5)
+    recovery_eval_occlusion_fractions: Tuple[float, ...] = (0.25,)
+    recovery_eval_occlusion_patches: Tuple[int, ...] = (1, 4)
+    recovery_eval_settle_steps: Tuple[int, ...] = (0, 4, 8, 16)
     state_prior_sampling_mode: str = "none"
     state_prior_rank: int = 32
     state_prior_noise_scale: float = 1.0

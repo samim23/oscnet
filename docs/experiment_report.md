@@ -9596,6 +9596,312 @@ Decision after the control probe:
    objective ceiling is higher, or to attractor-native recovery tasks where
    settling is the point.
 
+## CIFAR RGB State Recovery Probe (Noise-Then-Settle, Eval Only)
+
+Motivation: the StateMLP control probe left one consistent oscillator-vs-control
+asymmetry — HORN settling moved fitted states less destructively than matched
+random perturbations. This probe tests the recovery version of that claim
+directly: if a detail-bearing state is corrupted, do the dynamics *repair* it?
+
+Setup (no training; local eval on pulled epoch-40 checkpoints):
+
+- `compute_generator_state_fitting_probe` gained a `noise_then_settle`
+  condition: fit final states to 32 real CIFAR eval images through the frozen
+  decoder, perturb each state with Gaussian noise at a relative scale
+  (`0.125/0.25/0.5/1.0` of the clean state norm), settle `1/2/4/8/16` steps,
+  decode, and compare against both the un-settled noisy decode and the
+  clean-settle baseline at the same depth.
+- New CLI: `scripts/analyze_generator_state_recovery.py` (shared checkpoint
+  loader in `oscnet/analysis/generator_checkpoints.py`).
+- Arms: HORN `prior_class_patch005` (rung-1 checkpoints), HORN
+  `prior_global_patch005`, and same-stack StateMLP `prior_class_patch005`,
+  seeds 23/24. Outputs in `outputs/analysis/state_recovery_probe/`, aggregate
+  in `state_recovery_probe_aggregate.csv`.
+
+Headline metric: **denoise fraction** = `1 - excess(k)/excess(0)`, where
+`excess(k)` is the noisy-settled paired MSE minus the clean-settled paired MSE
+at the same settle depth `k`. It isolates what settling does to the *noise*
+component, controlling for each arm's own clean-state drift. `1.0` = noise
+fully absorbed; `0` = untouched; negative = settling amplified the corruption.
+
+```text
+Arm                          mean_frac  min_frac  negative_cells  k8_mid_noise_mean
+horn_prior_global_patch005   0.527      0.145     0/40            0.723
+horn_prior_class_patch005    0.404      0.109     0/40            0.586
+state_mlp_prior_class_p005   0.237      -1.509    9/40            0.454
+```
+
+(40 cells per arm = 2 seeds x 4 noise scales x 5 settle depths;
+`k8_mid_noise_mean` averages noise scales 0.25/0.5/1.0 at depth 8.)
+
+Read:
+
+- **Both HORN arms denoise in every one of their 80 cells.** The denoise
+  fraction is positive at every noise scale, settle depth, and seed, and grows
+  monotonically with depth (up to ~0.7-0.9 for `prior_global` at depth 8-16).
+  This is genuine attractor-style contraction of state noise along
+  decode-relevant directions.
+- **StateMLP does not reliably denoise.** Its mean fraction is about half of
+  HORN's, 9 of 40 cells are negative (settling amplifies the corruption), and
+  the depth profile is non-monotone. Where it does recover, it is mostly at
+  the largest noise scale and depth, consistent with generic smoothing rather
+  than structured contraction.
+- This is the first probe in the CIFAR branch where the oscillator arms beat
+  the same-stack control with a consistent sign across both seeds and all
+  conditions, rather than a seed-flipping null.
+- Interesting mechanism detail: the `state_return_ratio` is above 1 everywhere
+  (settled states move *further* from the clean fitted state in raw state
+  distance) while the decode moves back toward the clean target. Recovery is
+  happening along the decoder-relevant subspace, not by returning to the
+  fitted point.
+- Honest caveats: (1) recovery is relative — absolute clean-settle drift still
+  dominates total error at depth (clean paired MSE rises from ~0.0006 at k=0
+  to 0.03-0.06 at k=16 in all arms), so nothing here says HORN preserves a fit
+  absolutely; (2) `prior_global` denoises best but also drifts most, i.e. it
+  contracts hardest onto its own attractor, which erases both noise and
+  detail; (3) this is n=2 seeds and one corruption family (isotropic Gaussian
+  in state space).
+
+Decision:
+
+1. Treat "HORN settling denoises corrupted states; a matched StateMLP does
+   not" as the new working hypothesis with first supporting evidence, and make
+   recovery/denoising the primary task framing for the next sprint instead of
+   free-running generation.
+2. Next confirmatory step before any training investment: repeat with a
+   structured corruption (masking / occlusion of the retinotopic state grid,
+   not just isotropic noise) and with more seeds, since occlusion recovery is
+   the behaviorally interesting version of this claim.
+3. If that holds, the training version is a denoising objective where the
+   *task* is recovery (train to settle from corrupted encoded states back to
+   the clean image), where HORN's measured contraction should be a real prior
+   rather than an accident.
+
+## CIFAR RGB Occlusion Recovery Probe (Structured Damage, Eval Only)
+
+Motivation: the noise-then-settle probe showed HORN reliably absorbs isotropic
+Gaussian state noise while the same-stack StateMLP does not. The
+associative-memory version of that claim — the behaviorally meaningful one —
+is recovery from *structured* damage: occlude a patch of the retinotopic state
+grid and ask whether settling fills the missing region back in.
+
+Setup (same six epoch-40 checkpoints, local, eval-only):
+
+- `compute_generator_state_fitting_probe` gained `occlusion_fractions`: after
+  fitting states to 32 real CIFAR images, a square patch of the 16x16 spatial
+  site grid covering ~6.25/12.5/25% of sites is zeroed (position and velocity,
+  both modes) at a random location per image, then the dynamics settle
+  1/2/4/8/16 steps. Decode error is reported separately for the image region
+  under the occluded sites and for the intact remainder.
+- Outputs in `outputs/analysis/state_recovery_probe_occlusion/`, aggregate in
+  `state_occlusion_probe_aggregate.csv`.
+
+Result: **no arm fills in occluded regions — the associative-memory claim
+fails at this operating point.** Occluded-region MSE (x1000) at 25% occlusion:
+
+```text
+Arm/seed                        k=0    k=1    k=2    k=4    k=8    k=16
+horn_prior_class/s23           57.9   59.6   61.5   64.0   64.1   66.6
+horn_prior_class/s24           56.2   56.4   58.6   64.8   69.6   65.0
+horn_prior_global/s23          58.7   62.1   71.8   79.4   74.1   79.0
+horn_prior_global/s24          55.6   56.5   59.1   68.2   69.7   73.5
+state_mlp_prior_class/s23      55.3   55.7   56.0   56.4   63.1   75.0
+state_mlp_prior_class/s24      56.8   56.2   56.1   54.2   61.9   66.3
+```
+
+Best-case fill-in delta over all fractions/depths/seeds (negative would mean
+the missing region improved): HORN class `+0.20`, HORN global `-0.20`,
+StateMLP `-3.81` (x1000) — i.e. at best negligible, and on average settling
+makes the missing region slightly worse for HORN while degrading the intact
+region substantially (intact MSE grows from ~1.2 to 40-70 x1000 at k=16).
+
+Read:
+
+- The Gaussian-noise recovery asymmetry does **not** extend to structured
+  occlusion. HORN's measured denoising is contraction of distributed,
+  isotropic perturbations — every corrupted dimension is pulled back a
+  fraction — not pattern completion, which requires transporting information
+  laterally from intact sites into the hole. The local-radius coupling either
+  cannot do this or was never trained to.
+- The same-stack StateMLP is, if anything, marginally less bad on the hole at
+  shallow depths (its transition is global/dense, HORN's coupling is local),
+  which is a useful hint that lateral information flow is the missing
+  ingredient, not oscillation per se.
+- The zeroed-patch decode itself sits at the "gray patch" floor
+  (~0.055 region MSE, roughly the pixel variance of CIFAR), so k=0 is
+  equivalent to rendering nothing; settling never gets below that floor.
+- Scope: untrained-for-recovery checkpoints, n=2 seeds, zero-fill corruption.
+  This is a negative for *emergent* fill-in, not for trainable fill-in.
+
+Decision (gate outcome for the recovery roadmap):
+
+1. Step-1 confirmation is **split**: isotropic-noise recovery asymmetry is
+   robust (80/80 HORN cells positive, control fails 9/40), but occlusion
+   recovery is absent in all arms. The associative-memory framing is dead at
+   this operating point without recovery-specific training.
+2. Any step-2 training investment ("corrupted state in, clean image out after
+   settling") must therefore include occlusion/masking in the training
+   corruption family and score occluded-region MSE explicitly — noise-only
+   denoising training would ride the already-present bias and prove little.
+3. The clean-state drift blocker stands unchanged: even undamaged fitted
+   states degrade ~50x over 16 settle steps in every arm. Making clean states
+   true fixed points remains the first-class training goal.
+
+## Notes on Research
+
+First — understood, and sorry. I killed that local test run; I won't run training or the full suite locally again. Anything real goes to Modal. The tiny unit tests I ran are CPU-only and finish in seconds, but the epoch-scale stuff belongs on the GPU cloud.
+
+Now the actual question, because it's a good one and worth being honest about.
+
+### Why distributed vs. contiguous split exists
+
+The dividing line isn't really "oscillators vs. not." It's **locality of coupling under a finite settling budget**, and it comes straight out of physics.
+
+A local coupling field moves information at a finite speed. Each settling step, influence spreads by roughly one coupling radius. So after `k` steps, a site can only "hear" from neighbors within radius `~k · r`. That's a light-cone / group-velocity limit, identical to how a wave or a diffusion front propagates.
+
+- **Distributed corruption** (isotropic noise, scattered small patches): every corrupted site has intact, correct information *immediately adjacent* to it. Local relaxation pulls it back into consistency within a couple of steps. The signal to repair from is right there.
+- **One contiguous hole**: the *interior* of the hole is many coupling-radii from the nearest intact pixel. Within any bounded settle budget, boundary information physically cannot reach the center. And even with infinite settling, a local operator solving the interior is solving Laplace's equation with the hole boundary as Dirichlet conditions — the classic **soap-film / membrane solution**. It gives you a smooth low-frequency interpolant and *erases interior detail*, because the interior is genuinely underdetermined by local information. The content that belongs there isn't encoded anywhere nearby; it has to be *invented* from a prior or *transported* from far away.
+
+Spectrally: a contiguous hole is a **low-spatial-frequency defect** (large spatial scale). A local fast field only has short-wavelength modes. Fixing a large-scale defect requires large-scale (long-range / global) modes, which a homogeneous local field simply doesn't contain. That's also exactly why, in the old Winfree branch, the *slow/global carrier* was the one intervention that helped even a little — it added a long-wavelength mode.
+
+One thing worth stating precisely: what oscillators specifically add over generic local recurrence is **contraction toward a learned attractor manifold** — damped bounded dynamics relax the off-manifold component of a perturbation while preserving on-manifold structure. Isotropic noise is almost entirely off-manifold, so it gets contracted (denoising). A contiguous hole isn't "small off-manifold noise everywhere"; it's a large region of *missing* signal whose correct fill lies *along* the manifold but requires spatial transport. Contraction doesn't help with transport. That's the crisp reason the same mechanism wins one task and loses the other.
+
+### Does nature hit this, and how does it solve it
+
+Yes, constantly — and the recurring answer is the punchline: **nature essentially never solves contiguous-hole completion with a single homogeneous local oscillator field.** It always adds one of these:
+
+- **Hierarchy + long-range connectivity (the brain).** Perceptual filling-in is real (the blind spot, scotoma completion), but it's driven by *feedback from higher visual areas with large receptive fields and learned priors*, plus long-range cortico-cortical and thalamo-cortical loops and cross-frequency coupling (theta/gamma). The "global carrier" is literally wired in as long-range anatomy. It is not bare lateral propagation.
+- **Long-range / mean-field coupling (physics of synchronization).** Kuramoto global sync, laser arrays, Josephson-junction arrays — global coordination is a long-wavelength phenomenon and it's achieved with mean-field or long-range coupling or a common drive, not strict nearest-neighbor.
+- **Global mode / standing-wave bases (acoustics).** A room's low-frequency behavior is dominated by global standing-wave eigenmodes that span the whole cavity. A "hole" in a pressure field is naturally handled because the representation itself is global. Note what that means: it works *because the basis is non-local*.
+- **The holography inversion (interesting counter-case).** In a hologram, information about each image region is spread across the whole plate. Occlude a contiguous patch and you lose *resolution*, not a *patch of the image*. That's the opposite regime: **distributed encoding makes contiguous occlusion benign.** It's a hint that if you want oscillators to shrug off big holes, the lever is a *distributed/global representation*, not a better local rule.
+- **Priors + signaling (morphogenesis).** Planaria/hydra regenerate large missing chunks, but via stored positional information, morphogen gradients, and long-range signaling — evolved priors, not local relaxation.
+
+Even the modern ML answer agrees: diffusion models own the *distributed-corruption, iterative-denoise* regime (exactly the oscillator sweet spot), but they handle big contiguous inpainting through the **learned global prior** — the U-Net's large receptive field and attention supply the long-range structure. The dynamics do the denoise; a global prior does the transport.
+
+### So were you over-promising?
+
+Slightly, yes — but in a very useful way to have surfaced now. The honest read:
+
+- You are **not** under-selling nature. Nature figured this out repeatedly, and its solution is **hybrid/multiscale every single time.** Your instinct that "hybrid architectures are the norm" is correct and is the mainstream position.
+- Pure homogeneous local oscillatory coupling being bad at contiguous holes is **not an implementation failure and not specific to oscillators** — our non-oscillatory recurrent-conv control failed the same way. It's a property of the *local operator class*. That's actually the cleaner scientific statement.
+- The defensible ONN claim therefore narrows to: **oscillator dynamics are a strong inductive bias for iterative, distributed denoising / contraction onto a learned manifold.** Not "oscillators alone complete arbitrary occlusions." Contiguous-hole completion requires an added long-wavelength/global/prior mechanism — which is precisely the multiscale carrier direction, and precisely what biology and physics use.
+
+### What I think this means for step 2 (and why I did *not* launch anything)
+
+Given you're rethinking the framing, I deliberately held off burning GPU. The code for the recovery-training objective is done and passing tiny CPU tests: image-space occlusion applied before encoding, state-space noise, an explicit clean-fixed-point term, and region-scored PSNR/SSIM eval. The Modal sweep (HORN + StateMLP, 2 seeds, noise-only and mixed-corruption arms) is wired and one command from launching.
+
+But this discussion argues for one design change before we spend the compute: **point the experiment at the regime oscillators actually own** — Gaussian state noise plus *scattered* small patches — and treat the single contiguous block as the documented stretch/negative, not a target. If we want to seriously attack contiguous holes, the physically-motivated arm isn't more local tuning; it's an explicit **long-wavelength/global carrier or hierarchical phase field** (the holography/standing-wave lesson), which we already have partial code for from the Winfree era.
+
+### Recovery Training Objective (Step 2) — Design
+
+Implemented the corrupted-anchor training objective. The training-time anchor
+loss (`_state_anchor_image_loss`) now trains the explicit denoising task
+"corrupted state/image in, clean image out after settling":
+
+- **Image-space occlusion before encoding.** `occlude_image_batch` zeros square
+  patches of the input image, applied *before* the anchor encoder, so the model
+  must reconstruct clean pixels from a corrupted observation. `patches=1` is one
+  contiguous block; larger `patches` scatter the same total area (the regime
+  oscillators own). Controlled by `state_anchor_occlusion_fraction`,
+  `state_anchor_occlusion_patches`, `state_anchor_occlusion_probability`.
+- **State-space Gaussian noise** on the encoded position/velocity (existing
+  `state_anchor_noise_scale`), the isotropic off-manifold perturbation.
+- **Explicit clean fixed-point term** (`state_anchor_clean_weight`): also encode
+  the *uncorrupted* image, settle, decode, and score against the clean image, so
+  clean states are trained to be genuine fixed points of the dynamics. This
+  directly attacks the clean-drift blocker.
+
+Task-level evaluation (`compute_generator_recovery_metrics`, summary key
+`generator.recovery.*`) encodes real eval images, corrupts, settles across
+depths, decodes, and reports paired MSE, PSNR, and SSIM. Occlusion conditions
+additionally split the decode error into occluded-region (fill-in) vs
+intact-region MSE, the direct fill-in metric.
+
+### Slow/Global Carrier Arm
+
+Following the physics/biology argument above — contiguous-hole completion needs
+a long-wavelength mode, not better local tuning — the sweep includes a
+slow/global carrier arm built on the existing `CoarseToFineHORNImageGenerator`
+(the current-stack port of the Winfree slow/global carrier, which was the one
+ONN-native intervention that improved block occlusion in the earlier branch).
+
+The change that makes the carrier participate in recovery: the coarse model now
+overrides `evolve_state` so that when it is called with only the fine state (the
+anchor/recovery path), it seeds the coarse carrier by parameter-free spatial
+mean-pooling of the (corrupted) fine encoded state, then runs the coupled
+coarse-fine dynamics and returns the fine state. Free sampling still uses
+`sample_state` (random coarse init) and is unaffected. The pooled seed is a
+global summary that largely survives occlusion, giving the carrier long-range
+content to transport into the hole.
+
+Comparison design (all mixed corruption: noise + scattered 4-patch occlusion,
+single contiguous block scored at eval as the stretch condition):
+
+- `single_local_recovery_mixed` — single-mode local HORN, no carrier (matched
+  baseline).
+- `coarse_carrier_recovery_mixed` — same single-mode fine field plus a 16-node
+  dense coarse carrier. Isolates the carrier's effect on occluded-region MSE.
+
+If the carrier moves the contiguous-hole (`occl_f*_p1_*_occluded_region_mse`)
+number relative to the matched local baseline, that is the first
+control-beating evidence for the multiscale mechanism the theory predicts. If it
+does not, the negative is now scientifically meaningful rather than a foregone
+conclusion, because the one mechanism with a physical reason to help was tested.
+
+Launched on Modal as sweep `mnist_generator_cifar10_rgb_recovery_training_probe`
+(app `ap-GzzdJI4vJm3HrgTHp0bMgl`, detached); see `docs/modal_runs.md`.
+
+### Recovery Training Probe — Results (2026-07-15)
+
+All 12 runs (6 arms x seeds 23/24, 40 epochs, train 10k) completed cleanly on
+app `ap-15xJuAPbD45RyKC9p4akCd` (relaunch of the cancelled serial sweep with 8
+parallel containers). Source:
+`outputs/analysis/modal_mnist_generator_cifar10_rgb_recovery_training_probe.csv`.
+
+Occluded-region decode MSE (fill-in metric, lower is better), two-seed means,
+25% single contiguous block (`p1`) and scattered 4-patch (`p4`):
+
+| Arm | p1 k0 | p1 k8 | p1 k16 | p4 k8 | clean k8 PSNR |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| state_mlp_recovery_mixed | 0.0420 | 0.0407 | 0.0409 | 0.0274 | 25.5 |
+| horn_recovery_mixed (multimode2) | 0.0737 | 0.0663 | 0.0625 | 0.0409 | 24.3 |
+| coarse_carrier_recovery_mixed | 0.0811 | 0.0934 | 0.0951 | 0.0698 | 19.7 |
+| single_local_recovery_mixed | 0.0867 | 0.0983 | 0.1002 | 0.0721 | 19.4 |
+| horn_recovery_noise | 0.2303 | 0.2341 | 0.2262 | 0.2145 | 25.6 |
+| state_mlp_recovery_noise | 0.2569 | 0.2269 | 0.2067 | 0.2097 | 26.7 |
+
+Findings:
+
+1. **Occlusion training works.** Mixed-corruption arms fill occluded regions
+   3-5x better than noise-only arms (0.04-0.10 vs 0.21-0.26). The
+   corrupted-anchor objective successfully trains fill-in behavior into the
+   full encode-settle-decode stack.
+2. **The slow/global carrier hypothesis failed.** Carrier vs matched
+   single-local baseline is mixed-sign across seeds (seed23: carrier better,
+   0.0964 vs 0.1089; seed24: baseline better, 0.0903 vs 0.0878) — no reliable
+   effect. Worse, both single-mode arms *degrade* the occluded region with
+   settling depth (k0 -> k16 rising). The pooled-seed dense carrier did not
+   deliver measurable long-range transport at this scale.
+3. **Multimode HORN is the only arm where settling dynamics actively improve
+   fill-in**, consistently on both seeds (k0 -> k16: 0.0719 -> 0.0575 and
+   0.0755 -> 0.0675). StateMLP's settling gain is negligible (~0.001-0.002);
+   its fill-in comes almost entirely from the encoder/decoder at k0. So the
+   dynamics-driven fill-in signature we hoped the carrier would provide showed
+   up in the multimode field instead.
+4. **The StateMLP control still wins absolutely** (0.041 vs 0.066 at p1 k8,
+   and best PSNR), repeating the project's recurring pattern: the trained
+   recovery task is dominated by the static encode/decode pathway, where the
+   recurrent MLP equilibrium is simply better, and the oscillator dynamics
+   advantage (real but small) does not close that gap.
+
+Read: the training objective is validated, the carrier arm is falsified in its
+current pooled-seed dense form, and the one genuinely ONN-native positive is
+the multimode settling-improves-fill-in trend — small, consistent, and the only
+place where dynamics (not the decoder) are doing completion work.
+
+
+
+
 ## Maintenance Notes
 
 - Put numerical benchmark summaries in this file and/or `outputs/analysis`.

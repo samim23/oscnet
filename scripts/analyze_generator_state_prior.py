@@ -3,15 +3,14 @@
 from __future__ import annotations
 
 import argparse
-import json
 from pathlib import Path
-from typing import Any, Dict, Tuple
+from typing import Any
 
-import equinox as eqx
 import jax
 import jax.numpy as jnp
 import numpy as np
 
+from oscnet.analysis.generator_checkpoints import load_generator_checkpoint_model
 from oscnet.analysis.generator_state_prior import (
     evaluate_state_prior_sampling_probe,
     save_state_prior_contact_sheet,
@@ -21,56 +20,12 @@ from oscnet.analysis.generator_state_prior import (
 from oscnet.experiments.harness import write_json
 from oscnet.experiments.mnist_autoencoder import load_mnist_data
 from oscnet.experiments.mnist_generator import (
-    build_mnist_generator_model,
     compute_class_prototypes,
-    config_from_args,
-    parse_args as parse_generator_args,
     train_mnist_feature_classifier,
 )
 
 
 DEFAULT_PRESET = "sparse_horn_cifar10_rgb_current_multimode2_retinotopic_anchor030"
-
-
-def _load_checkpoint_model(
-    checkpoint_path: Path,
-    *,
-    preset: str,
-    seed: int,
-) -> Tuple[eqx.Module, Any, Dict[str, Any]]:
-    """Build a preset model and deserialize checkpoint leaves into it."""
-
-    config = config_from_args(
-        parse_generator_args(["--preset", preset, "--seed", str(seed)])
-    )
-    model = build_mnist_generator_model(config, jax.random.PRNGKey(seed))
-    with checkpoint_path.open("rb") as handle:
-        checkpoint_hparams = json.loads(handle.readline().decode())
-        model = eqx.tree_deserialise_leaves(handle, model)
-
-    expected = {
-        "model_family": config.model_family,
-        "dataset_name": config.dataset_name,
-        "image_shape": list(config.image_shape),
-        "decoder_mode": config.decoder_mode,
-    }
-    observed = {
-        "model_family": checkpoint_hparams.get("model_family"),
-        "dataset_name": checkpoint_hparams.get("dataset_name"),
-        "image_shape": checkpoint_hparams.get("image_shape"),
-        "decoder_mode": checkpoint_hparams.get("decoder_mode"),
-    }
-    mismatches = {
-        key: (expected[key], observed[key])
-        for key in expected
-        if observed[key] is not None and observed[key] != expected[key]
-    }
-    if mismatches:
-        raise ValueError(
-            "checkpoint metadata does not match requested preset: "
-            f"{mismatches}"
-        )
-    return model, config, checkpoint_hparams
 
 
 def _maybe_train_classifier(
@@ -134,7 +89,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> None:
     args = build_parser().parse_args(argv)
-    model, config, checkpoint_hparams = _load_checkpoint_model(
+    model, config, checkpoint_hparams = load_generator_checkpoint_model(
         args.checkpoint,
         preset=args.preset,
         seed=args.seed,

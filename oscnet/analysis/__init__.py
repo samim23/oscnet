@@ -12,6 +12,7 @@ from .phase_synchrony import (
     phase_order_parameter,
     trace_phase_summary,
 )
+from .generator_checkpoints import load_generator_checkpoint_model
 from .generator_frontier import (
     GeneratorFrontierSummary,
     infer_generator_variant,
@@ -56,6 +57,7 @@ __all__ = [
     "infer_changed_mask",
     "infer_generator_variant",
     "latest_reconstruction_artifact",
+    "load_generator_checkpoint_model",
     "local_group_order",
     "mean_neighbor_phase_difference",
     "nearest_reference_mse_summary",

@@ -411,6 +411,10 @@ SWEEP_CSVS = {
         "outputs/analysis/"
         "modal_mnist_generator_cifar10_rgb_state_prior_control_probe.csv"
     ),
+    "mnist_generator_cifar10_rgb_recovery_training_probe": Path(
+        "outputs/analysis/"
+        "modal_mnist_generator_cifar10_rgb_recovery_training_probe.csv"
+    ),
     "mnist_generator_cifar10_rgb_attribution_probe": Path(
         "outputs/analysis/"
         "modal_mnist_generator_cifar10_rgb_attribution_probe.csv"
@@ -5614,6 +5618,77 @@ def _mnist_generator_cifar10_rgb_state_prior_control_probe() -> list[
     return entries
 
 
+def _mnist_generator_cifar10_rgb_recovery_training_probe() -> list[
+    tuple[list[str], str]
+]:
+    """Recovery-trained HORN vs StateMLP: can dynamics learn fill-in?"""
+
+    entries = []
+    probe_args = (
+        "--epochs 40 "
+        "--train-limit 10000 "
+        "--eval-limit 5000 "
+        "--checkpoint-every 40 "
+        "--artifact-every 40 "
+        "--batch-size 32 "
+        "--eval-sample-count 512 "
+        "--quality-classifier-train-limit 20000 "
+        "--quality-classifier-eval-limit 5000 "
+        "--attractor-variants-per-class 8 "
+        "--state-fit-sample-count 32 "
+        "--state-fit-steps 80 "
+        "--state-fit-settle-steps 0,1,2,4,8,16,32 "
+        "--recovery-eval-sample-count 256 "
+        "--recovery-eval-settle-steps 0,2,4,8,16"
+    )
+    variants = (
+        (
+            "horn_recovery_noise",
+            "sparse_horn_cifar10_rgb_current_multimode2_"
+            "retinotopic_recovery_noise",
+        ),
+        (
+            "horn_recovery_mixed",
+            "sparse_horn_cifar10_rgb_current_multimode2_"
+            "retinotopic_recovery_mixed",
+        ),
+        (
+            "state_mlp_recovery_noise",
+            "sparse_horn_cifar10_rgb_current_state_mlp_"
+            "retinotopic_recovery_noise",
+        ),
+        (
+            "state_mlp_recovery_mixed",
+            "sparse_horn_cifar10_rgb_current_state_mlp_"
+            "retinotopic_recovery_mixed",
+        ),
+        (
+            "single_local_recovery_mixed",
+            "sparse_horn_cifar10_rgb_current_single_"
+            "retinotopic_recovery_mixed",
+        ),
+        (
+            "coarse_carrier_recovery_mixed",
+            "sparse_horn_cifar10_rgb_current_coarse_carrier_"
+            "retinotopic_recovery_mixed",
+        ),
+    )
+    for seed in (23, 24):
+        for variant_name, local_preset in variants:
+            run_name = (
+                "mnist_generator_cifar10_rgb_recovery_training_probe_"
+                f"{variant_name}_train10000_seed{seed}_40e"
+            )
+            args = shlex.split(
+                f"--seed {seed} --preset {local_preset} {probe_args}"
+            )
+            output_dir = VOLUME_MOUNT / "mnist_generator" / run_name
+            args = _with_default_arg(args, "--output-dir", output_dir)
+            entries.append((args, run_name))
+
+    return entries
+
+
 def _sweep_entries(preset: str) -> list[tuple[list[str], str]]:
     if preset == "mnist_generator_core":
         return _mnist_generator_core_sweep()
@@ -5821,6 +5896,8 @@ def _sweep_entries(preset: str) -> list[tuple[list[str], str]]:
         return _mnist_generator_cifar10_rgb_state_prior_scale_gate_rung1()
     if preset == "mnist_generator_cifar10_rgb_state_prior_control_probe":
         return _mnist_generator_cifar10_rgb_state_prior_control_probe()
+    if preset == "mnist_generator_cifar10_rgb_recovery_training_probe":
+        return _mnist_generator_cifar10_rgb_recovery_training_probe()
     if preset == "mnist_generator_cifar10_rgb_attribution_probe":
         return _mnist_generator_cifar10_rgb_attribution_probe_sweep()
     if preset == "mnist_generator_cifar10_rgb_sparse_drive_probe":
@@ -5960,6 +6037,27 @@ def _write_sweep_csv(results: list[dict[str, Any]], path: Path) -> None:
         "generator.state_anchor_noise_scale",
         "generator.state_anchor_mode",
         "generator.state_anchor_encoder_kernel_size",
+        "generator.state_anchor_occlusion_fraction",
+        "generator.state_anchor_occlusion_patches",
+        "generator.state_anchor_occlusion_probability",
+        "generator.state_anchor_clean_weight",
+        "generator.recovery.clean_k000_psnr",
+        "generator.recovery.clean_k008_psnr",
+        "generator.recovery.clean_k008_ssim",
+        "generator.recovery.clean_k016_psnr",
+        "generator.recovery.noise_s0_k008_psnr",
+        "generator.recovery.noise_s0_k008_ssim",
+        "generator.recovery.noise_s1_k008_psnr",
+        "generator.recovery.occl_f0_p1_k000_occluded_region_mse",
+        "generator.recovery.occl_f0_p1_k008_occluded_region_mse",
+        "generator.recovery.occl_f0_p1_k008_intact_region_mse",
+        "generator.recovery.occl_f0_p1_k008_psnr",
+        "generator.recovery.occl_f0_p1_k016_occluded_region_mse",
+        "generator.recovery.occl_f0_p4_k000_occluded_region_mse",
+        "generator.recovery.occl_f0_p4_k008_occluded_region_mse",
+        "generator.recovery.occl_f0_p4_k008_intact_region_mse",
+        "generator.recovery.occl_f0_p4_k008_psnr",
+        "generator.recovery.occl_f0_p4_k016_occluded_region_mse",
         "generator.state_prior_sampling_mode",
         "generator.state_prior_rank",
         "generator.state_prior_noise_scale",
