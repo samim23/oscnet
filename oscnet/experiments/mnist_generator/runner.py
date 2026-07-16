@@ -51,6 +51,7 @@ from .metrics import (
     compute_generator_quality_metrics,
     compute_generator_settling_metrics,
     compute_generator_recovery_metrics,
+    compute_generator_robustness_metrics,
     compute_generator_state_fitting_probe,
     compute_generator_state_information_probe,
     compute_generator_success_diagnostics,
@@ -1989,6 +1990,20 @@ def run_mnist_generator_experiment(
             occlusion_patch_counts=config.recovery_eval_occlusion_patches,
             settle_steps=config.recovery_eval_settle_steps,
         )
+    robustness_metrics: Dict[str, Any] = {}
+    if config.robustness_eval_sample_count > 0:
+        robustness_metrics = compute_generator_robustness_metrics(
+            model,
+            eval_images,
+            key=jax.random.fold_in(key, 52_777),
+            image_shape=config.image_shape,
+            sample_count=config.robustness_eval_sample_count,
+            settle_step=config.robustness_eval_settle_step,
+            weight_noise_scales=config.robustness_eval_weight_noise_scales,
+            quant_bits=config.robustness_eval_quant_bits,
+            ood_occlusion_fractions=config.robustness_eval_occlusion_fractions,
+            weight_noise_draws=config.robustness_eval_weight_noise_draws,
+        )
     attractor_robustness = compute_generator_attractor_robustness(
         model,
         key=jax.random.fold_in(key, 55_000),
@@ -2233,6 +2248,18 @@ def run_mnist_generator_experiment(
                 config.recovery_eval_occlusion_patches
             ),
             "recovery_eval_settle_steps": list(config.recovery_eval_settle_steps),
+            "robustness_eval_sample_count": config.robustness_eval_sample_count,
+            "robustness_eval_settle_step": config.robustness_eval_settle_step,
+            "robustness_eval_weight_noise_scales": list(
+                config.robustness_eval_weight_noise_scales
+            ),
+            "robustness_eval_quant_bits": list(config.robustness_eval_quant_bits),
+            "robustness_eval_occlusion_fractions": list(
+                config.robustness_eval_occlusion_fractions
+            ),
+            "robustness_eval_weight_noise_draws": (
+                config.robustness_eval_weight_noise_draws
+            ),
             "state_prior_sampling_mode": config.state_prior_sampling_mode,
             "state_prior_rank": config.state_prior_rank,
             "state_prior_noise_scale": config.state_prior_noise_scale,
@@ -2548,6 +2575,7 @@ def run_mnist_generator_experiment(
             "state_information_probe": state_information_probe,
             "state_fitting_probe": state_fitting_probe,
             "recovery": recovery_metrics,
+            "robustness": robustness_metrics,
             **quality,
             "success_diagnostics": success_diagnostics,
         },

@@ -3976,3 +3976,36 @@ StateMLP still wins by ~50% with coupling range equalized, so the residual gap
 is intrinsic to the oscillatory update. Fractal matches dense (non-locality is
 the active ingredient, not self-similarity); topology only helps on the
 multimode substrate; deep-settling reversal unchanged.
+
+## 2026-07-16: CIFAR RGB robustness probe (Modal GPU, 8 parallel)
+
+First eval on the oscillator's "home" fitness function: graceful degradation
+instead of exact reconstruction at infinite-precision parity. New
+`compute_generator_robustness_metrics` scores contiguous-occlusion fill-in and
+clean PSNR at fixed settle depth 8 under three stressors: Gaussian weight
+jitter (per-leaf-std-relative scales 0.02/0.05/0.1/0.2, 3 draws averaged),
+uniform weight quantization (8/6/4/3 bits), and out-of-distribution occlusion
+(fractions 0.1/0.25/0.4/0.6 vs 0.25 trained). Sweep
+`mnist_generator_cifar10_rgb_robustness_probe`, app
+`ap-CYvg8hNf6VjCCJH9Q9xxHa`, `OSCNET_MODAL_MAX_CONTAINERS=8`, launched
+2026-07-16 10:23 CEST. Four arms x seeds 23/24 (8 runs, one wave):
+single-mode local HORN, multimode2 local, multimode2 dense, StateMLP.
+An earlier accidental launch (`ap-GcwIp5vtsWZPvW6t5FWfFf`, 2026-07-16 00:24
+CEST) was stopped after ~2 minutes at the user's request. CSV:
+`outputs/analysis/modal_mnist_generator_cifar10_rgb_robustness_probe.csv`.
+
+Hypothesis: if the physics-constrained oscillator update buys the graceful
+degradation that analog systems claim, its quality should collapse more slowly
+than StateMLP's under weight noise and quantization, even though its absolute
+baseline is worse.
+
+Completed 2026-07-16 ~11:10 CEST, all 8 runs clean. Headline (details in
+`docs/experiment_report.md`): **the crossover exists — first absolute
+oscillator win in the project.** At nominal conditions StateMLP keeps its usual
+lead, but under severe stress the ranking inverts: at 0.6 occlusion StateMLP
+degrades 4.2x its baseline vs 1.7x for multimode-local (absolute fill-in 0.172
+vs 0.107, both seeds); at 3-bit quantization StateMLP degrades 2.1x vs ~1.1x
+for the multimode arms (absolute 0.087 vs 0.066-0.067). Weight-noise results
+are mixed/noisy (3 draws), with the oscillator retaining more clean PSNR only
+at the extreme 0.2 scale. The physics prior is protective off-nominal; the
+free-form update is better on-nominal.

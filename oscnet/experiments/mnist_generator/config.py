@@ -187,6 +187,12 @@ class MNISTGeneratorExperimentConfig:
     recovery_eval_occlusion_fractions: Tuple[float, ...] = (0.25,)
     recovery_eval_occlusion_patches: Tuple[int, ...] = (1, 4)
     recovery_eval_settle_steps: Tuple[int, ...] = (0, 4, 8, 16)
+    robustness_eval_sample_count: int = 0
+    robustness_eval_settle_step: int = 8
+    robustness_eval_weight_noise_scales: Tuple[float, ...] = (0.02, 0.05, 0.1, 0.2)
+    robustness_eval_quant_bits: Tuple[int, ...] = (8, 6, 4, 3)
+    robustness_eval_occlusion_fractions: Tuple[float, ...] = (0.1, 0.25, 0.4, 0.6)
+    robustness_eval_weight_noise_draws: int = 3
     state_prior_sampling_mode: str = "none"
     state_prior_rank: int = 32
     state_prior_noise_scale: float = 1.0

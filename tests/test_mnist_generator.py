@@ -32,6 +32,7 @@ from oscnet.experiments.mnist_generator import (
     compute_generator_quality_metrics,
     compute_generator_settling_metrics,
     compute_generator_recovery_metrics,
+    compute_generator_robustness_metrics,
     compute_generator_state_fitting_probe,
     compute_generator_state_information_probe,
     compute_generator_success_diagnostics,
@@ -574,6 +575,64 @@ def test_compute_generator_recovery_metrics_scores_conditions():
     for step in (0, 1):
         assert metrics[f"occl_f0_p1_k{step:03d}_occluded_region_mse"] >= 0.0
         assert metrics[f"occl_f0_p1_k{step:03d}_intact_region_mse"] >= 0.0
+
+
+def test_compute_generator_robustness_metrics_scores_stressors():
+    model = _tiny_anchor_horn()
+    real_images = jax.random.uniform(jax.random.PRNGKey(438), (8, 16))
+
+    metrics = compute_generator_robustness_metrics(
+        model,
+        real_images,
+        key=jax.random.PRNGKey(439),
+        image_shape=(4, 4),
+        sample_count=8,
+        settle_step=1,
+        weight_noise_scales=(0.05, 0.2),
+        quant_bits=(8, 4),
+        ood_occlusion_fractions=(0.25, 0.5),
+        weight_noise_draws=2,
+    )
+
+    assert metrics["sample_count"] == 8
+    assert metrics["settle_step"] == 1
+    assert metrics["baseline_occluded_region_mse"] >= 0.0
+    assert np.isfinite(metrics["baseline_clean_psnr"])
+    for scale_index in (0, 1):
+        assert metrics[f"wnoise_s{scale_index}_occluded_region_mse"] >= 0.0
+        assert np.isfinite(metrics[f"wnoise_s{scale_index}_clean_psnr"])
+    for bits in (8, 4):
+        assert metrics[f"quant_b{bits}_occluded_region_mse"] >= 0.0
+    for frac_index in (0, 1):
+        assert metrics[f"ood_occl_f{frac_index}_occluded_region_mse"] >= 0.0
+    # A strong weight perturbation should not improve fill-in over baseline.
+    assert (
+        metrics["wnoise_s1_occluded_region_mse"]
+        >= metrics["baseline_occluded_region_mse"] - 1e-6
+    )
+
+
+def test_robustness_weight_perturbation_changes_outputs():
+    from oscnet.experiments.mnist_generator.metrics import (
+        _perturb_model_weights,
+        _quantize_model_weights,
+    )
+
+    model = _tiny_anchor_horn()
+    real = jax.random.uniform(jax.random.PRNGKey(440), (4, 16))
+    labels = jnp.asarray([0, 1, 0, 1], dtype=jnp.int32)
+    base = model(jax.random.PRNGKey(441), 4, labels)
+
+    perturbed = _perturb_model_weights(
+        model, key=jax.random.PRNGKey(442), noise_scale=0.3
+    )
+    quantized = _quantize_model_weights(model, bits=3)
+    out_perturbed = perturbed(jax.random.PRNGKey(441), 4, labels)
+    out_quant = quantized(jax.random.PRNGKey(441), 4, labels)
+
+    assert base.shape == out_perturbed.shape == out_quant.shape
+    assert not jnp.allclose(base, out_perturbed)
+    assert not jnp.allclose(base, out_quant)
 
 
 def _tiny_coarse_carrier_horn(key=None):

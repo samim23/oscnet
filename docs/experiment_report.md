@@ -10035,6 +10035,70 @@ comparison, which makes it publishable-grade: local coupling → no transport;
 add transport → recover a third of the gap; the rest is the dynamics prior
 itself.
 
+### Robustness Probe — Scoring on the Oscillator's Home Fitness Function (2026-07-16)
+
+Motivation: every prior comparison scored exact reconstruction at
+infinite-precision parity on digital hardware — the fitness function digital
+free-form updates are optimized for. The claimed advantages of
+physical/oscillatory computation (graceful degradation under component noise,
+low-precision tolerance, robustness off-nominal) were never on the scorecard.
+This probe measures the digital-measurable shadow of those claims. Sweep
+`mnist_generator_cifar10_rgb_robustness_probe` (app
+`ap-CYvg8hNf6VjCCJH9Q9xxHa`, 8 parallel A10G, seeds 23/24, all runs clean).
+Arms: single-mode local HORN, multimode2 local, multimode2 dense, StateMLP.
+All conditions score contiguous-occlusion fill-in (occluded-region MSE) and
+clean PSNR at fixed settle depth 8, under: whole-model Gaussian weight jitter
+(per-leaf-std scales 0.02-0.2, 3 draws), uniform weight quantization (8-3
+bits), and out-of-distribution occlusion (0.1-0.6 vs 0.25 trained).
+
+Occluded-region MSE at k8 (2-seed means):
+
+| Condition | single local | mm2 local | mm2 dense | StateMLP |
+| --- | ---: | ---: | ---: | ---: |
+| baseline (0.25 occl) | 0.0905 | 0.0620 | 0.0576 | **0.0411** |
+| occl 0.4 | 0.1065 | 0.0812 | 0.0825 | 0.0773 |
+| occl 0.6 | 0.1237 | **0.1070** | 0.1181 | 0.1724 |
+| quant 4-bit | 0.0747 | 0.0651 | **0.0504** | 0.0426 |
+| quant 3-bit | 0.1272 | **0.0668** | 0.0661 | 0.0866 |
+| wnoise 0.2 | 0.0923 | 0.0825 | 0.0611 | **0.0573** |
+
+Relative degradation (condition / own baseline): at occl 0.6 StateMLP blows up
+4.19x vs 1.73x (mm2 local) and 1.37x (single local); at 3-bit quantization
+StateMLP degrades 2.11x vs 1.08x (mm2 local). Per-seed checks: at occl 0.6 and
+at 3-bit, mm2 local beats StateMLP in absolute terms on *both* seeds.
+
+Findings:
+
+1. **The crossover exists — first absolute oscillator win in the project.**
+   Under severe out-of-distribution occlusion (0.6, 2.4x the trained level)
+   the multimode-local oscillator's fill-in (0.107) is ~38% *better* than
+   StateMLP's (0.172), both seeds. The free-form update shatters off-nominal;
+   the physics-constrained update bends.
+2. **Extreme quantization favors the oscillator too.** At 3-bit weights the
+   multimode arms hold ~1.1x their baseline while StateMLP doubles its error;
+   mm2 local wins absolutely on both seeds. At moderate precision (8-4 bits)
+   StateMLP keeps its lead — the crossover is at the harsh end.
+3. **Weight-noise results are mixed.** At scales up to 0.1 StateMLP is no less
+   robust than the oscillators (relative degradation is oscillator-worse at
+   0.05-0.1); only at the extreme 0.2 scale does the pattern flip on relative
+   degradation and clean PSNR (mm2 local 17.8 dB vs StateMLP 15.3 dB). Only 3
+   noise draws — treat as suggestive, not established.
+4. **On-nominal ordering unchanged.** At trained conditions and mild stress
+   StateMLP remains the best absolute performer, consistent with every prior
+   probe.
+
+Read: the "lost the office, won the battlefield" pattern is now measured in
+our own data. The oscillator's dynamics prior costs ~40% accuracy at nominal
+conditions but is *protective* under distribution shift and precision
+starvation — exactly the operating regime physical/analog computation targets.
+This converts the project's story from a pure negative into a two-regime
+result: free-form recurrence wins the in-distribution, full-precision contest;
+physics-constrained recurrence wins when conditions leave the training
+envelope. Caveats before any strong claim: 2 seeds, 3 weight-noise draws, one
+dataset, and the crossover appears only at the harsh end of the stress axes —
+a replication with more seeds/draws and intermediate stress levels would be
+the natural confirmation step.
+
 
 
 ## Maintenance Notes

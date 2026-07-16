@@ -328,6 +328,52 @@ def build_arg_parser(preset: str = "none") -> argparse.ArgumentParser:
         help="Comma-separated settle depths for recovery eval.",
     )
     parser.add_argument(
+        "--robustness-eval-sample-count",
+        type=int,
+        default=0,
+        help=(
+            "Eval images for the graceful-degradation robustness probe "
+            "(recovery under weight noise, quantization, and stronger-than-"
+            "trained occlusion). 0 disables."
+        ),
+    )
+    parser.add_argument(
+        "--robustness-eval-settle-step",
+        type=int,
+        default=8,
+        help="Fixed settle depth used for all robustness-probe conditions.",
+    )
+    parser.add_argument(
+        "--robustness-eval-weight-noise-scales",
+        type=_parse_float_tuple,
+        default=(0.02, 0.05, 0.1, 0.2),
+        help=(
+            "Comma-separated per-leaf-std-relative Gaussian weight-noise "
+            "scales for the robustness probe."
+        ),
+    )
+    parser.add_argument(
+        "--robustness-eval-quant-bits",
+        type=_parse_int_tuple,
+        default=(8, 6, 4, 3),
+        help="Comma-separated weight-quantization bit widths for the probe.",
+    )
+    parser.add_argument(
+        "--robustness-eval-occlusion-fractions",
+        type=_parse_float_tuple,
+        default=(0.1, 0.25, 0.4, 0.6),
+        help=(
+            "Comma-separated out-of-distribution occlusion fractions for the "
+            "robustness probe."
+        ),
+    )
+    parser.add_argument(
+        "--robustness-eval-weight-noise-draws",
+        type=int,
+        default=3,
+        help="Random weight-noise draws averaged per scale in the probe.",
+    )
+    parser.add_argument(
         "--state-prior-sampling-mode",
         choices=["none", "global", "class"],
         default="none",
@@ -1113,6 +1159,16 @@ def config_from_args(args: argparse.Namespace) -> MNISTGeneratorExperimentConfig
         recovery_eval_occlusion_fractions=args.recovery_eval_occlusion_fractions,
         recovery_eval_occlusion_patches=args.recovery_eval_occlusion_patches,
         recovery_eval_settle_steps=args.recovery_eval_settle_steps,
+        robustness_eval_sample_count=args.robustness_eval_sample_count,
+        robustness_eval_settle_step=args.robustness_eval_settle_step,
+        robustness_eval_weight_noise_scales=(
+            args.robustness_eval_weight_noise_scales
+        ),
+        robustness_eval_quant_bits=args.robustness_eval_quant_bits,
+        robustness_eval_occlusion_fractions=(
+            args.robustness_eval_occlusion_fractions
+        ),
+        robustness_eval_weight_noise_draws=args.robustness_eval_weight_noise_draws,
         state_prior_sampling_mode=args.state_prior_sampling_mode,
         state_prior_rank=args.state_prior_rank,
         state_prior_noise_scale=args.state_prior_noise_scale,

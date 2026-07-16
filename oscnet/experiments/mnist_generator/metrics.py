@@ -2014,6 +2014,170 @@ def compute_generator_recovery_metrics(
     return metrics
 
 
+def _perturb_model_weights(
+    model: eqx.Module,
+    *,
+    key: jax.random.PRNGKey,
+    noise_scale: float,
+) -> eqx.Module:
+    """Add Gaussian noise scaled per-leaf by that leaf's own std.
+
+    Emulates analog component imprecision / weight jitter across the whole
+    model (recurrent core, decoder, anchor encoder). Decoder and encoder
+    architectures are matched across the compared arms, so differences in
+    degradation isolate the recurrent update.
+    """
+
+    params, static = eqx.partition(model, eqx.is_inexact_array)
+    leaves, treedef = jax.tree_util.tree_flatten(params)
+    keys = jax.random.split(key, max(len(leaves), 1))
+    new_leaves = []
+    for leaf, leaf_key in zip(leaves, keys):
+        if leaf.size == 0:
+            new_leaves.append(leaf)
+            continue
+        std = jnp.std(leaf)
+        noise = jax.random.normal(leaf_key, leaf.shape, dtype=leaf.dtype)
+        new_leaves.append(leaf + float(noise_scale) * std * noise)
+    perturbed = jax.tree_util.tree_unflatten(treedef, new_leaves)
+    return eqx.combine(perturbed, static)
+
+
+def _quantize_model_weights(
+    model: eqx.Module,
+    *,
+    bits: int,
+) -> eqx.Module:
+    """Uniformly quantize each float leaf to ``bits`` levels (per-leaf min-max).
+
+    Emulates a low-precision / fixed-point analog readout of the same trained
+    weights.
+    """
+
+    levels = float(2**int(bits) - 1)
+    params, static = eqx.partition(model, eqx.is_inexact_array)
+
+    def quantize(leaf: Array) -> Array:
+        if leaf.size == 0:
+            return leaf
+        lo = jnp.min(leaf)
+        hi = jnp.max(leaf)
+        span = hi - lo
+        scaled = jnp.where(span > 1e-12, (leaf - lo) / jnp.maximum(span, 1e-12), 0.0)
+        rounded = jnp.round(scaled * levels) / levels
+        return jnp.where(span > 1e-12, rounded * span + lo, leaf)
+
+    quantized = jax.tree_util.tree_map(quantize, params)
+    return eqx.combine(quantized, static)
+
+
+def compute_generator_robustness_metrics(
+    model: eqx.Module,
+    real_images: Array,
+    *,
+    key: jax.random.PRNGKey,
+    image_shape: Sequence[int],
+    sample_count: int = 128,
+    settle_step: int = 8,
+    weight_noise_scales: Sequence[float] = (0.02, 0.05, 0.1, 0.2),
+    quant_bits: Sequence[int] = (8, 6, 4, 3),
+    ood_occlusion_fractions: Sequence[float] = (0.1, 0.25, 0.4, 0.6),
+    weight_noise_draws: int = 3,
+) -> Dict[str, Any]:
+    """Score recovery under the oscillator's "home" fitness function: stress.
+
+    Rather than exact reconstruction at infinite-precision parity, this probes
+    graceful degradation -- the property physical/analog dynamical systems are
+    supposed to buy. All conditions score the contiguous single-patch
+    occlusion fill-in (occluded-region MSE) and clean PSNR at a fixed settling
+    depth, so the compared arms differ only in how fast quality collapses under:
+
+    - ``weight_noise_scales``: Gaussian weight jitter (analog component noise);
+    - ``quant_bits``: low-precision weight readout;
+    - ``ood_occlusion_fractions``: corruption stronger than trained on.
+
+    Returns a flat dict of per-condition ``occluded_region_mse`` and ``psnr``
+    plus the clean/unperturbed baseline for reference.
+    """
+
+    if not hasattr(model, "encode_image_state") or not hasattr(
+        model, "decode_state"
+    ):
+        return {"unsupported": True, "reason": "model lacks encode/decode"}
+    if getattr(model, "state_anchor_encoder", None) is None:
+        return {"unsupported": True, "reason": "state anchor encoder disabled"}
+    count = min(int(sample_count), int(real_images.shape[0]))
+    if count < 2:
+        return {"sample_count": int(count), "insufficient_samples": True}
+
+    step = int(settle_step)
+    metrics: Dict[str, Any] = {
+        "sample_count": int(count),
+        "settle_step": step,
+    }
+
+    def recover(
+        scored_model: eqx.Module,
+        *,
+        score_key: jax.random.PRNGKey,
+        fraction: float,
+    ) -> Tuple[float, float]:
+        """Return (contiguous occluded-region MSE, clean PSNR) at fixed depth."""
+
+        result = compute_generator_recovery_metrics(
+            scored_model,
+            real_images,
+            key=score_key,
+            image_shape=image_shape,
+            sample_count=count,
+            noise_scales=(),
+            occlusion_fractions=(float(fraction),),
+            occlusion_patch_counts=(1,),
+            settle_steps=(step,),
+        )
+        occ = result.get(f"occl_f0_p1_k{step:03d}_occluded_region_mse", float("nan"))
+        psnr = result.get(f"clean_k{step:03d}_psnr", float("nan"))
+        return float(occ), float(psnr)
+
+    base_key = jax.random.fold_in(key, 61_000)
+    base_occ, base_psnr = recover(model, score_key=base_key, fraction=0.25)
+    metrics["baseline_occluded_region_mse"] = base_occ
+    metrics["baseline_clean_psnr"] = base_psnr
+
+    for scale_index, scale in enumerate(weight_noise_scales):
+        occ_draws = []
+        psnr_draws = []
+        for draw in range(max(int(weight_noise_draws), 1)):
+            perturb_key = jax.random.fold_in(key, 62_000 + scale_index * 31 + draw)
+            score_key = jax.random.fold_in(key, 63_000 + scale_index * 31 + draw)
+            perturbed = _perturb_model_weights(
+                model, key=perturb_key, noise_scale=float(scale)
+            )
+            occ, psnr = recover(perturbed, score_key=score_key, fraction=0.25)
+            occ_draws.append(occ)
+            psnr_draws.append(psnr)
+        metrics[f"wnoise_s{scale_index}_scale"] = float(scale)
+        metrics[f"wnoise_s{scale_index}_occluded_region_mse"] = float(
+            np.mean(occ_draws)
+        )
+        metrics[f"wnoise_s{scale_index}_clean_psnr"] = float(np.mean(psnr_draws))
+
+    for bit_index, bits in enumerate(quant_bits):
+        score_key = jax.random.fold_in(key, 64_000 + bit_index)
+        quantized = _quantize_model_weights(model, bits=int(bits))
+        occ, psnr = recover(quantized, score_key=score_key, fraction=0.25)
+        metrics[f"quant_b{int(bits)}_occluded_region_mse"] = occ
+        metrics[f"quant_b{int(bits)}_clean_psnr"] = psnr
+
+    for frac_index, fraction in enumerate(ood_occlusion_fractions):
+        score_key = jax.random.fold_in(key, 65_000 + frac_index)
+        occ, _ = recover(model, score_key=score_key, fraction=float(fraction))
+        metrics[f"ood_occl_f{frac_index}_fraction"] = float(fraction)
+        metrics[f"ood_occl_f{frac_index}_occluded_region_mse"] = occ
+
+    return metrics
+
+
 def compute_generator_settling_metrics(
     model: eqx.Module,
     *,
