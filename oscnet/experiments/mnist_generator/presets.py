@@ -2973,6 +2973,24 @@ GENERATOR_PRESETS[
 }
 
 GENERATOR_PRESETS[
+    "sparse_horn_cifar10_rgb_current_state_mlp_reg_retinotopic_recovery_mixed"
+] = {
+    **GENERATOR_PRESETS[
+        "sparse_horn_cifar10_rgb_current_state_mlp_retinotopic_recovery_mixed"
+    ],
+    # 10x weight decay: overfitting control for the robustness crossover. If
+    # StateMLP's off-nominal collapse is just overfitting, this arm should
+    # close the robustness gap to the oscillator; if the gap persists, the
+    # oscillator's physics prior is doing structural work.
+    "weight_decay": 2e-3,
+    "output_dir": (
+        "outputs/reference/"
+        "mnist_generator_sparse_horn_cifar10_rgb_current_state_mlp_reg_"
+        "retinotopic_recovery_mixed"
+    ),
+}
+
+GENERATOR_PRESETS[
     "sparse_horn_cifar10_rgb_current_multimode2_retinotopic_anchor_frozen010"
 ] = {
     **GENERATOR_PRESETS[

@@ -4009,3 +4009,33 @@ for the multimode arms (absolute 0.087 vs 0.066-0.067). Weight-noise results
 are mixed/noisy (3 draws), with the oscillator retaining more clean PSNR only
 at the extreme 0.2 scale. The physics prior is protective off-nominal; the
 free-form update is better on-nominal.
+
+## 2026-07-16: CIFAR RGB robustness confirmation (Modal GPU, 8 parallel)
+
+Confirmation sweep hardening the robustness-probe crossover: four seeds
+(23-26) instead of two, five weight-noise draws instead of three, intermediate
+stress levels to localize the crossover (occlusion 0.1/0.25/0.3/0.4/0.5/0.6,
+quantization 8/6/5/4/3 bits, weight noise 0.05-0.3), and a new
+regularized-StateMLP arm (`sparse_horn_cifar10_rgb_current_state_mlp_reg_
+retinotopic_recovery_mixed`, 10x weight decay 2e-3) as the overfitting
+control. Sweep `mnist_generator_cifar10_rgb_robustness_confirmation`, app
+`ap-sYXsSdYEHPBDjeOebDUIaL`, `OSCNET_MODAL_MAX_CONTAINERS=8`, launched
+2026-07-16 18:38 CEST. Four arms x seeds 23/24/25/26 (16 runs, two waves):
+multimode2 local, multimode2 dense, StateMLP, StateMLP regularized. CSV:
+`outputs/analysis/modal_mnist_generator_cifar10_rgb_robustness_confirmation.csv`.
+
+Hypothesis: the probe's occlusion and quantization crossovers survive more
+seeds and intermediate stress; if the StateMLP collapse is overfitting, the
+regularized arm should close the robustness gap.
+
+Completed 2026-07-16 19:43 CEST, all 16 runs clean. Headline (details in
+`docs/experiment_report.md`): occlusion crossover **confirmed and localized**
+— it opens between 0.4 and 0.5 occlusion; at 0.5/0.6 the multimode-local
+oscillator beats plain StateMLP on 3/4 seeds and the regularized StateMLP on
+4/4 (relative degradation at 0.6: 1.8x vs 3.7x/4.3x). Regularization makes
+StateMLP *more* brittle off-nominal, killing the overfitting explanation.
+The 3-bit quantization crossover from the probe does **not** replicate at 4
+seeds (mm2-local 2.12x, StateMLP 2.16x, regularized StateMLP best at 1.62x);
+the earlier 2-seed quantization win was noise. Weight-noise: oscillator
+consistently degrades relatively less (1.04-1.46x vs 1.27-1.83x) but never
+wins absolutely.

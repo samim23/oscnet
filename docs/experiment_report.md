@@ -10099,6 +10099,78 @@ dataset, and the crossover appears only at the harsh end of the stress axes —
 a replication with more seeds/draws and intermediate stress levels would be
 the natural confirmation step.
 
+### Robustness Confirmation — 4 Seeds, Crossover Localization, Overfitting Control (2026-07-16)
+
+The confirmation step the probe called for. Sweep
+`mnist_generator_cifar10_rgb_robustness_confirmation` (app
+`ap-sYXsSdYEHPBDjeOebDUIaL`, 8 parallel A10G, 16 runs, all clean). Changes vs.
+the probe: seeds 23-26 (4 instead of 2); 5 weight-noise draws (instead of 3)
+at scales 0.05/0.1/0.15/0.2/0.3; quantization 8/6/5/4/3 bits; occlusion
+0.1/0.25/0.3/0.4/0.5/0.6 so the crossover point is bracketed instead of
+sampled at the endpoints only; and a fourth arm, **regularized StateMLP**
+(new preset `..._state_mlp_reg_...`, weight decay 2e-3 = 10x the default),
+to test the skeptic's reading that StateMLP's off-nominal collapse is mere
+overfitting that any regularizer would fix.
+
+Occluded-region MSE at k8 (4-seed means):
+
+| Condition | mm2 local | mm2 dense | StateMLP | StateMLP reg |
+| --- | ---: | ---: | ---: | ---: |
+| baseline (0.25 occl) | 0.0708 | 0.0626 | 0.0414 | **0.0398** |
+| occl 0.4 | 0.0926 | 0.0884 | **0.0779** | 0.0781 |
+| occl 0.5 | 0.1107 | **0.1077** | 0.1264 | 0.1391 |
+| occl 0.6 | 0.1243 | **0.1226** | 0.1546 | 0.1713 |
+| quant 4-bit | 0.0645 | 0.0717 | 0.0534 | **0.0467** |
+| quant 3-bit | 0.1419 | 0.1130 | 0.0902 | **0.0649** |
+| wnoise 0.3 | 0.1020 | 0.1005 | **0.0758** | 0.0755 |
+
+Relative degradation (condition / own baseline) at occl 0.6: mm2 local 1.80x,
+mm2 dense 2.01x, StateMLP 3.73x, StateMLP reg 4.30x. Per-seed absolute wins
+for mm2 local at occl 0.5/0.6: 3/4 seeds vs plain StateMLP, 4/4 vs
+regularized.
+
+Findings:
+
+1. **The occlusion crossover is confirmed and localized.** It opens between
+   0.4 and 0.5 occlusion (1.6x-2.4x the trained level). At 0.4 StateMLP still
+   wins on every seed; at 0.5 and 0.6 both oscillator arms beat both StateMLP
+   arms on the 4-seed mean, with mm2 local winning 3/4 seeds against plain
+   StateMLP and 4/4 against the regularized one. This is now a replicated,
+   bracketed result, not an endpoint artifact.
+2. **The overfitting explanation is dead.** Regularizing StateMLP improves
+   its nominal baseline slightly (0.0398 vs 0.0414) but makes off-nominal
+   collapse *worse* (4.30x vs 3.73x at occl 0.6). The free-form update's
+   brittleness under distribution shift is structural, not a symptom of
+   under-regularization — strengthening the case that the oscillator's
+   physics prior is doing real protective work.
+3. **The 3-bit quantization crossover does not replicate.** With 4 seeds the
+   mm2-local relative degradation at 3 bits is 2.12x — statistically
+   indistinguishable from plain StateMLP's 2.16x — and the probe's 2-seed
+   oscillator win (1.08x) was evidently seed luck. Better yet for honesty:
+   the regularized StateMLP is the *most* quantization-robust arm (1.62x,
+   absolute 0.0649), consistent with weight decay shrinking weight range and
+   hence per-level quantization error. The quantization claim from the probe
+   should be retired.
+4. **Weight noise: relative robustness, no absolute win.** The oscillator
+   degrades relatively less at every scale from 0.15 up (1.04-1.46x vs
+   1.27-1.83x for StateMLP, now with 5 draws x 4 seeds) and retains more
+   clean PSNR at scale 0.2 (18.7 vs 17.9 dB), but StateMLP's nominal head
+   start means it stays ahead in absolute fill-in throughout, and at the
+   extreme 0.3 scale the PSNR ordering flips back.
+
+Read: the two-regime story survives its confirmation, but narrower and
+sharper than the probe suggested. The one replicated absolute oscillator win
+is severe out-of-distribution occlusion — the pattern-completion stressor
+closest to the associative-memory claim — and it is robust to seeds and to
+the overfitting control, with a clean crossover bracketed at 0.4-0.5
+occlusion. The quantization and weight-noise advantages reduce to
+relative-degradation effects or vanish entirely. The defensible claim is now:
+*free-form recurrence reconstructs better inside and near the training
+envelope; physics-constrained oscillator dynamics fill in better when the
+corruption is far outside it, and this is not an artifact of an
+under-regularized control.* Remaining caveats: one dataset, one architecture
+family per side, and the crossover is specific to the occlusion axis.
+
 
 
 ## Maintenance Notes

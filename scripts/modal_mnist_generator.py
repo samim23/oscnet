@@ -427,6 +427,10 @@ SWEEP_CSVS = {
         "outputs/analysis/"
         "modal_mnist_generator_cifar10_rgb_robustness_probe.csv"
     ),
+    "mnist_generator_cifar10_rgb_robustness_confirmation": Path(
+        "outputs/analysis/"
+        "modal_mnist_generator_cifar10_rgb_robustness_confirmation.csv"
+    ),
     "mnist_generator_cifar10_rgb_attribution_probe": Path(
         "outputs/analysis/"
         "modal_mnist_generator_cifar10_rgb_attribution_probe.csv"
@@ -5925,6 +5929,82 @@ def _mnist_generator_cifar10_rgb_robustness_probe() -> list[
     return entries
 
 
+def _mnist_generator_cifar10_rgb_robustness_confirmation() -> list[
+    tuple[list[str], str]
+]:
+    """Confirm and localize the robustness crossover from the first probe.
+
+    Hardens the first oscillator absolute win (severe occlusion and 3-bit
+    quantization) with: four seeds instead of two, five weight-noise draws,
+    intermediate stress levels to map where the crossover sits (occlusion
+    0.3/0.5, 5-bit quantization, weight-noise 0.15/0.3), and a regularized
+    StateMLP arm (10x weight decay) to test the skeptic's explanation that the
+    control's off-nominal collapse is mere overfitting rather than a structural
+    property of the free-form update.
+    """
+
+    entries = []
+    probe_args = (
+        "--epochs 40 "
+        "--train-limit 10000 "
+        "--eval-limit 5000 "
+        "--checkpoint-every 40 "
+        "--artifact-every 40 "
+        "--batch-size 32 "
+        "--eval-sample-count 512 "
+        "--quality-classifier-train-limit 20000 "
+        "--quality-classifier-eval-limit 5000 "
+        "--attractor-variants-per-class 8 "
+        "--state-fit-sample-count 32 "
+        "--state-fit-steps 80 "
+        "--state-fit-settle-steps 0,1,2,4,8,16,32 "
+        "--recovery-eval-sample-count 256 "
+        "--recovery-eval-settle-steps 0,2,4,8,16 "
+        "--robustness-eval-sample-count 256 "
+        "--robustness-eval-settle-step 8 "
+        "--robustness-eval-weight-noise-scales 0.05,0.1,0.15,0.2,0.3 "
+        "--robustness-eval-quant-bits 8,6,5,4,3 "
+        "--robustness-eval-occlusion-fractions 0.1,0.25,0.3,0.4,0.5,0.6 "
+        "--robustness-eval-weight-noise-draws 5"
+    )
+    variants = (
+        (
+            "mm2_local",
+            "sparse_horn_cifar10_rgb_current_multimode2_"
+            "retinotopic_recovery_mixed",
+        ),
+        (
+            "mm2_dense",
+            "sparse_horn_cifar10_rgb_current_multimode2_dense_"
+            "retinotopic_recovery_mixed",
+        ),
+        (
+            "state_mlp",
+            "sparse_horn_cifar10_rgb_current_state_mlp_"
+            "retinotopic_recovery_mixed",
+        ),
+        (
+            "state_mlp_reg",
+            "sparse_horn_cifar10_rgb_current_state_mlp_reg_"
+            "retinotopic_recovery_mixed",
+        ),
+    )
+    for seed in (23, 24, 25, 26):
+        for variant_name, local_preset in variants:
+            run_name = (
+                "mnist_generator_cifar10_rgb_robustness_confirmation_"
+                f"{variant_name}_train10000_seed{seed}_40e"
+            )
+            args = shlex.split(
+                f"--seed {seed} --preset {local_preset} {probe_args}"
+            )
+            output_dir = VOLUME_MOUNT / "mnist_generator" / run_name
+            args = _with_default_arg(args, "--output-dir", output_dir)
+            entries.append((args, run_name))
+
+    return entries
+
+
 def _sweep_entries(preset: str) -> list[tuple[list[str], str]]:
     if preset == "mnist_generator_core":
         return _mnist_generator_core_sweep()
@@ -6140,6 +6220,8 @@ def _sweep_entries(preset: str) -> list[tuple[list[str], str]]:
         return _mnist_generator_cifar10_rgb_coupling_topology_probe()
     if preset == "mnist_generator_cifar10_rgb_robustness_probe":
         return _mnist_generator_cifar10_rgb_robustness_probe()
+    if preset == "mnist_generator_cifar10_rgb_robustness_confirmation":
+        return _mnist_generator_cifar10_rgb_robustness_confirmation()
     if preset == "mnist_generator_cifar10_rgb_attribution_probe":
         return _mnist_generator_cifar10_rgb_attribution_probe_sweep()
     if preset == "mnist_generator_cifar10_rgb_sparse_drive_probe":
@@ -6309,26 +6391,43 @@ def _write_sweep_csv(results: list[dict[str, Any]], path: Path) -> None:
         "generator.robustness.settle_step",
         "generator.robustness.baseline_occluded_region_mse",
         "generator.robustness.baseline_clean_psnr",
+        "generator.robustness.wnoise_s0_scale",
         "generator.robustness.wnoise_s0_occluded_region_mse",
         "generator.robustness.wnoise_s0_clean_psnr",
+        "generator.robustness.wnoise_s1_scale",
         "generator.robustness.wnoise_s1_occluded_region_mse",
         "generator.robustness.wnoise_s1_clean_psnr",
+        "generator.robustness.wnoise_s2_scale",
         "generator.robustness.wnoise_s2_occluded_region_mse",
         "generator.robustness.wnoise_s2_clean_psnr",
+        "generator.robustness.wnoise_s3_scale",
         "generator.robustness.wnoise_s3_occluded_region_mse",
         "generator.robustness.wnoise_s3_clean_psnr",
+        "generator.robustness.wnoise_s4_scale",
+        "generator.robustness.wnoise_s4_occluded_region_mse",
+        "generator.robustness.wnoise_s4_clean_psnr",
         "generator.robustness.quant_b8_occluded_region_mse",
         "generator.robustness.quant_b8_clean_psnr",
         "generator.robustness.quant_b6_occluded_region_mse",
         "generator.robustness.quant_b6_clean_psnr",
+        "generator.robustness.quant_b5_occluded_region_mse",
+        "generator.robustness.quant_b5_clean_psnr",
         "generator.robustness.quant_b4_occluded_region_mse",
         "generator.robustness.quant_b4_clean_psnr",
         "generator.robustness.quant_b3_occluded_region_mse",
         "generator.robustness.quant_b3_clean_psnr",
+        "generator.robustness.ood_occl_f0_fraction",
         "generator.robustness.ood_occl_f0_occluded_region_mse",
+        "generator.robustness.ood_occl_f1_fraction",
         "generator.robustness.ood_occl_f1_occluded_region_mse",
+        "generator.robustness.ood_occl_f2_fraction",
         "generator.robustness.ood_occl_f2_occluded_region_mse",
+        "generator.robustness.ood_occl_f3_fraction",
         "generator.robustness.ood_occl_f3_occluded_region_mse",
+        "generator.robustness.ood_occl_f4_fraction",
+        "generator.robustness.ood_occl_f4_occluded_region_mse",
+        "generator.robustness.ood_occl_f5_fraction",
+        "generator.robustness.ood_occl_f5_occluded_region_mse",
         "generator.coarse_frequency_scale",
         "generator.state_prior_sampling_mode",
         "generator.state_prior_rank",
