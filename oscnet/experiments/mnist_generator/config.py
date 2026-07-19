@@ -113,6 +113,10 @@ class MNISTGeneratorExperimentConfig:
     state_mlp_hidden_dim: int = 48
     state_mlp_depth: int = 1
     state_mlp_residual_scale: float = 0.1
+    hybrid_router_hidden_dim: int = 16
+    hybrid_router_bias_init: float = -1.0
+    hybrid_router_mode: str = "learned"
+    hybrid_fixed_gate_scale: float = 4.0
     train_recurrent_dynamics: Optional[bool] = None
     train_conditioning_dynamics: Optional[bool] = None
     conditional: bool = False
@@ -181,6 +185,10 @@ class MNISTGeneratorExperimentConfig:
     state_anchor_occlusion_fraction: float = 0.0
     state_anchor_occlusion_patches: int = 4
     state_anchor_occlusion_probability: float = 0.5
+    # Corruption curriculum: when non-empty, each anchor batch samples one
+    # occlusion fraction uniformly from this tuple instead of using the single
+    # fixed state_anchor_occlusion_fraction (augmentation-hardened training).
+    state_anchor_occlusion_curriculum: Tuple[float, ...] = ()
     state_anchor_clean_weight: float = 0.0
     recovery_eval_sample_count: int = 0
     recovery_eval_noise_scales: Tuple[float, ...] = (0.25, 0.5)
@@ -193,6 +201,9 @@ class MNISTGeneratorExperimentConfig:
     robustness_eval_quant_bits: Tuple[int, ...] = (8, 6, 4, 3)
     robustness_eval_occlusion_fractions: Tuple[float, ...] = (0.1, 0.25, 0.4, 0.6)
     robustness_eval_weight_noise_draws: int = 3
+    # Held-out stressor battery: corruption families never seen in training,
+    # as "family:level" strings (families: gaussian, salt_pepper, stripes).
+    robustness_eval_heldout_corruptions: Tuple[str, ...] = ()
     state_prior_sampling_mode: str = "none"
     state_prior_rank: int = 32
     state_prior_noise_scale: float = 1.0

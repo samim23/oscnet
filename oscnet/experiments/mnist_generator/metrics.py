@@ -2071,6 +2071,72 @@ def _quantize_model_weights(
     return eqx.combine(quantized, static)
 
 
+def _corrupt_images_heldout(
+    images_flat: Array,
+    *,
+    key: jax.random.PRNGKey,
+    image_shape: Sequence[int],
+    family: str,
+    level: float,
+) -> Tuple[Array, Optional[np.ndarray]]:
+    """Apply a held-out image-space corruption family never used in training.
+
+    These stressors test generalization to corruption *families* outside the
+    training curriculum (which only ever contains square-patch occlusion and
+    state-space Gaussian noise), so no arm can win by having trained on them.
+    Returns the corrupted flat batch and, for spatially-localized families, a
+    boolean pixel mask (True = corrupted) for region scoring.
+    """
+
+    height, width, channels = _image_hw_channels(
+        tuple(int(size) for size in image_shape)
+    )
+    batch = int(images_flat.shape[0])
+    images = images_flat.reshape(batch, channels, height, width)
+    level = float(level)
+
+    if family == "gaussian":
+        noise = level * jax.random.normal(key, images.shape, dtype=images.dtype)
+        corrupted = jnp.clip(images + noise, 0.0, 1.0)
+        return corrupted.reshape(batch, -1), None
+
+    if family == "salt_pepper":
+        flip_key, value_key = jax.random.split(key)
+        flip = jax.random.bernoulli(
+            flip_key, level, (batch, 1, height, width)
+        )
+        salt = jax.random.bernoulli(
+            value_key, 0.5, (batch, 1, height, width)
+        ).astype(images.dtype)
+        corrupted = jnp.where(flip, salt, images)
+        return corrupted.reshape(batch, -1), None
+
+    if family == "stripes":
+        # Evenly-spaced horizontal bands covering ~level of the image, with a
+        # random per-sample phase: contiguous structured occlusion of a shape
+        # (elongated, periodic) the square-patch curriculum never produced.
+        num_stripes = 4
+        stripe_height = max(1, int(round(height * level / num_stripes)))
+        period = max(1, height // num_stripes)
+        offset = jax.random.randint(key, (batch,), 0, period)
+        rows = jnp.arange(height)[None, :]
+        in_stripe = ((rows - offset[:, None]) % period) < stripe_height
+        mask = jnp.broadcast_to(
+            in_stripe[:, :, None], (batch, height, width)
+        )
+        corrupted = jnp.where(mask[:, None, :, :], 0.0, images)
+        pixel_mask = np.asarray(mask, dtype=bool)
+        pixel_mask = np.repeat(
+            pixel_mask.reshape(batch, 1, height, width), channels, axis=1
+        ).reshape(batch, -1)
+        return corrupted.reshape(batch, -1), pixel_mask
+
+    raise ValueError(
+        "held-out corruption family must be 'gaussian', 'salt_pepper', "
+        f"or 'stripes', got {family!r}"
+    )
+
+
 def compute_generator_robustness_metrics(
     model: eqx.Module,
     real_images: Array,
@@ -2083,6 +2149,7 @@ def compute_generator_robustness_metrics(
     quant_bits: Sequence[int] = (8, 6, 4, 3),
     ood_occlusion_fractions: Sequence[float] = (0.1, 0.25, 0.4, 0.6),
     weight_noise_draws: int = 3,
+    heldout_corruptions: Sequence[str] = (),
 ) -> Dict[str, Any]:
     """Score recovery under the oscillator's "home" fitness function: stress.
 
@@ -2174,6 +2241,52 @@ def compute_generator_robustness_metrics(
         occ, _ = recover(model, score_key=score_key, fraction=float(fraction))
         metrics[f"ood_occl_f{frac_index}_fraction"] = float(fraction)
         metrics[f"ood_occl_f{frac_index}_occluded_region_mse"] = occ
+
+    if heldout_corruptions:
+        target = jnp.asarray(
+            real_images[:count], dtype=jnp.float32
+        ).reshape(count, -1)
+        target_np = np.asarray(target, dtype=np.float32)
+        for cond_index, spec in enumerate(heldout_corruptions):
+            family, _, level_text = str(spec).partition(":")
+            family = family.strip()
+            level = float(level_text)
+            corrupt_key = jax.random.fold_in(key, 66_000 + cond_index)
+            corrupted, pixel_mask = _corrupt_images_heldout(
+                target,
+                key=corrupt_key,
+                image_shape=image_shape,
+                family=family,
+                level=level,
+            )
+            position, velocity = model.encode_image_state(corrupted)
+            if step > 0:
+                step_model = _model_with_steps(model, step)
+                position, velocity = step_model.evolve_state(
+                    (position, velocity),
+                    None,
+                )
+            decoded = np.clip(
+                np.asarray(
+                    model.decode_state(position, velocity), dtype=np.float32
+                ),
+                0.0,
+                1.0,
+            )
+            squared = (decoded - target_np) ** 2
+            metrics[f"heldout_c{cond_index}_spec"] = f"{family}:{level}"
+            metrics[f"heldout_c{cond_index}_level"] = level
+            metrics[f"heldout_c{cond_index}_mse"] = float(np.mean(squared))
+            metrics[f"heldout_c{cond_index}_psnr"] = _psnr_np(
+                decoded, target_np
+            )
+            if pixel_mask is not None:
+                corrupted_region = squared[pixel_mask]
+                metrics[f"heldout_c{cond_index}_region_mse"] = (
+                    float(np.mean(corrupted_region))
+                    if corrupted_region.size
+                    else float("nan")
+                )
 
     return metrics
 

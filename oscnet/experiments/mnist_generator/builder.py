@@ -9,6 +9,7 @@ from oscnet.models import (
     CoarseToFineHORNImageGenerator,
     CoarseToFineMultiModeHORNImageGenerator,
     HORNImageGenerator,
+    HybridImageGenerator,
     KuramotoImageGenerator,
     MultiscaleHORNImageGenerator,
     MultiModeHORNImageGenerator,
@@ -31,6 +32,7 @@ def build_mnist_generator_model(
         "multiscale_horn",
         "multimode_horn",
         "state_mlp",
+        "hybrid",
     ):
         steps = config.steps
         train_dynamics = True
@@ -75,7 +77,9 @@ def build_mnist_generator_model(
         else bool(config.train_conditioning_dynamics)
     )
 
-    if config.model_family == "coarse_multimode_horn":
+    if config.model_family == "hybrid":
+        model_class = HybridImageGenerator
+    elif config.model_family == "coarse_multimode_horn":
         model_class = CoarseToFineMultiModeHORNImageGenerator
     elif config.model_family in (
         "coarse_horn",
@@ -153,6 +157,7 @@ def build_mnist_generator_model(
         HORNImageGenerator,
         CoarseToFineHORNImageGenerator,
         CoarseToFineMultiModeHORNImageGenerator,
+        HybridImageGenerator,
         MultiscaleHORNImageGenerator,
         MultiModeHORNImageGenerator,
     ):
@@ -192,6 +197,7 @@ def build_mnist_generator_model(
     if model_class in (
         MultiModeHORNImageGenerator,
         CoarseToFineMultiModeHORNImageGenerator,
+        HybridImageGenerator,
     ):
         model_kwargs.update(
             {
@@ -201,6 +207,18 @@ def build_mnist_generator_model(
                     config.multimode_mode_coupling_strength
                 ),
                 "mode_coupling_profile": config.multimode_mode_coupling_profile,
+            }
+        )
+    if model_class is HybridImageGenerator:
+        model_kwargs.update(
+            {
+                "state_mlp_hidden_dim": config.state_mlp_hidden_dim,
+                "state_mlp_depth": config.state_mlp_depth,
+                "state_mlp_residual_scale": config.state_mlp_residual_scale,
+                "router_hidden_dim": config.hybrid_router_hidden_dim,
+                "router_bias_init": config.hybrid_router_bias_init,
+                "router_mode": config.hybrid_router_mode,
+                "fixed_gate_scale": config.hybrid_fixed_gate_scale,
             }
         )
     if model_class in (

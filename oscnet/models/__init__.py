@@ -29,19 +29,16 @@ from .fractal import FractalHORNCell
 from .generative import (
     CoarseToFineHORNImageGenerator,
     CoarseToFineMultiModeHORNImageGenerator,
+    GaborStateEncoder,
     HORNImageGenerator,
     KuramotoImageGenerator,
     KuramotoPhaseVAE,
     MultiscaleHORNImageGenerator,
+    HybridImageGenerator,
     MultiModeHORNImageGenerator,
+    RowScanResonatorEncoder,
     StateMLPImageGenerator,
-)
-from .jepa import (
-    ConvLSTMPatchJEPAPredictor,
-    FeedForwardPatchJEPAPredictor,
-    RecurrentConvPatchJEPAPredictor,
-    WinfreeGlobalRatePhasePatchJEPAPredictor,
-    WinfreeRatePhasePatchJEPAPredictor,
+    build_image_rfb_encoder,
 )
 from .oscillatory import (
     AmplitudeVelocityAutoencoder,
@@ -164,11 +161,10 @@ __all__ = [
     "HORNImageGenerator",
     "KuramotoImageGenerator",
     "MultiscaleHORNImageGenerator",
+    "HybridImageGenerator",
     "MultiModeHORNImageGenerator",
+    "GaborStateEncoder",
+    "RowScanResonatorEncoder",
+    "build_image_rfb_encoder",
     "StateMLPImageGenerator",
-    "FeedForwardPatchJEPAPredictor",
-    "RecurrentConvPatchJEPAPredictor",
-    "ConvLSTMPatchJEPAPredictor",
-    "WinfreeRatePhasePatchJEPAPredictor",
-    "WinfreeGlobalRatePhasePatchJEPAPredictor",
 ]

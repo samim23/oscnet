@@ -10,13 +10,6 @@ from .harness import (
     run_eval_only,
     train_autoencoder,
 )
-from .mnist_jepa import (
-    MNISTJEPAExperimentConfig,
-    compute_patch_embeddings,
-    compute_hidden_patch_weights,
-    dct_lowfreq_basis,
-    run_mnist_jepa_experiment,
-)
 from .mnist_generator import (
     MNISTGeneratorExperimentConfig,
     make_projection_matrix,
@@ -51,16 +44,12 @@ __all__ = [
     "DEFAULT_RESULT_METRICS",
     "ExperimentPaths",
     "ExperimentSummaryRow",
-    "MNISTJEPAExperimentConfig",
     "MNISTGeneratorExperimentConfig",
     "MNISTPhaseVAEExperimentConfig",
     "MNISTPhaseFlowExperimentConfig",
     "MNISTShapePixelExperimentConfig",
     "collect_experiment_summaries",
     "collect_sequence_state_trace",
-    "compute_hidden_patch_weights",
-    "compute_patch_embeddings",
-    "dct_lowfreq_basis",
     "evaluate_autoencoder",
     "find_experiment_runs",
     "format_comparison_table",
@@ -68,7 +57,6 @@ __all__ = [
     "make_projection_matrix",
     "prepare_experiment_paths",
     "run_eval_only",
-    "run_mnist_jepa_experiment",
     "run_mnist_generator_experiment",
     "run_mnist_phase_vae_experiment",
     "run_mnist_phase_flow_experiment",

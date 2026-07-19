@@ -402,7 +402,6 @@ does not beat listening to the full fine field.
 | --- | --- |
 | `image_mnist_oscillatory_autoencoder.py` | MNIST patch autoencoder reference benchmark. |
 | `audio_wavelet_oscillatory_autoencoder.py` | Audio wavelet sequence autoencoder benchmark. |
-| `image_mnist_jepa.py` | MNIST masked-representation prediction. |
 | `image_mnist_generator.py` | Coupled-oscillator MNIST generator branch with Kuramoto, HORN, and controls. |
 | `image_mnist_kuramoto_generator.py` | Legacy alias for older Kuramoto-generator commands. |
 | `image_mnist_phase_vae.py` | MNIST phase VAE generative baseline. |

@@ -352,6 +352,7 @@ def _state_anchor_image_loss(
     state_anchor_occlusion_fraction: float = 0.0,
     state_anchor_occlusion_patches: int = 4,
     state_anchor_occlusion_probability: float = 0.5,
+    state_anchor_occlusion_curriculum: Tuple[float, ...] = (),
     state_anchor_clean_weight: float = 0.0,
 ) -> Array:
     """Train a local image-to-state anchor to survive HORN settling.
@@ -389,9 +390,47 @@ def _state_anchor_image_loss(
     if not state_anchor_steps:
         state_anchor_steps = (int(model.steps),)
 
-    position_key, velocity_key, step_key, occlusion_key = jax.random.split(key, 4)
+    (
+        position_key,
+        velocity_key,
+        step_key,
+        occlusion_key,
+        curriculum_key,
+    ) = jax.random.split(key, 5)
     encoder_input = real_batch
-    if state_anchor_occlusion_fraction > 0.0:
+    if state_anchor_occlusion_curriculum:
+        # Augmentation curriculum: sample one occlusion fraction per batch.
+        # Fractions must stay static for occlude_image_batch's patch-side
+        # computation, so branch with lax.switch over the curriculum entries.
+        curriculum = tuple(
+            float(fraction) for fraction in state_anchor_occlusion_curriculum
+        )
+
+        def _occlusion_branch(fraction: float):
+            def _run() -> Array:
+                occluded, _ = occlude_image_batch(
+                    real_batch,
+                    key=occlusion_key,
+                    image_shape=model.image_shape,
+                    fraction=fraction,
+                    patches=int(state_anchor_occlusion_patches),
+                    probability=float(state_anchor_occlusion_probability),
+                )
+                return occluded
+
+            return _run
+
+        curriculum_index = jax.random.randint(
+            curriculum_key,
+            shape=(),
+            minval=0,
+            maxval=len(curriculum),
+        )
+        encoder_input = jax.lax.switch(
+            curriculum_index,
+            [_occlusion_branch(fraction) for fraction in curriculum],
+        )
+    elif state_anchor_occlusion_fraction > 0.0:
         encoder_input, _ = occlude_image_batch(
             real_batch,
             key=occlusion_key,
@@ -430,7 +469,11 @@ def _state_anchor_image_loss(
 
     clean_state = None
     if state_anchor_clean_weight > 0.0:
-        if state_anchor_occlusion_fraction > 0.0 or state_anchor_noise_scale > 0.0:
+        if (
+            state_anchor_occlusion_fraction > 0.0
+            or state_anchor_occlusion_curriculum
+            or state_anchor_noise_scale > 0.0
+        ):
             clean_state = model.encode_image_state(real_batch)
         else:
             # Without corruption the settled path already scores clean states.
@@ -512,6 +555,7 @@ def _train_step(
     state_anchor_occlusion_fraction: float,
     state_anchor_occlusion_patches: int,
     state_anchor_occlusion_probability: float,
+    state_anchor_occlusion_curriculum: Tuple[float, ...],
     state_anchor_clean_weight: float,
     state_prior_sampling_mode: str,
     image_shape: Tuple[int, ...],
@@ -689,6 +733,7 @@ def _train_step(
             state_anchor_occlusion_fraction=state_anchor_occlusion_fraction,
             state_anchor_occlusion_patches=state_anchor_occlusion_patches,
             state_anchor_occlusion_probability=state_anchor_occlusion_probability,
+            state_anchor_occlusion_curriculum=state_anchor_occlusion_curriculum,
             state_anchor_clean_weight=state_anchor_clean_weight,
         )
         total_loss = total_loss + float(state_anchor_weight) * state_anchor_loss
@@ -749,6 +794,7 @@ def _eval_step(
     state_anchor_occlusion_fraction: float,
     state_anchor_occlusion_patches: int,
     state_anchor_occlusion_probability: float,
+    state_anchor_occlusion_curriculum: Tuple[float, ...],
     state_anchor_clean_weight: float,
     state_prior_sampling_mode: str,
     image_shape: Tuple[int, ...],
@@ -876,6 +922,7 @@ def _eval_step(
         state_anchor_occlusion_fraction=state_anchor_occlusion_fraction,
         state_anchor_occlusion_patches=state_anchor_occlusion_patches,
         state_anchor_occlusion_probability=state_anchor_occlusion_probability,
+        state_anchor_occlusion_curriculum=state_anchor_occlusion_curriculum,
         state_anchor_clean_weight=state_anchor_clean_weight,
     )
     loss = loss + float(state_anchor_weight) * state_anchor_loss
@@ -924,6 +971,7 @@ def evaluate_generator_loss(
     state_anchor_occlusion_fraction: float = 0.0,
     state_anchor_occlusion_patches: int = 4,
     state_anchor_occlusion_probability: float = 0.5,
+    state_anchor_occlusion_curriculum: Tuple[float, ...] = (),
     state_anchor_clean_weight: float = 0.0,
     initial_state_sampler: Optional[InitialStateSampler] = None,
     state_prior_sampling_mode: str = "none",
@@ -1019,6 +1067,7 @@ def evaluate_generator_loss(
             state_anchor_occlusion_fraction,
             state_anchor_occlusion_patches,
             state_anchor_occlusion_probability,
+            state_anchor_occlusion_curriculum,
             state_anchor_clean_weight,
             effective_state_prior_sampling_mode,
             image_shape,
@@ -1517,6 +1566,7 @@ def run_mnist_generator_experiment(
                 config.state_anchor_occlusion_fraction,
                 config.state_anchor_occlusion_patches,
                 config.state_anchor_occlusion_probability,
+                config.state_anchor_occlusion_curriculum,
                 config.state_anchor_clean_weight,
                 config.state_prior_sampling_mode if state_prior_active else "none",
                 config.image_shape,
@@ -1668,6 +1718,9 @@ def run_mnist_generator_experiment(
                 state_anchor_occlusion_patches=config.state_anchor_occlusion_patches,
                 state_anchor_occlusion_probability=(
                     config.state_anchor_occlusion_probability
+                ),
+                state_anchor_occlusion_curriculum=(
+                    config.state_anchor_occlusion_curriculum
                 ),
                 state_anchor_clean_weight=config.state_anchor_clean_weight,
                 image_shape=config.image_shape,
@@ -2003,6 +2056,7 @@ def run_mnist_generator_experiment(
             quant_bits=config.robustness_eval_quant_bits,
             ood_occlusion_fractions=config.robustness_eval_occlusion_fractions,
             weight_noise_draws=config.robustness_eval_weight_noise_draws,
+            heldout_corruptions=config.robustness_eval_heldout_corruptions,
         )
     attractor_robustness = compute_generator_attractor_robustness(
         model,
@@ -2238,6 +2292,9 @@ def run_mnist_generator_experiment(
             "state_anchor_occlusion_probability": (
                 config.state_anchor_occlusion_probability
             ),
+            "state_anchor_occlusion_curriculum": list(
+                config.state_anchor_occlusion_curriculum
+            ),
             "state_anchor_clean_weight": config.state_anchor_clean_weight,
             "recovery_eval_sample_count": config.recovery_eval_sample_count,
             "recovery_eval_noise_scales": list(config.recovery_eval_noise_scales),
@@ -2260,6 +2317,13 @@ def run_mnist_generator_experiment(
             "robustness_eval_weight_noise_draws": (
                 config.robustness_eval_weight_noise_draws
             ),
+            "robustness_eval_heldout_corruptions": list(
+                config.robustness_eval_heldout_corruptions
+            ),
+            "hybrid_router_hidden_dim": config.hybrid_router_hidden_dim,
+            "hybrid_router_bias_init": config.hybrid_router_bias_init,
+            "hybrid_router_mode": config.hybrid_router_mode,
+            "hybrid_fixed_gate_scale": config.hybrid_fixed_gate_scale,
             "state_prior_sampling_mode": config.state_prior_sampling_mode,
             "state_prior_rank": config.state_prior_rank,
             "state_prior_noise_scale": config.state_prior_noise_scale,

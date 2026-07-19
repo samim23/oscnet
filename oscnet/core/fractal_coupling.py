@@ -118,7 +118,9 @@ class HierarchicalCouplingLayer(eqx.Module):
     Hierarchical fractal coupling layer with learnable strength.
     
     This replaces the standard dense Linear(hidden_dim, hidden_dim) layer
-    with a hierarchical self-similar structure.
+    with a hierarchical self-similar structure. The block structure is
+    regenerated from static integers (not a trainable array); only
+    ``strength`` is trained.
     
     **Optimal configuration** (empirically determined):
     - depth=1: Best for associative recall and memory tasks
@@ -129,8 +131,11 @@ class HierarchicalCouplingLayer(eqx.Module):
         >>> output = layer(inputs)
     """
     
-    coupling_matrix: jnp.ndarray  # Fixed hierarchical structure
     strength: jnp.ndarray  # Learnable scaling factor
+    hidden_dim: int = eqx.field(static=True)
+    depth: int = eqx.field(static=True)
+    inter_block_strength: float = eqx.field(static=True)
+    fixed_structure: bool = eqx.field(static=True)
     
     def __init__(
         self, 
@@ -151,10 +156,25 @@ class HierarchicalCouplingLayer(eqx.Module):
             initial_strength: Initial value for learnable strength parameter
             key: JAX PRNG key
         """
-        self.coupling_matrix = create_hierarchical_coupling(
-            hidden_dim, depth, inter_block_strength
-        )
+        del key  # structure is deterministic; kept for API symmetry
+        self.hidden_dim = int(hidden_dim)
+        self.depth = int(depth)
+        self.inter_block_strength = float(inter_block_strength)
         self.strength = jnp.array(initial_strength)
+        self.fixed_structure = True
+
+    @property
+    def coupling_matrix(self) -> jnp.ndarray:
+        """Fixed hierarchical structure (not a trainable parameter)."""
+
+        return create_hierarchical_coupling(
+            self.hidden_dim, self.depth, self.inter_block_strength
+        )
+
+    def effective_coupling(self) -> jnp.ndarray:
+        """Return ``strength * coupling_matrix`` (``y = W @ x`` convention)."""
+
+        return self.strength * self.coupling_matrix
     
     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
         """
@@ -166,11 +186,73 @@ class HierarchicalCouplingLayer(eqx.Module):
         Returns:
             Output tensor of shape (batch_size, hidden_dim)
         """
-        # Apply learnable scaling
-        scaled_coupling = self.strength * self.coupling_matrix
-        
         # Apply coupling: y = W @ x
-        return jnp.dot(scaled_coupling, x.T).T
+        return jnp.dot(self.effective_coupling(), x.T).T
+
+
+def create_tonotopic_coupling_init(
+    hidden_dim: int,
+    *,
+    bias_strength: float = 0.5,
+    noise_scale: float = 0.02,
+    key: jax.random.PRNGKey,
+) -> jnp.ndarray:
+    """Initialize dense W with a high-index → low-index directional bias.
+
+    With ``y = W @ x``, ``W[i, j]`` is influence of unit ``j`` on unit ``i``.
+    Positive ``(j - i)`` means source is higher-index than target (high→low
+    when hidden units are ordered by preferred band index).
+    """
+
+    idx = jnp.arange(hidden_dim, dtype=jnp.float32)
+    # Prefer j > i (high source → low target); zero self / reverse.
+    directed = jnp.maximum(idx[None, :] - idx[:, None], 0.0) / float(
+        max(hidden_dim - 1, 1)
+    )
+    noise = noise_scale * jax.random.normal(key, (hidden_dim, hidden_dim))
+    coupling = bias_strength * directed + noise
+    # Keep self-coupling small so recurrence is mostly lateral.
+    coupling = coupling.at[jnp.diag_indices(hidden_dim)].set(0.0)
+    return coupling / (jnp.max(jnp.abs(coupling)) + 1e-8)
+
+
+class DenseCouplingLayer(eqx.Module):
+    """Fully learnable dense recurrent coupling (``y = strength * W @ x``)."""
+
+    coupling_matrix: jnp.ndarray
+    strength: jnp.ndarray
+    fixed_structure: bool = eqx.field(static=True)
+
+    def __init__(
+        self,
+        hidden_dim: int,
+        *,
+        initial_strength: float = 1.0,
+        tonotopic: bool = False,
+        tonotopic_bias: float = 0.5,
+        key: jax.random.PRNGKey,
+    ):
+        k_w, _ = jax.random.split(key)
+        if tonotopic:
+            self.coupling_matrix = create_tonotopic_coupling_init(
+                hidden_dim,
+                bias_strength=float(tonotopic_bias),
+                key=k_w,
+            )
+        else:
+            # Orthogonal-ish small init; no directional prior.
+            scale = 1.0 / float(jnp.sqrt(hidden_dim))
+            self.coupling_matrix = scale * jax.random.normal(
+                k_w, (hidden_dim, hidden_dim)
+            )
+        self.strength = jnp.array(initial_strength)
+        self.fixed_structure = False
+
+    def effective_coupling(self) -> jnp.ndarray:
+        return self.strength * self.coupling_matrix
+
+    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
+        return jnp.dot(self.effective_coupling(), x.T).T
 
 
 class AdaptiveFractalCouplingLayer(eqx.Module):
@@ -368,7 +450,9 @@ __all__ = [
     "create_hierarchical_coupling",
     "create_power_law_coupling",
     "create_log_periodic_coupling",
+    "create_tonotopic_coupling_init",
     "HierarchicalCouplingLayer",
+    "DenseCouplingLayer",
     "AdaptiveFractalCouplingLayer",
     "FractalCouplingLayer",
     "create_coupling_matrix",

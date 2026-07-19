@@ -5,6 +5,10 @@ experiments still run locally with the normal Python CLI; the scripts under
 `scripts/modal_*.py` are launch adapters for running the same experiments on
 remote GPUs.
 
+**Policy:** compute-heavy sweeps (multi-seed batteries, Speech Commands,
+CIFAR, full generator ablations) run on Modal GPU workers — not on the
+local host. Local is for unit tests, tiny synthetic smokes, and dry-runs.
+
 ## Setup
 
 Install the optional cloud dependency and authenticate Modal:
@@ -25,6 +29,79 @@ The default command is a tiny synthetic one-epoch smoke run. It prints
 Sweep runs default to at most three GPU containers at once via
 `OSCNET_MODAL_MAX_CONTAINERS=3`, so they do not consume the full workspace GPU
 limit by accident.
+
+## CIFAR RFB / Stage 1 (removed)
+
+Image RFB classification gate was parked (Gabor ≫ spatial resonator; see
+`resonator_filter_bank_frontend_plan.md`). Experiment package and
+`scripts/modal_cifar_rfb.py` removed; historical CSVs may still exist under
+`outputs/analysis/modal_cifar_rfb_*.csv`. Core `GaborFilterBank` /
+`build_image_rfb_encoder` remain in the library.
+
+## Audio Digit / RFB (audio-first lane)
+
+Spoken-digit RFB + AudioPrism-style stack uses `scripts/modal_audio_digit.py`.
+Do not run multi-seed Speech Commands sweeps on the laptop.
+
+```bash
+# Remote smoke (synthetic)
+modal run scripts/modal_audio_digit.py
+
+# Close mel/STFT gap (bands × Q × 8/16 kHz + controls)
+OSCNET_MODAL_MAX_CONTAINERS=10 modal run scripts/modal_audio_digit.py \
+  --sweep-preset rfb_tune
+
+# RFB→HORN vs RFB→MLP vs mel→HORN
+OSCNET_MODAL_MAX_CONTAINERS=10 modal run scripts/modal_audio_digit.py \
+  --sweep-preset horn_stack
+
+# Stage 2: learnable {ω,Q} vs frozen RFB
+OSCNET_MODAL_MAX_CONTAINERS=10 modal run scripts/modal_audio_digit.py \
+  --sweep-preset rfb_learn
+
+# Confirm AudioPrism claim (4 seeds, reg, matched HORN/MLP, noise, core10)
+OSCNET_MODAL_MAX_CONTAINERS=10 modal run scripts/modal_audio_digit.py \
+  --sweep-preset audioprism_confirm
+
+# Stage 3: amplitude vs phase vs both readout
+OSCNET_MODAL_MAX_CONTAINERS=10 modal run scripts/modal_audio_digit.py \
+  --sweep-preset rfb_stage3
+
+# Stage 4: linear vs compressive / AGC nonlinearity
+OSCNET_MODAL_MAX_CONTAINERS=10 modal run scripts/modal_audio_digit.py \
+  --sweep-preset rfb_stage4
+
+# Robustness: level aug + pink/band noise + level stress
+OSCNET_MODAL_MAX_CONTAINERS=10 modal run scripts/modal_audio_digit.py \
+  --sweep-preset rfb_robust
+
+# Stage 5: full stack + high→low / band-ablation diagnostics
+OSCNET_MODAL_MAX_CONTAINERS=10 modal run scripts/modal_audio_digit.py \
+  --sweep-preset rfb_stage5
+
+# Stage 5+ Sprint A: multi-condition noise+level aug
+OSCNET_MODAL_MAX_CONTAINERS=10 modal run scripts/modal_audio_digit.py \
+  --sweep-preset rfb_plus_noiseaug
+
+# Stage 5+ Sprint B: scale + softer noise-aug
+OSCNET_MODAL_MAX_CONTAINERS=10 modal run scripts/modal_audio_digit.py \
+  --sweep-preset rfb_plus_scale
+
+# Stage 5+ Sprint C: dense / tonotopic coupling + Stage 5 diagnostics
+OSCNET_MODAL_MAX_CONTAINERS=10 modal run scripts/modal_audio_digit.py \
+  --sweep-preset rfb_plus_tonotopic
+
+# Fair temporal controls (mel→HORN, RFB→GRU, 4 seeds)
+OSCNET_MODAL_MAX_CONTAINERS=10 modal run scripts/modal_audio_digit.py \
+  --sweep-preset rfb_plus_controls
+
+# Legacy Stage 0a attribution batteries
+OSCNET_MODAL_MAX_CONTAINERS=10 modal run scripts/modal_audio_digit.py \
+  --sweep-preset stage0a_speech_commands
+```
+
+Summaries: `outputs/analysis/modal_audio_digit_{...,rfb_plus_noiseaug,rfb_plus_scale,rfb_plus_tonotopic,stage0a_*}.csv`.
+Per-arm JSON on the `oscnet-runs` volume under `audio_digit/`.
 
 ## Real Run
 
@@ -250,18 +327,10 @@ recurrent-conv, ConvLSTM, and the best current slow/global Winfree rate-phase
 model for seeds 11 and 12. It writes a local comparison CSV to
 `outputs/analysis/modal_block50_conv_lstm_control.csv`.
 
-Run the JEPA-lite hidden-representation comparison:
-
-```bash
-modal run scripts/modal_mnist_jepa.py \
-  --sweep-preset block50_jepa_core
-```
-
-This predicts low-frequency DCT patch embeddings for hidden block-occlusion
-patches rather than reconstructing pixels. It compares feedforward,
-recurrent-conv, ConvLSTM, local Winfree rate-phase, and slow/global Winfree
-rate-phase for seeds 11 and 12. It writes a local comparison CSV to
-`outputs/analysis/modal_block50_jepa_core.csv`.
+JEPA-lite (`scripts/modal_mnist_jepa.py`) was removed after a null ONN
+result (ConvLSTM/feedforward beat Winfree on fixed DCT targets). Historical
+CSV: `outputs/analysis/modal_block50_jepa_core.csv`. See
+`experiment_report.md` § JEPA-Lite.
 
 Run the Un-0-style implicit generator comparison:
 
@@ -4039,3 +4108,42 @@ seeds (mm2-local 2.12x, StateMLP 2.16x, regularized StateMLP best at 1.62x);
 the earlier 2-seed quantization win was noise. Weight-noise: oscillator
 consistently degrades relatively less (1.04-1.46x vs 1.27-1.83x) but never
 wins absolutely.
+
+## 2026-07-17: CIFAR RGB hybrid frontier (Modal GPU, 8 parallel)
+
+The designed-hybrid killer experiment: does the physics prior buy something
+augmentation cannot? New `HybridImageGenerator`
+(`oscnet/models/generative/hybrid.py`): multimode-dense HORN oscillator path
++ StateMLP free-form path + learned per-site router (gate from state
+statistics, bias init toward the free-form path). All three arms train on the
+same corruption curriculum (`state_anchor_occlusion_curriculum` 0.1-0.6,
+contiguous single blocks), so the StateMLP arm is augmentation-hardened — the
+strongest fair opponent. Evaluation adds a held-out stressor battery
+(`--robustness-eval-heldout-corruptions`): image-space Gaussian noise,
+salt-and-pepper, and stripe occlusion — families no arm ever trained on —
+plus OOD occlusion up to 0.85 (beyond even the curriculum), weight noise, and
+quantization. Sweep `mnist_generator_cifar10_rgb_hybrid_frontier`, app
+`ap-b13XOIzKrIRKqmgKejzvwI`, `OSCNET_MODAL_MAX_CONTAINERS=8`, launched
+2026-07-17 22:40 CEST. Three arms x seeds 23-26 (12 runs, two waves):
+state_mlp_aug, mm2_dense_aug, hybrid. CSV:
+`outputs/analysis/modal_mnist_generator_cifar10_rgb_hybrid_frontier.csv`.
+
+Hypothesis map: hybrid dominates or ties everywhere -> the constructive
+division-of-labor claim holds. Hardened StateMLP wins everywhere including
+untrained families -> the physics prior is redundant with augmentation.
+StateMLP wins near-distribution but oscillator/hybrid win on untrained
+families -> the prior buys generalization augmentation cannot.
+
+Completed 2026-07-17 23:58 CEST, all 12 runs clean. Headline (details in
+`docs/experiment_report.md`): **the frontier moved, it did not close.**
+Augmentation erases the oscillator advantage *inside* the curriculum (at
+occl 0.4/0.6 the hardened StateMLP now matches its baseline, killing the old
+crossover there), but beyond the curriculum the crossover reappears: at occl
+0.7/0.85 the oscillator wins 4/4 seeds (0.0645 vs 0.1305 at 0.85, 2x), and
+on the held-out stripe family at 0.5 it wins 4/4 (0.0482 vs 0.1022). The
+physics prior buys extrapolation beyond *whatever* envelope was trained —
+augmentation just relocates the cliff. The hybrid is the best on-nominal arm
+(baseline 0.0391, clean PSNR 25.4, weight-noise 4/4 wins) but its learned
+router fails to hand off to the oscillator in deep OOD (occl 0.85: 0.1358,
+tracking the free-form cliff) — the router is itself a learned free-form
+component and collapses off-distribution with the pathway it gates.

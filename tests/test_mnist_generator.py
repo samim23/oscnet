@@ -5061,3 +5061,179 @@ def test_generator_success_diagnostics_report_split_trainability():
     assert diagnostics["trainable_recurrent_params"] == (
         diagnostics["trainable_conditioning_params"]
     )
+
+
+def _tiny_hybrid(key=None):
+    from oscnet.models import HybridImageGenerator
+
+    return HybridImageGenerator(
+        num_oscillators=4,
+        num_modes=2,
+        image_shape=(4, 4),
+        decoder_mode="resize_conv",
+        resize_conv_seed_shape=(2, 2),
+        resize_conv_seed_layout="retinotopic",
+        resize_conv_upsamples=1,
+        resize_conv_min_channels=2,
+        steps=1,
+        num_classes=2,
+        conditioning_mode="class_coupling",
+        num_condition_oscillators=2,
+        state_anchor_encoder_enabled=True,
+        state_mlp_hidden_dim=8,
+        state_mlp_depth=1,
+        router_hidden_dim=4,
+        router_bias_init=-1.0,
+        key=key if key is not None else jax.random.PRNGKey(430),
+    )
+
+
+def test_hybrid_generator_routes_between_paths():
+    model = _tiny_hybrid()
+    labels = jnp.asarray([0, 1], dtype=jnp.int32)
+
+    generated = model(jax.random.PRNGKey(600), 2, labels)
+    assert generated.shape == (2, 4 * 4)
+
+    images = jax.random.uniform(jax.random.PRNGKey(601), (2, 4 * 4))
+    position, velocity = model.encode_image_state(images)
+    gate = model.router_gate(position, velocity)
+    assert gate.shape == (2, model.num_spatial_sites)
+    assert float(gate.min()) >= 0.0 and float(gate.max()) <= 1.0
+    # Bias init -1.0 starts the router trusting the free-form path.
+    assert float(gate.mean()) < 0.5
+
+    hybrid_next = model.step_state((position, velocity), labels)
+    horn_next = super(type(model), model).step_state(
+        (position, velocity), labels
+    )
+    assert not jnp.allclose(hybrid_next[0], horn_next[0])
+    decoded = model.decode_state(*hybrid_next)
+    assert decoded.shape == (2, 4 * 4)
+
+
+def test_hybrid_router_modes_fixed_and_oracle():
+    from oscnet.models import HybridImageGenerator
+
+    base_kwargs = dict(
+        num_oscillators=4,
+        num_modes=2,
+        image_shape=(4, 4),
+        decoder_mode="resize_conv",
+        resize_conv_seed_shape=(2, 2),
+        resize_conv_seed_layout="retinotopic",
+        resize_conv_upsamples=1,
+        resize_conv_min_channels=2,
+        steps=1,
+        num_classes=2,
+        conditioning_mode="class_coupling",
+        num_condition_oscillators=2,
+        state_anchor_encoder_enabled=True,
+        state_mlp_hidden_dim=8,
+        router_hidden_dim=4,
+        router_bias_init=-1.0,
+        key=jax.random.PRNGKey(431),
+    )
+    fixed = HybridImageGenerator(router_mode="fixed_statistic", **base_kwargs)
+    images = jax.random.uniform(jax.random.PRNGKey(602), (2, 16))
+    position, velocity = fixed.encode_image_state(images)
+    gate = fixed.router_gate(position, velocity)
+    assert gate.shape == (2, fixed.num_spatial_sites)
+
+    oracle = HybridImageGenerator(router_mode="oracle", **base_kwargs)
+    mask = jnp.asarray(
+        [[1.0, 0.0, 0.5, 0.25], [0.25, 0.75, 0.0, 1.0]],
+        dtype=jnp.float32,
+    )
+    oracle = oracle.with_oracle_gate(mask)
+    assert jnp.allclose(oracle.router_gate(position, velocity), mask)
+
+    free = HybridImageGenerator(router_mode="free_form", **base_kwargs)
+    assert float(free.router_gate(position, velocity).max()) == 0.0
+
+
+
+def test_state_anchor_occlusion_curriculum_loss_is_finite():
+    from oscnet.experiments.mnist_generator.runner import (
+        _state_anchor_image_loss,
+    )
+
+    model = _tiny_anchor_horn()
+    real = jax.random.uniform(jax.random.PRNGKey(610), (4, 16))
+
+    loss = _state_anchor_image_loss(
+        model,
+        real,
+        key=jax.random.PRNGKey(611),
+        state_anchor_weight=1.0,
+        state_anchor_steps=(1,),
+        state_anchor_noise_scale=0.1,
+        state_anchor_mode="settle",
+        state_anchor_occlusion_fraction=0.0,
+        state_anchor_occlusion_patches=1,
+        state_anchor_occlusion_probability=1.0,
+        state_anchor_occlusion_curriculum=(0.1, 0.4),
+        state_anchor_clean_weight=0.5,
+    )
+
+    assert jnp.isfinite(loss)
+    assert float(loss) > 0.0
+
+
+def test_heldout_corruption_families_change_images():
+    from oscnet.experiments.mnist_generator.metrics import (
+        _corrupt_images_heldout,
+    )
+
+    images = jax.random.uniform(jax.random.PRNGKey(620), (3, 8 * 8 * 3))
+    for family, level in (
+        ("gaussian", 0.3),
+        ("salt_pepper", 0.2),
+        ("stripes", 0.5),
+    ):
+        corrupted, mask = _corrupt_images_heldout(
+            images,
+            key=jax.random.PRNGKey(621),
+            image_shape=(8, 8, 3),
+            family=family,
+            level=level,
+        )
+        assert corrupted.shape == images.shape
+        assert not jnp.allclose(corrupted, images)
+        assert float(corrupted.min()) >= 0.0
+        assert float(corrupted.max()) <= 1.0
+        if family == "stripes":
+            assert mask is not None
+            assert mask.shape == (3, 8 * 8 * 3)
+            fraction = float(mask.mean())
+            assert 0.3 < fraction < 0.7
+        else:
+            assert mask is None
+
+
+def test_robustness_metrics_score_heldout_battery():
+    model = _tiny_anchor_horn()
+    real_images = jax.random.uniform(jax.random.PRNGKey(630), (8, 16))
+
+    metrics = compute_generator_robustness_metrics(
+        model,
+        real_images,
+        key=jax.random.PRNGKey(631),
+        image_shape=(4, 4),
+        sample_count=8,
+        settle_step=1,
+        weight_noise_scales=(),
+        quant_bits=(),
+        ood_occlusion_fractions=(0.25,),
+        weight_noise_draws=1,
+        heldout_corruptions=("gaussian:0.3", "stripes:0.5"),
+    )
+
+    assert metrics["heldout_c0_spec"] == "gaussian:0.3"
+    assert metrics["heldout_c0_level"] == 0.3
+    assert metrics["heldout_c0_mse"] >= 0.0
+    assert np.isfinite(metrics["heldout_c0_psnr"])
+    assert "heldout_c0_region_mse" not in metrics
+    assert metrics["heldout_c1_spec"] == "stripes:0.5"
+    assert metrics["heldout_c1_mse"] >= 0.0
+    assert metrics["heldout_c1_region_mse"] >= 0.0

@@ -431,6 +431,10 @@ SWEEP_CSVS = {
         "outputs/analysis/"
         "modal_mnist_generator_cifar10_rgb_robustness_confirmation.csv"
     ),
+    "mnist_generator_cifar10_rgb_hybrid_frontier": Path(
+        "outputs/analysis/"
+        "modal_mnist_generator_cifar10_rgb_hybrid_frontier.csv"
+    ),
     "mnist_generator_cifar10_rgb_attribution_probe": Path(
         "outputs/analysis/"
         "modal_mnist_generator_cifar10_rgb_attribution_probe.csv"
@@ -6005,6 +6009,88 @@ def _mnist_generator_cifar10_rgb_robustness_confirmation() -> list[
     return entries
 
 
+def _mnist_generator_cifar10_rgb_hybrid_frontier() -> list[
+    tuple[list[str], str]
+]:
+    """The killer experiment: designed hybrid vs augmentation-hardened control.
+
+    Decides whether the physics prior buys something augmentation cannot. All
+    arms train on the same corruption curriculum (contiguous occlusion at
+    sampled fractions 0.1-0.6), so the free-form StateMLP is the strongest
+    fair opponent rather than the single-level-trained control of prior
+    probes. Arms: (A) augmentation-hardened StateMLP, (B) pure multimode-dense
+    oscillator, (C) hybrid = free-form path + oscillator path + learned
+    per-site router keyed on state atypicality. Evaluation is a stressor
+    frontier: occlusion up to 0.85 (beyond even the curriculum), plus a
+    held-out battery of corruption families no arm ever trained on
+    (image-space Gaussian noise, salt-and-pepper, stripe occlusion), plus the
+    usual weight-noise/quantization stressors. Outcomes: hybrid dominates ->
+    the constructive claim holds; hardened StateMLP wins everywhere including
+    untrained families -> the physics prior is redundant; StateMLP wins near
+    distribution but oscillator/hybrid win on untrained families -> the prior
+    buys generalization augmentation cannot.
+    """
+
+    entries = []
+    probe_args = (
+        "--epochs 40 "
+        "--train-limit 10000 "
+        "--eval-limit 5000 "
+        "--checkpoint-every 40 "
+        "--artifact-every 40 "
+        "--batch-size 32 "
+        "--eval-sample-count 512 "
+        "--quality-classifier-train-limit 20000 "
+        "--quality-classifier-eval-limit 5000 "
+        "--attractor-variants-per-class 8 "
+        "--state-fit-sample-count 32 "
+        "--state-fit-steps 80 "
+        "--state-fit-settle-steps 0,1,2,4,8,16,32 "
+        "--recovery-eval-sample-count 256 "
+        "--recovery-eval-settle-steps 0,2,4,8,16 "
+        "--robustness-eval-sample-count 256 "
+        "--robustness-eval-settle-step 8 "
+        "--robustness-eval-weight-noise-scales 0.05,0.1,0.2 "
+        "--robustness-eval-quant-bits 6,4,3 "
+        "--robustness-eval-occlusion-fractions 0.25,0.4,0.6,0.7,0.85 "
+        "--robustness-eval-weight-noise-draws 3 "
+        "--robustness-eval-heldout-corruptions "
+        "gaussian:0.1,gaussian:0.3,salt_pepper:0.05,salt_pepper:0.15,"
+        "stripes:0.25,stripes:0.5"
+    )
+    variants = (
+        (
+            "state_mlp_aug",
+            "sparse_horn_cifar10_rgb_current_state_mlp_aug_"
+            "retinotopic_recovery_curriculum",
+        ),
+        (
+            "mm2_dense_aug",
+            "sparse_horn_cifar10_rgb_current_multimode2_dense_aug_"
+            "retinotopic_recovery_curriculum",
+        ),
+        (
+            "hybrid",
+            "sparse_horn_cifar10_rgb_current_hybrid_"
+            "retinotopic_recovery_curriculum",
+        ),
+    )
+    for seed in (23, 24, 25, 26):
+        for variant_name, local_preset in variants:
+            run_name = (
+                "mnist_generator_cifar10_rgb_hybrid_frontier_"
+                f"{variant_name}_train10000_seed{seed}_40e"
+            )
+            args = shlex.split(
+                f"--seed {seed} --preset {local_preset} {probe_args}"
+            )
+            output_dir = VOLUME_MOUNT / "mnist_generator" / run_name
+            args = _with_default_arg(args, "--output-dir", output_dir)
+            entries.append((args, run_name))
+
+    return entries
+
+
 def _sweep_entries(preset: str) -> list[tuple[list[str], str]]:
     if preset == "mnist_generator_core":
         return _mnist_generator_core_sweep()
@@ -6222,6 +6308,8 @@ def _sweep_entries(preset: str) -> list[tuple[list[str], str]]:
         return _mnist_generator_cifar10_rgb_robustness_probe()
     if preset == "mnist_generator_cifar10_rgb_robustness_confirmation":
         return _mnist_generator_cifar10_rgb_robustness_confirmation()
+    if preset == "mnist_generator_cifar10_rgb_hybrid_frontier":
+        return _mnist_generator_cifar10_rgb_hybrid_frontier()
     if preset == "mnist_generator_cifar10_rgb_attribution_probe":
         return _mnist_generator_cifar10_rgb_attribution_probe_sweep()
     if preset == "mnist_generator_cifar10_rgb_sparse_drive_probe":
@@ -6428,6 +6516,26 @@ def _write_sweep_csv(results: list[dict[str, Any]], path: Path) -> None:
         "generator.robustness.ood_occl_f4_occluded_region_mse",
         "generator.robustness.ood_occl_f5_fraction",
         "generator.robustness.ood_occl_f5_occluded_region_mse",
+        "generator.robustness.heldout_c0_level",
+        "generator.robustness.heldout_c0_mse",
+        "generator.robustness.heldout_c0_psnr",
+        "generator.robustness.heldout_c1_level",
+        "generator.robustness.heldout_c1_mse",
+        "generator.robustness.heldout_c1_psnr",
+        "generator.robustness.heldout_c2_level",
+        "generator.robustness.heldout_c2_mse",
+        "generator.robustness.heldout_c2_psnr",
+        "generator.robustness.heldout_c3_level",
+        "generator.robustness.heldout_c3_mse",
+        "generator.robustness.heldout_c3_psnr",
+        "generator.robustness.heldout_c4_level",
+        "generator.robustness.heldout_c4_mse",
+        "generator.robustness.heldout_c4_psnr",
+        "generator.robustness.heldout_c4_region_mse",
+        "generator.robustness.heldout_c5_level",
+        "generator.robustness.heldout_c5_mse",
+        "generator.robustness.heldout_c5_psnr",
+        "generator.robustness.heldout_c5_region_mse",
         "generator.coarse_frequency_scale",
         "generator.state_prior_sampling_mode",
         "generator.state_prior_rank",

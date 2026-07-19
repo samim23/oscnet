@@ -54,13 +54,33 @@ from .layered import (
 
 from .fractal_coupling import (
     HierarchicalCouplingLayer,
+    DenseCouplingLayer,
     AdaptiveFractalCouplingLayer,
     FractalCouplingLayer,
     create_hierarchical_coupling,
     create_power_law_coupling,
     create_log_periodic_coupling,
+    create_tonotopic_coupling_init,
     create_coupling_matrix
 )
+from .resonators import (
+    ResonatorBank,
+    band_features,
+    band_features_freq_domain,
+    band_feature_frames,
+    band_collapse_metrics,
+    band_spacing_regularizer,
+    constant_q_gammas,
+    dho_discrete_transition,
+    equal_omegas,
+    filter_waveform,
+    log_spaced_omegas,
+    quadrature_amplitude,
+    quadrature_phase_trig,
+    resonator_bank_schedule,
+    unit_peak_alphas,
+)
+from .gabor import GaborFilterBank, build_gabor_bank, gabor_kernel
 
 __all__ = [
     # Base class
@@ -109,10 +129,32 @@ __all__ = [
     
     # Fractal coupling
     "HierarchicalCouplingLayer",
+    "DenseCouplingLayer",
+    "create_tonotopic_coupling_init",
     "AdaptiveFractalCouplingLayer",
     "FractalCouplingLayer",
     "create_hierarchical_coupling",
     "create_power_law_coupling",
     "create_log_periodic_coupling",
-    "create_coupling_matrix"
+    "create_coupling_matrix",
+
+    # Resonator filter banks (RFB)
+    "ResonatorBank",
+    "resonator_bank_schedule",
+    "unit_peak_alphas",
+    "band_features",
+    "band_features_freq_domain",
+    "band_feature_frames",
+    "band_collapse_metrics",
+    "band_spacing_regularizer",
+    "constant_q_gammas",
+    "dho_discrete_transition",
+    "equal_omegas",
+    "filter_waveform",
+    "log_spaced_omegas",
+    "quadrature_amplitude",
+    "quadrature_phase_trig",
+    "GaborFilterBank",
+    "build_gabor_bank",
+    "gabor_kernel",
 ] 

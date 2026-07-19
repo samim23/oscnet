@@ -128,6 +128,7 @@ def build_arg_parser(preset: str = "none") -> argparse.ArgumentParser:
             "state_mlp",
             "state_mlp_decoder_only",
             "frozen_state_mlp",
+            "hybrid",
         ],
         default="kuramoto",
     )
@@ -282,6 +283,17 @@ def build_arg_parser(preset: str = "none") -> argparse.ArgumentParser:
         help="Per-sample probability of applying anchor occlusion corruption.",
     )
     parser.add_argument(
+        "--state-anchor-occlusion-curriculum",
+        type=_parse_float_tuple,
+        default=(),
+        help=(
+            "Comma-separated occlusion fractions for the corruption "
+            "curriculum: each anchor batch samples one fraction uniformly "
+            "from this list (augmentation-hardened training). When set it "
+            "overrides --state-anchor-occlusion-fraction."
+        ),
+    )
+    parser.add_argument(
         "--state-anchor-clean-weight",
         type=float,
         default=0.0,
@@ -372,6 +384,55 @@ def build_arg_parser(preset: str = "none") -> argparse.ArgumentParser:
         type=int,
         default=3,
         help="Random weight-noise draws averaged per scale in the probe.",
+    )
+    parser.add_argument(
+        "--robustness-eval-heldout-corruptions",
+        type=_parse_str_tuple,
+        default=(),
+        help=(
+            "Comma-separated held-out corruption conditions as family:level "
+            "(families: gaussian, salt_pepper, stripes), e.g. "
+            "'gaussian:0.1,stripes:0.5'. These families never appear in any "
+            "training curriculum, so they score generalization to "
+            "unanticipated damage."
+        ),
+    )
+    parser.add_argument(
+        "--hybrid-router-hidden-dim",
+        type=int,
+        default=16,
+        help="Hidden width of the hybrid model's per-site router MLP.",
+    )
+    parser.add_argument(
+        "--hybrid-router-bias-init",
+        type=float,
+        default=-1.0,
+        help=(
+            "Initial router gate bias (logit). Negative starts the hybrid "
+            "trusting the free-form path, matching the on-nominal ordering."
+        ),
+    )
+    parser.add_argument(
+        "--hybrid-router-mode",
+        choices=(
+            "learned",
+            "fixed_statistic",
+            "oracle",
+            "free_form",
+            "oscillator",
+        ),
+        default="learned",
+        help=(
+            "Hybrid routing policy. 'fixed_statistic' is the non-learned "
+            "shift/typicality gate (Hybrid Frontier follow-up); 'oracle' "
+            "uses an externally supplied per-site mask."
+        ),
+    )
+    parser.add_argument(
+        "--hybrid-fixed-gate-scale",
+        type=float,
+        default=4.0,
+        help="Scale for fixed_statistic router residual → gate logit.",
     )
     parser.add_argument(
         "--state-prior-sampling-mode",
@@ -1153,6 +1214,7 @@ def config_from_args(args: argparse.Namespace) -> MNISTGeneratorExperimentConfig
         state_anchor_occlusion_fraction=args.state_anchor_occlusion_fraction,
         state_anchor_occlusion_patches=args.state_anchor_occlusion_patches,
         state_anchor_occlusion_probability=args.state_anchor_occlusion_probability,
+        state_anchor_occlusion_curriculum=args.state_anchor_occlusion_curriculum,
         state_anchor_clean_weight=args.state_anchor_clean_weight,
         recovery_eval_sample_count=args.recovery_eval_sample_count,
         recovery_eval_noise_scales=args.recovery_eval_noise_scales,
@@ -1169,6 +1231,13 @@ def config_from_args(args: argparse.Namespace) -> MNISTGeneratorExperimentConfig
             args.robustness_eval_occlusion_fractions
         ),
         robustness_eval_weight_noise_draws=args.robustness_eval_weight_noise_draws,
+        robustness_eval_heldout_corruptions=(
+            args.robustness_eval_heldout_corruptions
+        ),
+        hybrid_router_hidden_dim=args.hybrid_router_hidden_dim,
+        hybrid_router_bias_init=args.hybrid_router_bias_init,
+        hybrid_router_mode=args.hybrid_router_mode,
+        hybrid_fixed_gate_scale=args.hybrid_fixed_gate_scale,
         state_prior_sampling_mode=args.state_prior_sampling_mode,
         state_prior_rank=args.state_prior_rank,
         state_prior_noise_scale=args.state_prior_noise_scale,

@@ -2990,6 +2990,83 @@ GENERATOR_PRESETS[
     ),
 }
 
+# Shared corruption curriculum for the hybrid-frontier experiment: every arm
+# trains on contiguous single-block occlusion at sampled fractions, so the
+# free-form control is augmentation-hardened rather than single-level trained
+# ("just augment for it" is on the table for every arm).
+_RECOVERY_CURRICULUM_OVERRIDES = {
+    "state_anchor_occlusion_curriculum": (0.1, 0.25, 0.4, 0.6),
+    "state_anchor_occlusion_patches": 1,
+}
+
+GENERATOR_PRESETS[
+    "sparse_horn_cifar10_rgb_current_state_mlp_aug_retinotopic_recovery_curriculum"
+] = {
+    **GENERATOR_PRESETS[
+        "sparse_horn_cifar10_rgb_current_state_mlp_retinotopic_recovery_mixed"
+    ],
+    **_RECOVERY_CURRICULUM_OVERRIDES,
+    "output_dir": (
+        "outputs/reference/"
+        "mnist_generator_sparse_horn_cifar10_rgb_current_state_mlp_aug_"
+        "retinotopic_recovery_curriculum"
+    ),
+}
+
+GENERATOR_PRESETS[
+    "sparse_horn_cifar10_rgb_current_multimode2_dense_aug_"
+    "retinotopic_recovery_curriculum"
+] = {
+    **GENERATOR_PRESETS[
+        "sparse_horn_cifar10_rgb_current_multimode2_dense_retinotopic_recovery_mixed"
+    ],
+    **_RECOVERY_CURRICULUM_OVERRIDES,
+    "output_dir": (
+        "outputs/reference/"
+        "mnist_generator_sparse_horn_cifar10_rgb_current_multimode2_dense_aug_"
+        "retinotopic_recovery_curriculum"
+    ),
+}
+
+GENERATOR_PRESETS[
+    "sparse_horn_cifar10_rgb_current_hybrid_retinotopic_recovery_curriculum"
+] = {
+    **GENERATOR_PRESETS[
+        "sparse_horn_cifar10_rgb_current_multimode2_dense_retinotopic_recovery_mixed"
+    ],
+    **_RECOVERY_CURRICULUM_OVERRIDES,
+    # Designed hybrid: mm2 dense oscillator path + StateMLP free-form path +
+    # learned per-site router keyed on state atypicality. The router bias
+    # starts trusting the free-form path (the on-nominal winner).
+    "model_family": "hybrid",
+    "state_mlp_hidden_dim": 128,
+    "state_mlp_depth": 1,
+    "state_mlp_residual_scale": 0.1,
+    "hybrid_router_hidden_dim": 16,
+    "hybrid_router_bias_init": -1.0,
+    "hybrid_router_mode": "learned",
+    "hybrid_fixed_gate_scale": 4.0,
+    "output_dir": (
+        "outputs/reference/"
+        "mnist_generator_sparse_horn_cifar10_rgb_current_hybrid_"
+        "retinotopic_recovery_curriculum"
+    ),
+}
+
+GENERATOR_PRESETS[
+    "sparse_horn_cifar10_rgb_current_hybrid_fixed_router_recovery_curriculum"
+] = {
+    **GENERATOR_PRESETS[
+        "sparse_horn_cifar10_rgb_current_hybrid_retinotopic_recovery_curriculum"
+    ],
+    "hybrid_router_mode": "fixed_statistic",
+    "output_dir": (
+        "outputs/reference/"
+        "mnist_generator_sparse_horn_cifar10_rgb_current_hybrid_"
+        "fixed_router_recovery_curriculum"
+    ),
+}
+
 GENERATOR_PRESETS[
     "sparse_horn_cifar10_rgb_current_multimode2_retinotopic_anchor_frozen010"
 ] = {

@@ -862,6 +862,9 @@ Interpretation:
 
 ### JEPA-Lite Representation Prediction Probe
 
+> **Status (2026-07):** experiment package + `oscnet.models.jepa` predictors
+> removed from the tree after this null ONN probe. Results below are historical.
+
 We tested a first JEPA-style pivot: stop training the model to reconstruct
 hidden pixels, and instead train it to predict abstract patch representations
 for hidden block-occlusion patches.
@@ -10170,6 +10173,154 @@ envelope; physics-constrained oscillator dynamics fill in better when the
 corruption is far outside it, and this is not an artifact of an
 under-regularized control.* Remaining caveats: one dataset, one architecture
 family per side, and the crossover is specific to the occlusion axis.
+
+### Synthesis — How Nature Keeps the Upsides Without the Downsides (2026-07-16)
+
+Standalone write-up: `docs/what_the_physics_prior_buys.md` (scientific-style
+article covering the full generative/recovery arc, Acts I–VI). This section
+records the closing conceptual takeaway that motivated it.
+
+The two-regime result reduces to one mechanism: the damped second-order
+oscillator update is a **smoother, bounded, contractive function class**. It
+is too smooth to express the sharp data-specific equilibria that make the
+free-form StateMLP accurate on-nominal, and for exactly the same reason it
+cannot express the sharp data-specific failure modes that make StateMLP
+collapse off-nominal. Smoothness is a tax in-distribution and insurance
+out-of-distribution. The physics prior buys **predictability, not
+performance**: ~40-70% worse on every in-distribution metric, but ~1.8x
+degradation vs 3.7-4.3x under out-of-distribution occlusion, and the
+regularized control made the collapse *worse*, not better — so the
+brittleness of free-form recurrence is structural, not under-regularization.
+
+The natural follow-on question — how does nature keep the oscillator upsides
+(contraction, denoising, graceful degradation) *without* the downsides
+(nominal-accuracy tax, no contiguous transport, shallow settling window)? —
+has a single answer that unifies every negative result in this report:
+**nature never runs a pure homogeneous local oscillator field in isolation.**
+All three downsides are properties of that specific object, and biology and
+physics remove each by wrapping the dynamics in surrounding structure rather
+than by purifying the oscillator:
+
+- **Nominal-accuracy tax (too smooth to be precise).** The dynamics are used
+  for coordination/binding/gating (theta-gamma phase coding, synchronization
+  for routing), while precision lives elsewhere — feedforward pathways,
+  learned synaptic weights, sparse codes. Division of labor, not a better
+  oscillator. Our data shows the digital shadow of this: StateMLP's static
+  encode/decode pathway, not its recurrence, carries almost all of its
+  on-nominal fill-in; the oscillator's dynamics-driven gain is real but small.
+- **No contiguous transport (contraction != transport).** Nature adds
+  long-range and top-down structure: cortical filling-in is driven by
+  feedback from higher areas with large receptive fields and learned priors,
+  plus long-range cortico-cortical loops — not lateral relaxation in one
+  sheet. This is exactly what the coupling-topology probe demonstrated in
+  miniature: adding non-local links recovered ~a third of the gap. Nature
+  wires that non-locality in anatomically and backs the *invented* part with
+  a global prior.
+- **Shallow settling window (no iterate-to-perfection).** Physical systems
+  use multiple timescales, hierarchy, and global-mode / standing-wave bases
+  so large-scale structure is represented directly instead of propagating
+  step by step (room acoustics: low frequencies live in global eigenmodes;
+  holography: distributed encoding makes contiguous occlusion cost resolution
+  not a patch). When the representation itself is non-local, the hole problem
+  partly dissolves. Note our carrier arm tried to add a single global mode and
+  failed three times — nature's version is many modes + hierarchy + priors,
+  not one bolted-on slow band.
+
+Unifying principle: **keep the oscillator's contraction/robustness and
+offload everything it is bad at onto a surrounding architecture — hierarchy,
+long-range feedback, learned priors, multiple timescales, non-local /
+holographic representations.** Every biological or physical system that
+shrugs off damage is hybrid and multiscale; none is a pure local oscillator
+field that lost its downsides. This is why the constructive direction is
+*designed hybrids* (a free-form/global-prior pathway for accuracy and
+transport, an oscillatory field for off-manifold cleanup and off-nominal
+insurance, and a router keyed on estimated distribution shift) rather than a
+better standalone ONN — the hybrid is the only architecture that has ever
+actually achieved "keep the upsides, drop the downsides."
+
+### Hybrid Frontier — Augmentation Control, Held-Out Battery, Designed Hybrid (2026-07-17)
+
+The killer experiment the synthesis called for. Two untested claims decided
+the remaining fate of the thread: (a) the skeptic's escape — "the oscillator
+OOD win is cheap, just train the free-form net with occlusion augmentation";
+(b) the constructive claim — a designed hybrid (free-form path + oscillator
+path + learned router) keeps both upsides. Sweep
+`mnist_generator_cifar10_rgb_hybrid_frontier` (app
+`ap-b13XOIzKrIRKqmgKejzvwI`, 8 parallel A10G, 12 runs, seeds 23-26, all
+clean). New machinery: `HybridImageGenerator`
+(`oscnet/models/generative/hybrid.py`) — mm2-dense oscillator step and
+StateMLP-style residual step blended per spatial site by a learned router
+MLP over state statistics (gate bias init toward the free-form path);
+`state_anchor_occlusion_curriculum` — every arm trains on contiguous
+occlusion sampled from 0.1/0.25/0.4/0.6, so the StateMLP arm is
+augmentation-hardened; held-out stressor battery
+(`--robustness-eval-heldout-corruptions`) — image-space Gaussian noise,
+salt-and-pepper, and periodic stripe occlusion, families *no* arm ever
+trained on, plus OOD occlusion pushed to 0.7/0.85, beyond even the
+curriculum.
+
+Occluded-region / corrupted-region MSE at k8 (4-seed means; "ho" = held-out
+family):
+
+| Condition | StateMLP aug | mm2 dense aug | hybrid |
+| --- | ---: | ---: | ---: |
+| baseline (0.25) | 0.0408 | 0.0420 | **0.0391** |
+| occl 0.4 | 0.0406 | 0.0429 | **0.0398** |
+| occl 0.6 | 0.0413 | 0.0459 | **0.0410** |
+| occl 0.7 | 0.0638 | **0.0481** | 0.0629 |
+| occl 0.85 | 0.1305 | **0.0645** | 0.1358 |
+| ho stripes 0.5 (region) | 0.1022 | **0.0482** | 0.1070 |
+| ho gaussian 0.3 (mse) | **0.0126** | 0.0140 | 0.0130 |
+| wnoise 0.2 | 0.0558 | 0.0630 | **0.0491** |
+| clean PSNR | 25.14 | 23.81 | **25.42** |
+
+Findings:
+
+1. **Augmentation works — inside its coverage.** The curriculum-trained
+   StateMLP holds its baseline flat through occlusion 0.6 (0.0413 vs the
+   single-level-trained arm's 0.1546 in the confirmation sweep). The old
+   0.4-0.5 crossover is gone. "Just augment for it" is real where you can
+   enumerate the stressor.
+2. **The frontier moved; it did not close.** Beyond the curriculum the
+   crossover reappears wholesale: at occlusion 0.7 and 0.85 the oscillator
+   wins on **4/4 seeds** (2x better at 0.85, 0.0645 vs 0.1305; relative
+   degradation 1.5x vs 3.2x). Augmentation relocated the cliff; it did not
+   remove the free-form update's cliff-shaped failure mode, nor the
+   oscillator's flat extrapolation.
+3. **The held-out family result is the decisive one.** Periodic stripe
+   occlusion — a corruption *shape* absent from every training set — at
+   severity 0.5 goes to the oscillator 4/4 seeds (0.0482 vs 0.1022). This is
+   the case augmentation can never cover by construction: you cannot
+   enumerate corruption families you have not anticipated. Distributed
+   held-out families (Gaussian, salt-and-pepper) stay narrowly with the
+   free-form arms — consistent with the entire project: distributed
+   corruption is easy for everyone; structure-destroying corruption at
+   severity is where the physics prior pays.
+4. **The hybrid is the best on-nominal model but its insurance failed.**
+   It wins baseline fill-in, clean PSNR, and weight-noise robustness (4/4 at
+   scale 0.2) — the router genuinely fuses the paths profitably near
+   distribution. But in deep OOD (occl 0.7/0.85, stripes 0.5) it tracks the
+   free-form cliff (0/4 vs mm2), because the router itself is a learned
+   free-form component: trained on the curriculum, where the free-form path
+   was always fine, it learned to trust it — and that judgment fails
+   off-distribution exactly like the pathway it gates. Nature's version of
+   routing is anatomically hardwired long-range structure, not a learned
+   gate; the next hybrid iteration should key the gate on a fixed,
+   non-learned shift statistic (e.g. encoder-reconstruction residual or
+   state-typicality score) rather than on trained features.
+
+Read: the third branch of the hypothesis map, confirmed with a sharper
+mechanism than expected. The physics prior is **not** redundant with
+augmentation — it buys extrapolation beyond *whatever* envelope was trained,
+and the advantage lives precisely in the regime that cannot be enumerated in
+advance (unanticipated severity, unanticipated corruption families). The
+constructive hybrid claim is half-proven: profitable fusion on-nominal,
+failed handoff off-nominal, with a specific, testable fix (shift-robust
+gating). The project's final claim upgrades from "two regimes exist" to:
+*the free-form/oscillator trade-off is invariant to augmentation — moving
+the training envelope moves the crossover but never removes it, so the
+oscillator's insurance premium buys coverage exactly where coverage cannot
+be bought by data.*
 
 
 
