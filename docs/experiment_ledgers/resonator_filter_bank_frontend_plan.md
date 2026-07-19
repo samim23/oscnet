@@ -8,8 +8,8 @@ Status: **audio-first — Stages 0–5 + Sprints A–C** — learnable RFB→HOR
 **dense coupling ~0.76 clean** (≫ mel ~0.61; ≫ frozen fractal ~0.65); soft
 naug owns noise; HORN≫MLP; high→low coupling **not** recovered. CSVs through
 `rfb_plus_tonotopic`.
-**Paper:** [`docs/paper_rfb_horn/main.pdf`](paper_rfb_horn/main.pdf)
-(LaTeX in [`paper_rfb_horn/`](paper_rfb_horn/)).*
+**Paper:** [`docs/papers/paper_rfb_horn/rfb_horn.pdf`](../papers/paper_rfb_horn/rfb_horn.pdf)
+(LaTeX in [`paper_rfb_horn/`](../papers/paper_rfb_horn/)).*
 
 ### Settled insights (ledger for later use)
 
