@@ -62,6 +62,10 @@ Recipe / settled insights:
 `docs/experiment_ledgers/resonator_filter_bank_frontend_plan.md`.  
 Summaries: `outputs/analysis/modal_audio_digit_*.csv`.
 
+**Next project (planned):** oscillatory speech/music generation — Stage 0
+next-frame latent probe. Plan:
+`docs/experiment_ledgers/audio_generation_plan.md` (package not scaffolded yet).
+
 ## Image generator (short)
 
 ```bash
@@ -117,6 +121,18 @@ print(format_comparison_table(rows))
 ```
 
 Or: `python examples/compare_experiment_results.py`.
+
+## Inspecting traces
+
+Saved `traces/*.npz` files can be turned into a browsable report via
+`oscnet.inspection` (PNG panels + `index.html` with tabs / phase scrubber):
+
+```bash
+python examples/inspect_trace.py path/to/run_or_trace.npz --open
+```
+
+`audio_digit` is not yet on this path — it saves metrics JSON only, not
+oscillator-state NPZs.
 
 ## GPU / Modal
 

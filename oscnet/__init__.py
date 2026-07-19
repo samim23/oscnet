@@ -22,6 +22,7 @@ Modules:
     experiments: Reference experiment CLIs and artifact harnesses
     visualization: Plotting and visualization utilities
     analysis: Advanced analysis tools for oscillatory dynamics
+    inspection: Modular NPZ trace inspection (coupling, fields, synchrony)
     utils: General utilities for JAX optimization, logging, and checkpointing
 """
 
@@ -35,6 +36,7 @@ _SUBMODULES = {
     "experiments",
     "analysis",
     "visualization",
+    "inspection",
     "utils",
 }
 
@@ -73,6 +75,7 @@ __all__ = [
     "experiments",
     "analysis",
     "visualization",
+    "inspection",
     "utils",
     # Oscillators
     "Oscillator",

@@ -635,6 +635,39 @@ Reference experiment CLIs also expose optional training diagnostics such as
 `--latent-variance-weight` and `--latent-std-floor` for probing latent-collapse
 failure modes.
 
+## Trace Inspection
+
+`oscnet.inspection` turns saved experiment NPZ traces into a modular report
+(coupling, phase/rate fields, synchrony, omega, readout). Adapters normalize
+family-specific layouts into a shared `TraceBundle`; views render panels and
+skip cleanly when their inputs are absent.
+
+```bash
+python examples/inspect_trace.py path/to/trace.npz --open
+python examples/inspect_trace.py path/to/run_dir --grid-shape 4 4
+```
+
+This writes PNG panels plus a self-contained `index.html` (tabs + phase
+scrubber). Open that HTML file in a browser — not the raw PNG folder.
+
+```python
+from oscnet.inspection import inspect_trace, load_trace
+
+bundle = load_trace("traces/mnist_generator_trace_epoch_001.npz")
+report = inspect_trace(
+    "traces/mnist_generator_trace_epoch_001.npz",
+    "outputs/inspect_demo",
+)
+# report.html_path → .../index.html
+```
+
+Extend by adding a `TraceAdapter` (new model family) or a `TraceView` (new
+panel). See `oscnet/inspection/__init__.py`.
+
+**Note:** `audio_digit` currently writes metrics JSON only (no oscillatory
+NPZ traces), so it is not inspectable with this pipeline until an
+instrumented forward saves RFB/HORN state.
+
 ## Extension Points
 
 Future oscillator research should usually start by adding one of:

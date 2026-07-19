@@ -408,6 +408,7 @@ does not beat listening to the full fine field.
 | `image_mnist_phase_flow.py` | MNIST phase-rate rectified-flow sampler. |
 | `image_mnist_shape_pixel.py` | Two-stage signed-distance shape-to-pixel renderer. |
 | `resonanceDB.py` | Phase-aware similarity store demo. |
+| `inspect_trace.py` | Modular NPZ trace inspection (coupling, fields, synchrony). |
 | `fractal/` | Fractal/HORN coupling examples. |
 
 ## Common Commands

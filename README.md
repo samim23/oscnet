@@ -26,7 +26,7 @@ differentiable, high-performance computation.
   wavelet reconstruction.
 - **Analysis and utilities**: phase synchrony, reconstruction diagnostics,
   edge-of-chaos, Floquet, bifurcation, stability tools, checkpointing, result
-  comparison, and plotting helpers.
+  comparison, plotting helpers, and NPZ trace inspection.
 
 ## Installation
 
@@ -123,6 +123,7 @@ python examples/image_mnist_phase_flow.py --help
 Useful pointers:
 
 - `examples/` for command-line entrypoints
+- `examples/inspect_trace.py` for interactive NPZ architecture / field reports
 - `oscnet/experiments/README.md` for experiment harnesses
 - `docs/model_api.md` for reusable model families and tensor conventions
 
